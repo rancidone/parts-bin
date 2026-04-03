@@ -1,0 +1,45 @@
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.sub {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.desc {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.qty {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.badge {
+  font-size: 0.75rem;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 7px;
+}
