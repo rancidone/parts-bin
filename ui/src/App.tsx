@@ -1,0 +1,35 @@
+import { useState } from 'react'
+import { Chat } from './Chat'
+import { Inventory } from './Inventory'
+import styles from './App.module.css'
+
+type Surface = 'chat' | 'inventory'
+
+export default function App() {
+  const [surface, setSurface] = useState<Surface>('chat')
+
+  return (
+    <div className={styles.app}>
+      <nav className={styles.nav}>
+        <span className={styles.logo}>Parts Bin</span>
+        <div className={styles.tabs}>
+          <button
+            className={`${styles.tab} ${surface === 'chat' ? styles.active : ''}`}
+            onClick={() => setSurface('chat')}
+          >
+            Chat
+          </button>
+          <button
+            className={`${styles.tab} ${surface === 'inventory' ? styles.active : ''}`}
+            onClick={() => setSurface('inventory')}
+          >
+            Inventory
+          </button>
+        </div>
+      </nav>
+      <main className={styles.main}>
+        {surface === 'chat' ? <Chat /> : <Inventory />}
+      </main>
+    </div>
+  )
+}

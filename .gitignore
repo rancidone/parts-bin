@@ -1,1 +1,18 @@
+# clauderfall
 clauderfall.db
+
+# parts-bin
+config.toml
+
+# macos
+.DS_Store
+
+# pythobn
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# node
+ui/node_modules/
+ui/dist/
