@@ -10,8 +10,11 @@ Query pipeline: LLM parse → normalize → DB lookup → result.
 from pathlib import Path
 from typing import Any
 
+import log
 from db.persistence import normalize_value, query
 from llm.client import ConversationHistory, LLMClient
+
+_logger = log.get_logger("parts_bin.query")
 
 # Fields from the LLM filter list that map directly to DB columns.
 _FILTERABLE_FIELDS = {"part_category", "profile", "value", "package", "part_number"}
@@ -50,15 +53,21 @@ async def run_query(
     Returns a single result dict. History is updated by the LLM client.
     """
     try:
-        parsed = await llm.extract(user_message)
+        parsed = await llm.parse_query(user_message)
     except ValueError as exc:
+        _logger.error("query parse failed", extra={"error": str(exc)})
         return {"type": "error", "message": str(exc)}
 
     filters: list[dict] = parsed.get("filters") or []
     attrs = _filters_to_attrs(filters, part_category=None)
+    _logger.info("query parsed", extra={"filters": filters, "attrs": attrs})
 
     parts = query(db_path, attrs)
+    _logger.info("query result", extra={"match_count": len(parts), "attrs": attrs})
+
+    answer = await llm.answer(user_message, parts, history)
+    _logger.info("query answer", extra={"answer": answer})
 
     if parts:
-        return {"type": "results", "parts": parts}
-    return {"type": "not_found", "message": "That part is not in your inventory."}
+        return {"type": "results", "parts": parts, "answer": answer}
+    return {"type": "not_found", "answer": answer}

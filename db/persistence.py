@@ -235,6 +235,32 @@ def upsert(db_path: str | Path, part: dict) -> int:
         conn.close()
 
 
+def update_fields(db_path: str | Path, part_id: int, fields: dict) -> int:
+    """
+    Update non-null fields on an existing part without touching quantity.
+
+    Only the fields listed in `fields` with non-None values are written.
+    Returns part_id.
+    """
+    allowed = {"part_category", "profile", "value", "package", "part_number",
+               "manufacturer", "description"}
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not updates:
+        return part_id
+    updates["updated_at"] = _now()
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+    conn = _connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                f"UPDATE parts SET {set_clause} WHERE id = :id",
+                {**updates, "id": part_id},
+            )
+    finally:
+        conn.close()
+    return part_id
+
+
 def query(db_path: str | Path, attrs: dict) -> list[dict]:
     """
     Query parts by structured attributes. NULL fields are wildcards.
