@@ -42,18 +42,28 @@ class TestMergeSpecs:
 class TestLookupResolution:
     @pytest.mark.asyncio
     async def test_fetch_specs_detailed_skips_non_exact_lcsc_result(self):
-        with patch("ingestion.lookup._lcsc_lookup", AsyncMock(return_value=None)):
+        with patch("ingestion.lookup._lcsc_lookup_detailed", AsyncMock(return_value={
+            "specs": None,
+            "debug": None,
+            "status": "no-match",
+        })):
             result = await fetch_specs_detailed("TLV62565DBVR", digikey_credentials=None)
 
-        assert result["specs"] == {}
+        assert result["chosen_updates"] == {}
         assert result["provider"] is None
         assert result["tried_providers"] == ["lcsc"]
+        assert result["outcome"] == "no_match"
 
     @pytest.mark.asyncio
     async def test_fetch_specs_detailed_uses_digikey_after_lcsc_miss(self):
-        with patch("ingestion.lookup._lcsc_lookup", AsyncMock(return_value=None)):
+        with patch("ingestion.lookup._lcsc_lookup_detailed", AsyncMock(return_value={
+            "specs": None,
+            "debug": None,
+            "status": "no-match",
+        })):
             with patch("ingestion.lookup._digikey_lookup_detailed", AsyncMock(return_value={
                 "specs": {
+                    "part_number": "TLV62565DBVR",
                     "manufacturer": "Texas Instruments",
                     "description": "Buck Switching Regulator IC",
                 },
@@ -69,8 +79,39 @@ class TestLookupResolution:
                 })
 
         assert result["provider"] == "digikey"
-        assert result["specs"]["manufacturer"] == "Texas Instruments"
+        assert result["chosen_updates"]["manufacturer"] == "Texas Instruments"
         assert result["tried_providers"] == ["lcsc", "digikey"]
+        assert result["outcome"] == "saved"
+
+    @pytest.mark.asyncio
+    async def test_fetch_specs_detailed_reports_conflicting_primary_fields(self):
+        with patch("ingestion.lookup._lcsc_lookup_detailed", AsyncMock(return_value={
+            "specs": {
+                "part_number": "TLV62565DBVR",
+                "manufacturer": "Texas Instruments",
+                "package": "SOT-23-5",
+            },
+            "debug": {"product_url": "https://lcsc.example/TLV62565DBVR"},
+            "status": "ok",
+        })):
+            with patch("ingestion.lookup._digikey_lookup_detailed", AsyncMock(return_value={
+                "specs": {
+                    "part_number": "TLV62565DBVR",
+                    "manufacturer": "TI",
+                    "package": "SOT-23-5",
+                },
+                "debug": {"product_url": "https://digikey.example/TLV62565DBVR"},
+                "status": "ok",
+            })):
+                result = await fetch_specs_detailed("TLV62565DBVR", {
+                    "client_id": "id",
+                    "client_secret": "secret",
+                })
+
+        assert result["chosen_updates"] == {}
+        assert result["outcome"] == "conflict"
+        assert result["requires_confirmation"] is True
+        assert result["conflicts"][0]["field_name"] == "manufacturer"
 
     def test_digikey_debug_summary_extracts_identifying_fields(self):
         summary = _digikey_debug_summary({

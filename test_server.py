@@ -8,7 +8,7 @@ from PIL import Image
 from starlette.testclient import TestClient
 
 import server
-from db.persistence import init_db, upsert
+from db.persistence import init_db, list_field_provenance, upsert
 
 
 @pytest.fixture
@@ -124,10 +124,13 @@ class TestExecuteAction:
 
         with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
             "specs": {},
+            "chosen_updates": {},
             "provider": None,
             "matched_part_number": None,
             "tried_providers": ["lcsc", "digikey"],
-            "status": "no-match",
+            "status": "no_match",
+            "outcome": "no_match",
+            "durable_provenance": [],
         })):
             result = await server._execute_action("lookup", {
                 "id": part_id,
@@ -147,10 +150,13 @@ class TestExecuteAction:
 
         with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
             "specs": {},
+            "chosen_updates": {},
             "provider": None,
             "matched_part_number": None,
             "tried_providers": ["lcsc", "digikey"],
+            "outcome": "timeout",
             "status": "timeout",
+            "durable_provenance": [],
         })):
             result = await server._execute_action("lookup", {
                 "id": part_id,
@@ -187,10 +193,13 @@ class TestChatStream:
             })
             with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
                 "specs": {},
+                "chosen_updates": {},
                 "provider": None,
                 "matched_part_number": None,
                 "tried_providers": ["lcsc", "digikey"],
-                "status": "no-match",
+                "status": "no_match",
+                "outcome": "no_match",
+                "durable_provenance": [],
             })):
                 events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
 
@@ -222,18 +231,53 @@ class TestChatStream:
             })
             with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
                 "specs": {
+                    "part_number": "TLV62565DBVR",
+                    "manufacturer": "Texas Instruments",
+                    "description": "Buck Switching Regulator IC Positive Adjustable 0.6V 1 Output 1.5A SC-74A, SOT-753",
+                },
+                "chosen_updates": {
+                    "part_number": "TLV62565DBVR",
                     "manufacturer": "Texas Instruments",
                     "description": "Buck Switching Regulator IC Positive Adjustable 0.6V 1 Output 1.5A SC-74A, SOT-753",
                 },
                 "provider": "digikey",
                 "matched_part_number": "TLV62565DBVR",
                 "tried_providers": ["lcsc", "digikey"],
-                "status": "ok",
+                "status": "saved",
+                "outcome": "saved",
+                "durable_provenance": [
+                    {
+                        "field_name": "manufacturer",
+                        "field_value": "Texas Instruments",
+                        "source_tier": "primary_api",
+                        "source_kind": "api",
+                        "source_locator": "https://digikey.example/TLV62565DBVR",
+                        "extraction_method": "api",
+                        "confidence_marker": "high",
+                        "conflict_status": "clear",
+                        "normalization_method": "direct_copy",
+                        "competing_candidates": [],
+                    },
+                    {
+                        "field_name": "description",
+                        "field_value": "Buck Switching Regulator IC Positive Adjustable 0.6V 1 Output 1.5A SC-74A, SOT-753",
+                        "source_tier": "primary_api",
+                        "source_kind": "api",
+                        "source_locator": "https://digikey.example/TLV62565DBVR",
+                        "extraction_method": "api",
+                        "confidence_marker": "high",
+                        "conflict_status": "clear",
+                        "normalization_method": "direct_copy",
+                        "competing_candidates": [],
+                    },
+                ],
             })):
                 events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
 
         assert "I updated the inventory record with the fetched specifications." in events[0]
         assert "Buck Switching Regulator IC" in events[0]
+        provenance = list_field_provenance(db, part_id)
+        assert {row["field_name"] for row in provenance} == {"description", "manufacturer"}
 
     @pytest.mark.asyncio
     async def test_lookup_timeout_overrides_misleading_model_text(self, client):
@@ -262,12 +306,80 @@ class TestChatStream:
             })
             with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
                 "specs": {},
+                "chosen_updates": {},
                 "provider": None,
                 "matched_part_number": None,
                 "tried_providers": ["lcsc", "digikey"],
+                "outcome": "timeout",
                 "status": "timeout",
+                "durable_provenance": [],
             })):
                 events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
 
         assert "timed out" in events[0]
         assert "Wrong stale description" not in events[0]
+
+    @pytest.mark.asyncio
+    async def test_lookup_conflict_overrides_misleading_model_text(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+
+        with patch.object(server, "_llm") as llm:
+            llm.chat = AsyncMock(return_value={
+                "response": "I updated the metadata from the provider results.",
+                "db_action": {
+                    "type": "lookup",
+                    "id": part_id,
+                    "part_category": None,
+                    "profile": None,
+                    "value": None,
+                    "package": None,
+                    "part_number": "TLV62565DBVR",
+                    "quantity": None,
+                    "description": None,
+                },
+            })
+            with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+                "specs": {},
+                "chosen_updates": {},
+                "provider": None,
+                "matched_part_number": None,
+                "tried_providers": ["lcsc", "digikey"],
+                "outcome": "conflict",
+                "status": "conflict",
+                "durable_provenance": [],
+                "conflicts": [{"field_name": "manufacturer"}],
+            })):
+                events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
+
+        assert "conflicting high-authority part metadata" in events[0]
+    @pytest.mark.asyncio
+    async def test_lookup_conflict_reports_conflict_status(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+
+        with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+            "specs": {},
+            "chosen_updates": {},
+            "provider": None,
+            "matched_part_number": None,
+            "tried_providers": ["lcsc", "digikey"],
+            "outcome": "conflict",
+            "status": "conflict",
+            "durable_provenance": [],
+            "conflicts": [{"field_name": "manufacturer"}],
+        })):
+            result = await server._execute_action("lookup", {
+                "id": part_id,
+                "part_number": "TLV62565DBVR",
+            })
+
+        assert result == (part_id, "lookup-conflict")
