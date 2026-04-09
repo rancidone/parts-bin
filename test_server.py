@@ -165,6 +165,60 @@ class TestExecuteAction:
 
         assert result == (part_id, "lookup-timeout")
 
+    @pytest.mark.asyncio
+    async def test_lookup_incomplete_reports_incomplete_status(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+
+        with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+            "specs": {},
+            "chosen_updates": {},
+            "provider": None,
+            "matched_part_number": None,
+            "tried_providers": ["lcsc", "digikey"],
+            "outcome": "incomplete",
+            "status": "incomplete",
+            "durable_provenance": [],
+            "conflicts": [],
+        })):
+            result = await server._execute_action("lookup", {
+                "id": part_id,
+                "part_number": "TLV62565DBVR",
+            })
+
+        assert result == (part_id, "lookup-incomplete")
+
+    @pytest.mark.asyncio
+    async def test_lookup_failed_reports_failed_status(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+
+        with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+            "specs": {},
+            "chosen_updates": {},
+            "provider": None,
+            "matched_part_number": None,
+            "tried_providers": ["lcsc", "digikey"],
+            "outcome": "failed",
+            "status": "failed",
+            "durable_provenance": [],
+            "conflicts": [],
+        })):
+            result = await server._execute_action("lookup", {
+                "id": part_id,
+                "part_number": "TLV62565DBVR",
+            })
+
+        assert result == (part_id, "lookup-failed")
+
 
 class TestChatStream:
     @pytest.mark.asyncio
@@ -357,8 +411,9 @@ class TestChatStream:
                 events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
 
         assert "conflicting high-authority part metadata" in events[0]
+
     @pytest.mark.asyncio
-    async def test_lookup_conflict_reports_conflict_status(self, client):
+    async def test_lookup_incomplete_overrides_misleading_model_text(self, client):
         _, db = client
         part_id = upsert(db, {
             "part_category": "discrete_ic", "profile": "discrete_ic",
@@ -366,20 +421,71 @@ class TestChatStream:
             "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
         })
 
-        with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
-            "specs": {},
-            "chosen_updates": {},
-            "provider": None,
-            "matched_part_number": None,
-            "tried_providers": ["lcsc", "digikey"],
-            "outcome": "conflict",
-            "status": "conflict",
-            "durable_provenance": [],
-            "conflicts": [{"field_name": "manufacturer"}],
-        })):
-            result = await server._execute_action("lookup", {
-                "id": part_id,
-                "part_number": "TLV62565DBVR",
+        with patch.object(server, "_llm") as llm:
+            llm.chat = AsyncMock(return_value={
+                "response": "I updated the metadata from the provider results.",
+                "db_action": {
+                    "type": "lookup",
+                    "id": part_id,
+                    "part_category": None,
+                    "profile": None,
+                    "value": None,
+                    "package": None,
+                    "part_number": "TLV62565DBVR",
+                    "quantity": None,
+                    "description": None,
+                },
             })
+            with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+                "specs": {},
+                "chosen_updates": {},
+                "provider": None,
+                "matched_part_number": None,
+                "tried_providers": ["lcsc", "digikey"],
+                "outcome": "incomplete",
+                "status": "incomplete",
+                "durable_provenance": [],
+                "conflicts": [],
+            })):
+                events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
 
-        assert result == (part_id, "lookup-conflict")
+        assert "still did not expose enough trustworthy metadata" in events[0]
+
+    @pytest.mark.asyncio
+    async def test_lookup_failed_overrides_misleading_model_text(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+
+        with patch.object(server, "_llm") as llm:
+            llm.chat = AsyncMock(return_value={
+                "response": "I updated the metadata from the provider results.",
+                "db_action": {
+                    "type": "lookup",
+                    "id": part_id,
+                    "part_category": None,
+                    "profile": None,
+                    "value": None,
+                    "package": None,
+                    "part_number": "TLV62565DBVR",
+                    "quantity": None,
+                    "description": None,
+                },
+            })
+            with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+                "specs": {},
+                "chosen_updates": {},
+                "provider": None,
+                "matched_part_number": None,
+                "tried_providers": ["lcsc", "digikey"],
+                "outcome": "failed",
+                "status": "failed",
+                "durable_provenance": [],
+                "conflicts": [],
+            })):
+                events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
+
+        assert "terminated due to a provider or retrieval error" in events[0]

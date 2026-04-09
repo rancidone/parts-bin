@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any
 
 import log
-from db.persistence import query, update_fields, upsert
+from db.persistence import query, update_fields, update_fields_with_provenance, upsert
 from ingestion.completeness import clarification_prompt, is_complete
-from ingestion.lookup import fetch_specs, merge_specs
+from ingestion.lookup import fetch_specs_detailed, merge_specs
 from llm.client import ConversationHistory, LLMClient
 
 _logger = log.get_logger("parts_bin.ingestion")
@@ -59,10 +59,12 @@ async def run_ingestion(
     # manufacturer is not in the extraction schema; default it for the DB.
     record.setdefault("manufacturer", None)
 
+    enrichment_result: dict | None = None
+
     # Spec lookup for new discrete/IC parts.
     if record.get("profile") == "discrete_ic" and record.get("part_number"):
-        specs = await fetch_specs(record["part_number"], digikey_credentials)
-        record = merge_specs(record, specs)
+        enrichment_result = await fetch_specs_detailed(record["part_number"], digikey_credentials)
+        record = merge_specs(record, enrichment_result["chosen_updates"])
 
     if is_correction:
         part_id = _apply_correction(db_path, record)
@@ -72,13 +74,34 @@ async def run_ingestion(
     if part_id is None:
         part_id = upsert(db_path, record)
 
+    if enrichment_result and enrichment_result["chosen_updates"]:
+        update_fields_with_provenance(
+            db_path,
+            part_id,
+            enrichment_result["chosen_updates"],
+            enrichment_result["durable_provenance"],
+        )
+
     # Store this exchange in history so follow-up corrections have context.
     if history is not None:
         history.append("user", user_message)
         history.append("assistant", json.dumps(record))
 
-    _logger.info("ingestion complete", extra={"part_id": part_id, "is_correction": is_correction, "record": record})
-    yield {"type": "result", "part": {**record, "id": part_id}}
+    _logger.info("ingestion complete", extra={
+        "part_id": part_id,
+        "is_correction": is_correction,
+        "record": record,
+        "enrichment_outcome": enrichment_result["outcome"] if enrichment_result else None,
+    })
+    yield {
+        "type": "result",
+        "part": {**record, "id": part_id},
+        "enrichment": {
+            "outcome": enrichment_result["outcome"],
+            "conflicts": enrichment_result["conflicts"],
+            "source_attempts": enrichment_result["source_attempts"],
+        } if enrichment_result else None,
+    }
 
 
 def _is_identifiable(record: dict[str, Any]) -> bool:
