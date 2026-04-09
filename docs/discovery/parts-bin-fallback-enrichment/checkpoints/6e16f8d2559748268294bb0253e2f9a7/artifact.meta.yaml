@@ -1,0 +1,58 @@
+artifact_id: parts-bin-fallback-enrichment
+checkpoint_id: 6e16f8d2559748268294bb0253e2f9a7
+created_at: '2026-04-09T02:46:32.509317+00:00'
+flush_reason: checkpoint
+is_current: true
+stage_metadata:
+  title: Part Enrichment Fallback Chain
+  status: accepted
+  readiness: high
+  readiness_rationale: The problem framing, source hierarchy, update trust policy,
+    and escalation boundary are explicit enough to hand off into design without design
+    needing to invent the problem.
+  blocking_gaps: []
+  cross_cutting:
+    global_constraints:
+    - Inventory updates must only come from verifiable external sources, not LLM-generated
+      lookup text.
+    - Automatic fallback may use API-derived product pages and PDFs.
+    - Open-web search is allowed only as a human-confirmed escalation path.
+    - User-visible lookup responses must reflect actual runtime outcomes and preserve
+      provenance/failure visibility.
+    open_questions: []
+    shared_assumptions:
+    - assumption_id: authority-order
+      statement: LCSC and DigiKey are the highest-authority sources and generally
+        agree for correctly resolved parts.
+      status: inferred
+    - assumption_id: api-derived-fallback
+      statement: Product pages and PDFs referenced by top-tier API sources are usually
+        sufficient to recover missing metadata.
+      status: inferred
+    source_sections:
+    - Problem Statement
+    - Intended Outcomes
+    - Source Authority
+    - Constraints
+    - Assumptions
+    - Risks And Edge Cases
+    systemic_risks:
+    - Sparse or drifting distributor payloads can cause partial enrichment and stale
+      metadata contamination.
+    - Scraping product pages and PDFs introduces brittleness, latency, and extraction
+      variability.
+    - Open-web escalation can increase mismatch risk if human confirmation is weak.
+  problem_areas:
+  - problem_area_id: fallback-enrichment
+    title: Reliable fallback enrichment for incomplete distributor lookups
+    confidence: high
+    source_section: Problem Statement
+    assumptions:
+    - assumption_id: fallback-needed
+      statement: Primary API lookups are not sufficient to complete trustworthy enrichment
+        for all parts.
+      status: confirmed
+    - assumption_id: provenance-required
+      statement: Per-field provenance and disagreement handling are necessary to keep
+        automatic updates trustworthy.
+      status: confirmed

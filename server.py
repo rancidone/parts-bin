@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from db.persistence import export_csv, get_by_id, init_db, list_all, query, update_fields, upsert
-from ingestion.lookup import fetch_specs, merge_specs
+from ingestion.lookup import fetch_specs, fetch_specs_detailed, merge_specs
 from llm.client import ConversationHistory, LLMClient
 
 # ---------------------------------------------------------------------------
@@ -73,34 +73,52 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-async def _execute_action(action_type: str, part: dict) -> int | None:
-    """Execute a db_action from the LLM. Returns part_id or None."""
+async def _execute_action(action_type: str, part: dict) -> tuple[int | None, str]:
+    """Execute a db_action from the LLM. Returns (part_id, status)."""
     if action_type == "upsert":
         if not (part.get("part_category") and part.get("quantity")):
-            return None
+            return None, "invalid"
         part.setdefault("manufacturer", None)
         if part.get("part_number"):
             specs = await fetch_specs(part["part_number"], _DIGIKEY_CREDS)
             part = merge_specs(part, specs)
-        return upsert(_DB_PATH, part)
+        return upsert(_DB_PATH, part), "saved"
 
     if action_type == "update":
         part_id = part.get("id")
         if not part_id:
-            return None
-        return update_fields(_DB_PATH, part_id, part)
+            return None, "missing-target"
+        return update_fields(_DB_PATH, part_id, part), "saved"
 
     if action_type == "lookup":
         part_id = part.get("id")
         part_number = part.get("part_number")
         if not part_id or not part_number:
-            return None
-        specs = await fetch_specs(part_number, _DIGIKEY_CREDS)
+            return None, "missing-target"
+        lookup_result = await fetch_specs_detailed(part_number, _DIGIKEY_CREDS)
+        specs = lookup_result["specs"]
         if specs:
             update_fields(_DB_PATH, part_id, specs)
-        return part_id if specs else None
+            _logger.info("lookup saved", extra={
+                "part_id": part_id,
+                "part_number": part_number,
+                "provider": lookup_result["provider"],
+                "tried_providers": lookup_result["tried_providers"],
+                "fields": sorted(specs.keys()),
+            })
+            return part_id, "saved"
+        _logger.info("lookup empty", extra={
+            "part_id": part_id,
+            "part_number": part_number,
+            "provider": lookup_result["provider"],
+            "tried_providers": lookup_result["tried_providers"],
+            "lookup_status": lookup_result.get("status"),
+        })
+        if lookup_result.get("status") == "timeout":
+            return part_id, "lookup-timeout"
+        return part_id, "no-specs"
 
-    return None
+    return None, "noop"
 
 
 async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[str, None]:
@@ -118,15 +136,30 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
     part = {k: action.get(k) for k in
             ("id", "part_category", "profile", "value", "package", "part_number", "quantity", "description")}
 
-    part_id = await _execute_action(action_type, part)
-    saved_part = get_by_id(_DB_PATH, part_id) if part_id else None
+    part_id, action_status = await _execute_action(action_type, part)
+    saved_part = get_by_id(_DB_PATH, part_id) if part_id and action_status == "saved" else None
 
-    # If the LLM intended an update but it didn't persist, append a note.
     response_text = result["response"]
-    if action_type in ("update", "lookup") and not part_id:
+    if action_type == "lookup" and action_status == "saved":
+        if saved_part:
+            manufacturer = saved_part.get("manufacturer")
+            details: list[str] = []
+            if manufacturer:
+                details.append(manufacturer)
+            response_text = "I updated the inventory record with the fetched specifications."
+            fetched_description = action.get("description")
+            if fetched_description:
+                details.append(fetched_description)
+            if details:
+                response_text += f"\n\n{'. '.join(details)}."
+    elif action_type in ("update", "lookup") and action_status == "missing-target":
         response_text += "\n\n_(Note: the change wasn't saved — I couldn't identify which inventory record to update.)_"
+    elif action_type == "lookup" and action_status == "lookup-timeout":
+        response_text = "I reached the configured parts providers, but the DigiKey lookup timed out before it returned specifications."
+    elif action_type == "lookup" and action_status == "no-specs":
+        response_text = "I ran the lookup, but the configured parts providers did not return matching specifications for that part number."
 
-    _logger.info("chat", extra={"action": action_type, "part_id": part_id,
+    _logger.info("chat", extra={"action": action_type, "action_status": action_status, "part_id": part_id,
                                 "response": response_text})
 
     yield _sse("result", {

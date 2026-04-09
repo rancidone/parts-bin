@@ -7,6 +7,10 @@ Lookup failure is non-fatal; caller receives whatever fields were found.
 
 import httpx
 
+import log
+
+_logger = log.get_logger("parts_bin.lookup")
+
 # ---------------------------------------------------------------------------
 # LCSC
 # ---------------------------------------------------------------------------
@@ -29,9 +33,6 @@ async def _lcsc_lookup(part_number: str, client: httpx.AsyncClient) -> dict | No
         for product in products:
             if (product.get("productModel") or "").upper() == part_number.upper():
                 return _extract_lcsc_fields(product)
-        # Fallback: first result if any.
-        if products:
-            return _extract_lcsc_fields(products[0])
     except Exception:
         pass
     return None
@@ -96,6 +97,70 @@ async def _digikey_lookup(
         return None
 
 
+def _http_error_details(exc: Exception) -> dict:
+    details = {
+        "error_type": type(exc).__name__,
+        "error": str(exc),
+    }
+    response = getattr(exc, "response", None)
+    if response is not None:
+        body = None
+        try:
+            body = response.text
+        except Exception:
+            body = None
+        details["status_code"] = response.status_code
+        details["response_body"] = body[:1000] if body else None
+    return details
+
+
+async def _digikey_lookup_detailed(
+    part_number: str,
+    client_id: str,
+    client_secret: str,
+    client: httpx.AsyncClient,
+) -> dict:
+    token = await _digikey_token(client_id, client_secret, client)
+    if not token:
+        return {"specs": None, "debug": None, "status": "auth-failed"}
+
+    last_error: dict | None = None
+    for attempt in range(2):
+        try:
+            resp = await client.get(
+                f"https://api.digikey.com/products/v4/search/{part_number}/productdetails",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-DIGIKEY-Client-Id": client_id,
+                },
+                timeout=20.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                "specs": _extract_digikey_fields(data.get("Product", {})),
+                "debug": _digikey_debug_summary(data, part_number),
+                "status": "ok",
+            }
+        except httpx.ReadTimeout as exc:
+            last_error = {
+                "part_number": part_number,
+                "attempt": attempt + 1,
+                **_http_error_details(exc),
+            }
+            _logger.warning("digikey lookup timeout", extra=last_error)
+        except Exception as exc:
+            last_error = {
+                "part_number": part_number,
+                "attempt": attempt + 1,
+                **_http_error_details(exc),
+            }
+            _logger.warning("digikey lookup failed", extra=last_error)
+            return {"specs": None, "debug": None, "status": "failed", "error": last_error}
+
+    return {"specs": None, "debug": None, "status": "timeout", "error": last_error}
+
+
 def _extract_digikey_fields(product: dict) -> dict:
     result = {}
     mfr = product.get("Manufacturer", {})
@@ -108,6 +173,97 @@ def _extract_digikey_fields(product: dict) -> dict:
     if product.get("PackageType", {}).get("Name"):
         result["package"] = product["PackageType"]["Name"]
     return result
+
+
+def _digikey_debug_summary(data: dict, part_number: str) -> dict:
+    product = data.get("Product", {}) or {}
+    manufacturer = product.get("Manufacturer", {})
+    package_type = product.get("PackageType", {})
+
+    return {
+        "requested_part_number": part_number,
+        "digikey_part_number": product.get("DigiKeyPartNumber"),
+        "manufacturer_part_number": product.get("ManufacturerPartNumber"),
+        "product_url": product.get("ProductUrl"),
+        "product_description": product.get("ProductDescription"),
+        "detailed_description": product.get("DetailedDescription"),
+        "manufacturer": manufacturer.get("Name") if isinstance(manufacturer, dict) else manufacturer,
+        "package": package_type.get("Name") if isinstance(package_type, dict) else package_type,
+        "series": product.get("Series"),
+    }
+
+
+async def fetch_specs_detailed(
+    part_number: str,
+    digikey_credentials: dict | None = None,
+) -> dict:
+    """
+    Fetch spec fields for a part number with provider-level outcome details.
+
+    Returns:
+      {
+        "specs": dict,
+        "provider": str | None,
+        "matched_part_number": str | None,
+        "tried_providers": list[str],
+      }
+    """
+    tried_providers: list[str] = []
+
+    async with httpx.AsyncClient() as client:
+        tried_providers.append("lcsc")
+        result = await _lcsc_lookup(part_number, client)
+        if result:
+            _logger.info("lookup match", extra={
+                "provider": "lcsc",
+                "part_number": part_number,
+                "matched_part_number": part_number,
+                "fields": sorted(result.keys()),
+            })
+            return {
+                "specs": result,
+                "provider": "lcsc",
+                "matched_part_number": part_number,
+                "tried_providers": tried_providers,
+            }
+
+        if digikey_credentials:
+            tried_providers.append("digikey")
+            digikey_result = await _digikey_lookup_detailed(
+                part_number,
+                digikey_credentials["client_id"],
+                digikey_credentials["client_secret"],
+                client,
+            )
+            result = digikey_result["specs"]
+            if digikey_result["debug"]:
+                _logger.debug("digikey raw response", extra=digikey_result["debug"])
+            if result:
+                _logger.info("lookup match", extra={
+                    "provider": "digikey",
+                    "part_number": part_number,
+                    "matched_part_number": part_number,
+                    "fields": sorted(result.keys()),
+                })
+                return {
+                    "specs": result,
+                    "provider": "digikey",
+                    "matched_part_number": part_number,
+                    "tried_providers": tried_providers,
+                    "status": digikey_result["status"],
+                }
+
+    _logger.info("lookup no match", extra={
+        "part_number": part_number,
+        "tried_providers": tried_providers,
+    })
+    return {
+        "specs": {},
+        "provider": None,
+        "matched_part_number": None,
+        "tried_providers": tried_providers,
+        "status": digikey_result["status"] if digikey_credentials else "no-match",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -124,22 +280,8 @@ async def fetch_specs(
 
     digikey_credentials: {"client_id": ..., "client_secret": ...} or None.
     """
-    async with httpx.AsyncClient() as client:
-        result = await _lcsc_lookup(part_number, client)
-        if result:
-            return result
-
-        if digikey_credentials:
-            result = await _digikey_lookup(
-                part_number,
-                digikey_credentials["client_id"],
-                digikey_credentials["client_secret"],
-                client,
-            )
-            if result:
-                return result
-
-    return {}
+    result = await fetch_specs_detailed(part_number, digikey_credentials)
+    return result["specs"]
 
 
 def merge_specs(record: dict, specs: dict) -> dict:

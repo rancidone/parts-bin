@@ -1,6 +1,11 @@
 """Tests for spec lookup merge logic (no HTTP calls)."""
 
-from ingestion.lookup import merge_specs
+from unittest.mock import AsyncMock, patch
+
+import httpx
+import pytest
+
+from ingestion.lookup import _digikey_debug_summary, _http_error_details, fetch_specs_detailed, merge_specs
 
 
 class TestMergeSpecs:
@@ -32,3 +37,67 @@ class TestMergeSpecs:
         record = {"package": None, "manufacturer": None, "description": None}
         merge_specs(record, {"package": "SOT-23"})
         assert record["package"] is None
+
+
+class TestLookupResolution:
+    @pytest.mark.asyncio
+    async def test_fetch_specs_detailed_skips_non_exact_lcsc_result(self):
+        with patch("ingestion.lookup._lcsc_lookup", AsyncMock(return_value=None)):
+            result = await fetch_specs_detailed("TLV62565DBVR", digikey_credentials=None)
+
+        assert result["specs"] == {}
+        assert result["provider"] is None
+        assert result["tried_providers"] == ["lcsc"]
+
+    @pytest.mark.asyncio
+    async def test_fetch_specs_detailed_uses_digikey_after_lcsc_miss(self):
+        with patch("ingestion.lookup._lcsc_lookup", AsyncMock(return_value=None)):
+            with patch("ingestion.lookup._digikey_lookup_detailed", AsyncMock(return_value={
+                "specs": {
+                    "manufacturer": "Texas Instruments",
+                    "description": "Buck Switching Regulator IC",
+                },
+                "debug": {
+                    "requested_part_number": "TLV62565DBVR",
+                    "manufacturer_part_number": "TLV62565DBVR",
+                },
+                "status": "ok",
+            })):
+                result = await fetch_specs_detailed("TLV62565DBVR", {
+                    "client_id": "id",
+                    "client_secret": "secret",
+                })
+
+        assert result["provider"] == "digikey"
+        assert result["specs"]["manufacturer"] == "Texas Instruments"
+        assert result["tried_providers"] == ["lcsc", "digikey"]
+
+    def test_digikey_debug_summary_extracts_identifying_fields(self):
+        summary = _digikey_debug_summary({
+            "Product": {
+                "DigiKeyPartNumber": "296-12345-1-ND",
+                "ManufacturerPartNumber": "TLV62565DBVR",
+                "ProductUrl": "https://www.digikey.com/example",
+                "ProductDescription": "Buck Switching Regulator IC",
+                "DetailedDescription": "Positive Adjustable 0.6V 1 Output 1.5A",
+                "Manufacturer": {"Name": "Texas Instruments"},
+                "PackageType": {"Name": "SC-74A, SOT-753"},
+                "Series": "Automotive, AEC-Q100",
+            },
+        }, "TLV62565DBVR")
+
+        assert summary["requested_part_number"] == "TLV62565DBVR"
+        assert summary["manufacturer_part_number"] == "TLV62565DBVR"
+        assert summary["product_description"] == "Buck Switching Regulator IC"
+        assert summary["package"] == "SC-74A, SOT-753"
+
+    def test_http_error_details_includes_status_and_body(self):
+        request = httpx.Request("GET", "https://example.com")
+        response = httpx.Response(403, request=request, text="forbidden")
+        exc = httpx.HTTPStatusError("bad status", request=request, response=response)
+
+        details = _http_error_details(exc)
+
+        assert details["error_type"] == "HTTPStatusError"
+        assert details["status_code"] == 403
+        assert details["response_body"] == "forbidden"
