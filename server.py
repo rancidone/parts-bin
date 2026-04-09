@@ -239,6 +239,7 @@ async def inventory_csv():
 
 @app.post("/inventory/{part_id}/refresh")
 async def refresh_part(part_id: int) -> dict:
+    """Fetch proposed spec updates without saving. Returns proposed_updates for user review."""
     part = get_by_id(_DB_PATH, part_id)
     if part is None:
         raise HTTPException(status_code=404, detail="Part not found")
@@ -247,20 +248,34 @@ async def refresh_part(part_id: int) -> dict:
         raise HTTPException(status_code=422, detail="Part has no part number to look up")
 
     lookup_result = await fetch_specs_detailed(part_number, _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH)
-    chosen_updates = lookup_result["chosen_updates"]
-    if chosen_updates:
-        update_fields_with_provenance(_DB_PATH, part_id, chosen_updates, lookup_result["durable_provenance"])
-        _logger.info("refresh saved", extra={
-            "part_id": part_id,
-            "part_number": part_number,
-            "fields": sorted(chosen_updates.keys()),
-            "outcome": lookup_result["outcome"],
-        })
+    _logger.info("refresh proposed", extra={
+        "part_id": part_id,
+        "part_number": part_number,
+        "fields": sorted(lookup_result["chosen_updates"].keys()),
+        "outcome": lookup_result["outcome"],
+    })
 
     return {
-        "part": get_by_id(_DB_PATH, part_id),
+        "part": part,
+        "proposed_updates": lookup_result["chosen_updates"],
+        "provenance": lookup_result["durable_provenance"],
         "outcome": lookup_result["outcome"],
     }
+
+
+@app.post("/inventory/{part_id}/accept")
+async def accept_refresh(part_id: int, body: dict) -> dict:
+    """Commit user-accepted spec updates from a prior refresh."""
+    updates = body.get("updates", {})
+    provenance = body.get("provenance", [])
+    if not updates:
+        raise HTTPException(status_code=422, detail="No updates to accept")
+    part = get_by_id(_DB_PATH, part_id)
+    if part is None:
+        raise HTTPException(status_code=404, detail="Part not found")
+    update_fields_with_provenance(_DB_PATH, part_id, updates, provenance)
+    _logger.info("refresh accepted", extra={"part_id": part_id, "fields": sorted(updates.keys())})
+    return {"part": get_by_id(_DB_PATH, part_id)}
 
 
 @app.get("/jlcparts/status")

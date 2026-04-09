@@ -128,3 +128,84 @@
   cursor: default;
   color: var(--muted);
 }
+
+.reviewRow {
+  background: var(--surface);
+}
+
+.reviewCell {
+  padding: 10px 12px 12px;
+  border-bottom: 2px solid var(--accent);
+}
+
+.reviewPanel {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.reviewFields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  flex: 1;
+}
+
+.reviewField {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.83rem;
+}
+
+.reviewLabel {
+  color: var(--muted);
+  font-size: 0.78rem;
+  min-width: 70px;
+}
+
+.reviewOld {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.reviewArrow {
+  color: var(--muted);
+}
+
+.reviewNew {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.reviewActions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.acceptBtn {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.acceptBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dismissBtn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}

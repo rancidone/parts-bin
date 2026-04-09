@@ -5,6 +5,22 @@ import styles from './Inventory.module.css'
 
 type SortKey = 'part_category' | 'value' | 'package' | 'quantity'
 
+interface PendingReview {
+  proposed_updates: Record<string, string | number | null>
+  provenance: unknown[]
+  outcome: string
+}
+
+const DISPLAY_FIELDS: { key: keyof Part; label: string }[] = [
+  { key: 'part_category', label: 'Category' },
+  { key: 'value', label: 'Value' },
+  { key: 'package', label: 'Package' },
+  { key: 'quantity', label: 'Qty' },
+  { key: 'part_number', label: 'Part #' },
+  { key: 'manufacturer', label: 'Manufacturer' },
+  { key: 'description', label: 'Description' },
+]
+
 export function Inventory({ active }: { active: boolean }) {
   const [parts, setParts] = useState<Part[]>([])
   const [loading, setLoading] = useState(false)
@@ -13,6 +29,8 @@ export function Inventory({ active }: { active: boolean }) {
   const [sortKey, setSortKey] = useState<SortKey>('part_category')
   const [sortAsc, setSortAsc] = useState(true)
   const [refreshing, setRefreshing] = useState<Set<number>>(new Set())
+  const [pending, setPending] = useState<Map<number, PendingReview>>(new Map())
+  const [accepting, setAccepting] = useState<Set<number>>(new Set())
 
   async function load() {
     setLoading(true)
@@ -35,11 +53,43 @@ export function Inventory({ active }: { active: boolean }) {
     try {
       const resp = await fetch(`/inventory/${id}/refresh`, { method: 'POST' })
       if (!resp.ok) throw new Error(resp.statusText)
-      const { part } = await resp.json()
-      setParts(prev => prev.map(p => p.id === id ? part : p))
+      const data = await resp.json()
+      if (data.proposed_updates && Object.keys(data.proposed_updates).length > 0) {
+        setPending(prev => new Map(prev).set(id, {
+          proposed_updates: data.proposed_updates,
+          provenance: data.provenance,
+          outcome: data.outcome,
+        }))
+      } else {
+        // Nothing found — dismiss any prior pending for this part
+        setPending(prev => { const next = new Map(prev); next.delete(id); return next })
+      }
     } finally {
       setRefreshing(prev => { const next = new Set(prev); next.delete(id); return next })
     }
+  }
+
+  async function acceptReview(id: number) {
+    const review = pending.get(id)
+    if (!review) return
+    setAccepting(prev => new Set(prev).add(id))
+    try {
+      const resp = await fetch(`/inventory/${id}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates: review.proposed_updates, provenance: review.provenance }),
+      })
+      if (!resp.ok) throw new Error(resp.statusText)
+      const { part } = await resp.json()
+      setParts(prev => prev.map(p => p.id === id ? part : p))
+      setPending(prev => { const next = new Map(prev); next.delete(id); return next })
+    } finally {
+      setAccepting(prev => { const next = new Set(prev); next.delete(id); return next })
+    }
+  }
+
+  function dismissReview(id: number) {
+    setPending(prev => { const next = new Map(prev); next.delete(id); return next })
   }
 
   function toggleSort(key: SortKey) {
@@ -118,29 +168,68 @@ export function Inventory({ active }: { active: boolean }) {
               </tr>
             </thead>
             <tbody>
-              {displayed.map((p, i) => (
-                <tr key={p.id ?? i} className={styles.row}>
-                  <td className={styles.td}>{p.part_category}</td>
-                  <td className={styles.td}>{p.value ?? '—'}</td>
-                  <td className={styles.td}>{p.package ?? '—'}</td>
-                  <td className={styles.td}>{p.quantity}</td>
-                  <td className={styles.td}>{p.part_number ?? '—'}</td>
-                  <td className={styles.td}>{p.manufacturer ?? '—'}</td>
-                  <td className={styles.td}>{p.description ?? '—'}</td>
-                  <td className={styles.tdAction}>
-                    {p.part_number && p.id != null && (
-                      <button
-                        className={styles.rowRefreshBtn}
-                        disabled={refreshing.has(p.id)}
-                        onClick={() => refreshPart(p.id!)}
-                        title="Refresh specs"
-                      >
-                        {refreshing.has(p.id) ? '…' : '↻'}
-                      </button>
+              {displayed.map((p, i) => {
+                const id = p.id!
+                const review = p.id != null ? pending.get(id) : undefined
+                return (
+                  <>
+                    <tr key={p.id ?? i} className={styles.row}>
+                      <td className={styles.td}>{p.part_category}</td>
+                      <td className={styles.td}>{p.value ?? '—'}</td>
+                      <td className={styles.td}>{p.package ?? '—'}</td>
+                      <td className={styles.td}>{p.quantity}</td>
+                      <td className={styles.td}>{p.part_number ?? '—'}</td>
+                      <td className={styles.td}>{p.manufacturer ?? '—'}</td>
+                      <td className={styles.td}>{p.description ?? '—'}</td>
+                      <td className={styles.tdAction}>
+                        {p.part_number && p.id != null && (
+                          <button
+                            className={styles.rowRefreshBtn}
+                            disabled={refreshing.has(id)}
+                            onClick={() => refreshPart(id)}
+                            title="Fetch specs"
+                          >
+                            {refreshing.has(id) ? '…' : '↻'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {review && p.id != null && (
+                      <tr key={`review-${id}`} className={styles.reviewRow}>
+                        <td colSpan={8} className={styles.reviewCell}>
+                          <div className={styles.reviewPanel}>
+                            <div className={styles.reviewFields}>
+                              {DISPLAY_FIELDS.filter(f => f.key in review.proposed_updates).map(f => (
+                                <div key={f.key} className={styles.reviewField}>
+                                  <span className={styles.reviewLabel}>{f.label}</span>
+                                  <span className={styles.reviewOld}>{String(p[f.key] ?? '—')}</span>
+                                  <span className={styles.reviewArrow}>→</span>
+                                  <span className={styles.reviewNew}>{String(review.proposed_updates[f.key] ?? '—')}</span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className={styles.reviewActions}>
+                              <button
+                                className={styles.acceptBtn}
+                                onClick={() => acceptReview(id)}
+                                disabled={accepting.has(id)}
+                              >
+                                {accepting.has(id) ? '…' : 'Accept'}
+                              </button>
+                              <button
+                                className={styles.dismissBtn}
+                                onClick={() => dismissReview(id)}
+                              >
+                                Dismiss
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                </tr>
-              ))}
+                  </>
+                )
+              })}
             </tbody>
           </table>
         </div>
