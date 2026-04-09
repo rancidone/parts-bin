@@ -87,24 +87,79 @@ async def _download(db_path: Path) -> None:
         _logger.info("jlcparts database ready", extra={"db_path": str(db_path)})
 
 
+_MAX_PART_BYTES = 512 * 1024 * 1024  # 512 MB per part — well above current ~50 MB
+
+
 async def _stream_part(client: httpx.AsyncClient, url: str, dest: Path) -> Path:
     async with client.stream("GET", url) as resp:
         resp.raise_for_status()
+        written = 0
         with open(dest, "wb") as f:
             async for chunk in resp.aiter_bytes(chunk_size=1024 * 1024):
+                written += len(chunk)
+                if written > _MAX_PART_BYTES:
+                    raise RuntimeError(
+                        f"jlcparts part exceeded {_MAX_PART_BYTES} bytes — aborting download"
+                    )
                 f.write(chunk)
     return dest
+
+
+_SQLITE_MAGIC = b"SQLite format 3\x00"
+_MAX_EXTRACT_BYTES = 8 * 1024 * 1024 * 1024  # 8 GB hard cap against zip bombs
 
 
 def _extract_sqlite(zip_path: Path, dest_dir: Path) -> Path | None:
     try:
         with zipfile.ZipFile(zip_path) as zf:
-            for name in zf.namelist():
-                if name.endswith(".sqlite3") or name.endswith(".sqlite"):
-                    out_path = dest_dir / Path(name).name
-                    with zf.open(name) as src, open(out_path, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
-                    return out_path
+            for info in zf.infolist():
+                name = info.filename
+
+                # Skip anything that is not a plain sqlite3/sqlite file.
+                if not (name.endswith(".sqlite3") or name.endswith(".sqlite")):
+                    continue
+
+                # Reject symlinks (external_attr encodes Unix mode in the high 16 bits).
+                unix_mode = (info.external_attr >> 16) & 0xFFFF
+                if unix_mode and (unix_mode & 0xA000) == 0xA000:
+                    _logger.warning("jlcparts skipping symlink entry", extra={"name": name})
+                    continue
+
+                # Reject path traversal — only keep the bare filename.
+                safe_name = Path(name).name
+                if not safe_name or safe_name.startswith("."):
+                    _logger.warning("jlcparts skipping suspicious entry", extra={"name": name})
+                    continue
+
+                # Zip bomb guard: uncompressed size must be within cap.
+                if info.file_size > _MAX_EXTRACT_BYTES:
+                    _logger.error("jlcparts entry exceeds size cap, aborting",
+                                  extra={"name": name, "size": info.file_size})
+                    return None
+
+                out_path = dest_dir / safe_name
+                written = 0
+                with zf.open(info) as src, open(out_path, "wb") as dst:
+                    for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                        written += len(chunk)
+                        if written > _MAX_EXTRACT_BYTES:
+                            _logger.error("jlcparts extraction exceeded size cap, aborting")
+                            dst.close()
+                            out_path.unlink(missing_ok=True)
+                            return None
+                        dst.write(chunk)
+
+                # Verify SQLite magic bytes.
+                with open(out_path, "rb") as f:
+                    magic = f.read(len(_SQLITE_MAGIC))
+                if magic != _SQLITE_MAGIC:
+                    _logger.error("jlcparts extracted file is not a SQLite database",
+                                  extra={"name": name})
+                    out_path.unlink(missing_ok=True)
+                    return None
+
+                return out_path
+
     except zipfile.BadZipFile as exc:
         _logger.error("jlcparts zip extraction failed — split-zip format may need 7z",
                       extra={"error": str(exc)})
