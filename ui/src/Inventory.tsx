@@ -5,9 +5,9 @@ import styles from './Inventory.module.css'
 
 type SortKey = 'part_category' | 'value' | 'package' | 'quantity'
 
-export function Inventory() {
+export function Inventory({ active }: { active: boolean }) {
   const [parts, setParts] = useState<Part[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('part_category')
@@ -27,7 +27,7 @@ export function Inventory() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { if (active) load() }, [active])
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) setSortAsc(a => !a)

@@ -47,14 +47,17 @@ async def run_ingestion(
         yield {"type": "error", "message": str(exc)}
         return
 
-    if not is_complete(record):
+    if is_correction:
+        if not _is_identifiable(record):
+            yield {"type": "clarification", "message": "I couldn't identify which part to update. Can you provide the part number or category, value, and package?"}
+            return
+    elif not is_complete(record):
         _logger.info("ingestion clarification needed", extra={"record": record})
         yield {"type": "clarification", "message": clarification_prompt(record)}
         return
 
-    # Ensure optional enrichment fields are present (LLM schema omits them).
+    # manufacturer is not in the extraction schema; default it for the DB.
     record.setdefault("manufacturer", None)
-    record.setdefault("description", None)
 
     # Spec lookup for new discrete/IC parts.
     if record.get("profile") == "discrete_ic" and record.get("part_number"):
@@ -76,6 +79,13 @@ async def run_ingestion(
 
     _logger.info("ingestion complete", extra={"part_id": part_id, "is_correction": is_correction, "record": record})
     yield {"type": "result", "part": {**record, "id": part_id}}
+
+
+def _is_identifiable(record: dict[str, Any]) -> bool:
+    """Return True if the record has enough info to look up an existing part."""
+    if record.get("part_number"):
+        return True
+    return bool(record.get("part_category") and record.get("value"))
 
 
 def _apply_correction(db_path: str | Path, record: dict[str, Any]) -> int | None:
