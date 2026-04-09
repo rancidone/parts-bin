@@ -1,101 +1,23 @@
 """
 External spec lookup for discrete/IC parts.
 
-Provider priority: LCSC (no auth) -> Digikey (OAuth2 client credentials).
+Provider: Digikey (OAuth2 client credentials).
 Lookup failure is non-fatal; callers receive a structured enrichment result.
 """
 
 from collections import defaultdict
+from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
 
 import log
+from ingestion.jlcparts_lookup import lookup_by_mpn as _jlcparts_lookup_by_mpn
 from ingestion.pdf_extract import extract_pdf_candidates
 from ingestion.source_extract import classify_content, extract_html_candidates
 
 _logger = log.get_logger("parts_bin.lookup")
 _FALLBACK_FIELD_SCOPE = ("manufacturer", "part_number", "package", "description")
-
-# ---------------------------------------------------------------------------
-# LCSC
-# ---------------------------------------------------------------------------
-
-async def _lcsc_lookup(part_number: str, client: httpx.AsyncClient) -> dict | None:
-    """
-    Search LCSC for a part number. Returns a dict with any of
-    {manufacturer, description, package} that were found, or None on failure.
-    """
-    try:
-        resp = await client.get(
-            "https://lcsc.com/api/global/search/search",
-            params={"q": part_number, "current_page": 1, "in_stock": False},
-            timeout=10.0,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        products = data.get("result", {}).get("productSearchResultVO", {}).get("productList") or []
-        # Find exact part number match (case-insensitive).
-        for product in products:
-            if (product.get("productModel") or "").upper() == part_number.upper():
-                return _extract_lcsc_fields(product)
-    except Exception:
-        pass
-    return None
-
-
-def _extract_lcsc_fields(product: dict) -> dict:
-    result = {}
-    if product.get("productModel"):
-        result["part_number"] = product["productModel"]
-    if product.get("brandNameEn"):
-        result["manufacturer"] = product["brandNameEn"]
-    if product.get("productDescEn"):
-        result["description"] = product["productDescEn"]
-    if product.get("encapStandard"):
-        result["package"] = product["encapStandard"]
-    return result
-
-
-def _lcsc_debug_summary(product: dict, part_number: str) -> dict:
-    return {
-        "requested_part_number": part_number,
-        "manufacturer_part_number": product.get("productModel"),
-        "product_url": product.get("productUrl"),
-        "datasheet_url": _first_present_url(product, "dataManualUrl", "datasheetUrl", "dataSheetUrl"),
-        "product_description": product.get("productDescEn"),
-        "manufacturer": product.get("brandNameEn"),
-        "package": product.get("encapStandard"),
-    }
-
-
-async def _lcsc_lookup_detailed(part_number: str, client: httpx.AsyncClient) -> dict:
-    try:
-        resp = await client.get(
-            "https://lcsc.com/api/global/search/search",
-            params={"q": part_number, "current_page": 1, "in_stock": False},
-            timeout=10.0,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        products = data.get("result", {}).get("productSearchResultVO", {}).get("productList") or []
-        for product in products:
-            if (product.get("productModel") or "").upper() == part_number.upper():
-                return {
-                    "specs": _extract_lcsc_fields(product),
-                    "debug": _lcsc_debug_summary(product, part_number),
-                    "status": "ok",
-                }
-        return {"specs": None, "debug": None, "status": "no-match"}
-    except httpx.ReadTimeout as exc:
-        details = {"part_number": part_number, **_http_error_details(exc)}
-        _logger.warning("lcsc lookup timeout", extra=details)
-        return {"specs": None, "debug": None, "status": "timeout", "error": details}
-    except Exception as exc:
-        details = {"part_number": part_number, **_http_error_details(exc)}
-        _logger.warning("lcsc lookup failed", extra=details)
-        return {"specs": None, "debug": None, "status": "failed", "error": details}
-
 
 # ---------------------------------------------------------------------------
 # Digikey
@@ -583,6 +505,7 @@ async def _fetch_api_derived_pdf(
 async def fetch_specs_detailed(
     part_number: str,
     digikey_credentials: dict | None = None,
+    jlcparts_db_path: str | None = None,
 ) -> dict:
     """
     Fetch spec fields for a part number with provider-level outcome details.
@@ -599,18 +522,19 @@ async def fetch_specs_detailed(
     source_attempts: list[dict] = []
 
     async with httpx.AsyncClient() as client:
-        tried_providers.append("lcsc")
-        lcsc_result = await _lcsc_lookup_detailed(part_number, client)
-        source_attempts.append(_build_source_attempt(
-            provider="lcsc",
-            authority_tier="primary_api",
-            lookup_status=lcsc_result["status"],
-            specs=lcsc_result.get("specs"),
-            debug=lcsc_result.get("debug"),
-            error=lcsc_result.get("error"),
-        ))
-        if lcsc_result.get("debug"):
-            _logger.debug("lcsc raw response", extra=lcsc_result["debug"])
+        if jlcparts_db_path and Path(jlcparts_db_path).exists():
+            tried_providers.append("jlcparts")
+            jlcparts_result = _jlcparts_lookup_by_mpn(jlcparts_db_path, part_number)
+            source_attempts.append(_build_source_attempt(
+                provider="jlcparts",
+                authority_tier="local_db",
+                lookup_status=jlcparts_result["status"],
+                specs=jlcparts_result.get("specs"),
+                debug=jlcparts_result.get("debug"),
+                error=jlcparts_result.get("error"),
+            ))
+            if jlcparts_result.get("debug"):
+                _logger.debug("jlcparts raw result", extra=jlcparts_result["debug"])
 
         if digikey_credentials:
             tried_providers.append("digikey")
@@ -697,19 +621,6 @@ async def fetch_specs_detailed(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-
-async def fetch_specs(
-    part_number: str,
-    digikey_credentials: dict | None = None,
-) -> dict:
-    """
-    Fetch spec fields for a part number. Returns a (possibly empty) dict
-    with any of {manufacturer, description, package} found.
-
-    digikey_credentials: {"client_id": ..., "client_secret": ...} or None.
-    """
-    result = await fetch_specs_detailed(part_number, digikey_credentials)
-    return result["chosen_updates"]
 
 
 def merge_specs(record: dict, specs: dict) -> dict:

@@ -7,7 +7,7 @@
 - [x] Replace the flat lookup result with a structured enrichment attempt model.
 - [x] Represent ordered source attempts, field candidates, chosen updates, and final outcome codes.
 - [x] Preserve provider diagnostics without depending on LLM response text for user-visible status.
-- [ ] Keep the old `fetch_specs` compatibility path only where needed during migration.
+- [x] Keep the old `fetch_specs` compatibility path only where needed during migration.
 
 ### 2. Durable provenance storage
 
@@ -34,7 +34,7 @@
 
 - [x] Follow PDF URLs from API payloads or API-derived pages only.
 - [x] Add bounded PDF metadata extraction for inventory-relevant fields.
-- [ ] Emit page references and extraction snippets for recovered candidates.
+- [x] Emit page references and extraction snippets for recovered candidates.
 - [ ] Keep ambiguous family-level or variant-level PDF data out of automatic updates.
 
 ### 6. Server and ingestion integration
@@ -42,14 +42,14 @@
 - [x] Update lookup actions to persist reconciled updates plus provenance.
 - [x] Surface conflict/incomplete/timeout outcomes in server responses.
 - [x] Route new-part ingestion through the same enrichment runtime.
-- [ ] Avoid direct field writes from raw provider payloads.
+- [x] Avoid direct field writes from raw provider payloads.
 
 ### 7. Tests
 
 - [x] Add persistence tests for provenance schema and overwrite behavior.
 - [x] Add lookup tests for reconciliation, conflicts, and outcome mapping.
 - [x] Add server tests for user-visible responses across enrichment outcomes.
-- [ ] Add extractor tests with fixture HTML/PDF inputs before enabling networked fallback stages.
+- [x] Add extractor tests with fixture HTML/PDF inputs before enabling networked fallback stages.
 
 ## First slice
 
