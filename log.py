@@ -66,7 +66,7 @@ def init() -> None:
         root.addHandler(file_handler)
 
     # Quiet noisy third-party loggers.
-    for noisy in ("httpx", "httpcore", "uvicorn.access", "python_multipart", "PIL"):
+    for noisy in ("httpx", "httpcore", "uvicorn.access", "python_multipart", "PIL", "pdfminer"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
