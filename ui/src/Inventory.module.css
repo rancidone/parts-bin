@@ -93,3 +93,38 @@
   border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
+
+.tdAction {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+  width: 1%;
+}
+
+.rowRefreshBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 1rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.row:hover .rowRefreshBtn {
+  opacity: 1;
+}
+
+.rowRefreshBtn:hover {
+  color: var(--accent);
+}
+
+.rowRefreshBtn:disabled {
+  opacity: 1;
+  cursor: default;
+  color: var(--muted);
+}
