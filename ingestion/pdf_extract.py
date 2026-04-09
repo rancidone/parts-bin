@@ -20,6 +20,24 @@ _NEXT_LABEL = (
     r"(?=\s+(?:Manufacturer(?: Part Number)?|Part Number|MPN|Package(?:\s*/\s*Case)?|"
     r"Supplier Device Package|Description|endstream|endobj)\b(?:\s*[:\-])?|$)"
 )
+
+# Known package designators for inline-prose extraction (e.g. "in SOT-23 5-Pin Package").
+_PACKAGE_NAMES = (
+    r"SOT-\d+[A-Z0-9\-]*"
+    r"|QFN-?\d*[A-Z0-9\-]*"
+    r"|TSSOP-?\d*"
+    r"|SOIC-?\d*[A-Z0-9\-]*"
+    r"|DFN-?\d*[A-Z0-9\-]*"
+    r"|WSON-?\d*"
+    r"|TO-\d+[A-Z0-9\-]*"
+    r"|LGA-?\d*"
+    r"|BGA-?\d*"
+    r"|LFCSP-?\d*"
+    r"|MSOP-?\d*"
+    r"|TQFP-?\d*"
+    r"|LQFP-?\d*"
+)
+
 _LABEL_PATTERNS = {
     "manufacturer": re.compile(
         rf"Manufacturer\s*[:\-]\s*([A-Za-z0-9&.,()\/ +_-]{{2,120}}?){_NEXT_LABEL}",
@@ -29,15 +47,30 @@ _LABEL_PATTERNS = {
         rf"(?:Manufacturer Part Number|Part Number|MPN)\s*[:\-]\s*([A-Za-z0-9._\/+\-]{{2,80}}?){_NEXT_LABEL}",
         re.IGNORECASE,
     ),
-    "package": re.compile(
-        rf"(?:Package(?:\s*/\s*Case)?|Supplier Device Package)\s*[:\-]\s*([A-Za-z0-9.,()\/ +_-]{{2,120}}?){_NEXT_LABEL}",
-        re.IGNORECASE,
-    ),
     "description": re.compile(
         rf"Description\s*[:\-]\s*([A-Za-z0-9&.,()\/ +_-]{{8,200}}?){_NEXT_LABEL}",
         re.IGNORECASE,
     ),
 }
+
+# Package patterns tried in priority order (first match with a value wins).
+_PACKAGE_PATTERNS: list[re.Pattern] = [
+    # DigiKey/distributor labeled row: "Package / Case: SOT-23-5"
+    re.compile(
+        rf"(?:Package(?:\s*/\s*Case)?|Supplier Device Package)\s*[:\-]\s*([A-Za-z0-9.,()\/ +_-]{{2,120}}?){_NEXT_LABEL}",
+        re.IGNORECASE,
+    ),
+    # TI Device Information table: "PACKAGE BODY SIZE (NOM) SOT-23 (5)"
+    re.compile(
+        rf"PACKAGE\s+BODY\s+SIZE\s*\([^)]+\)\s+({_PACKAGE_NAMES})(\s*\(\d+\))?",
+        re.IGNORECASE,
+    ),
+    # Inline prose: "available in SOT-23 5-Pin Package" / "in a SOT-23 package"
+    re.compile(
+        rf"(?:available in|in)\s+(?:a\s+)?({_PACKAGE_NAMES})(?:\s+\d+-[Pp]in)?",
+        re.IGNORECASE,
+    ),
+]
 
 # Only scan the first N pages — product info is always near the front.
 _MAX_PAGES = 4
@@ -64,6 +97,23 @@ def _extract_text_pages(pdf_bytes: bytes) -> list[str]:
     return pages
 
 
+def _match_package(normalized: str) -> tuple[str, str] | None:
+    """Try package patterns in priority order; return (value, evidence) or None."""
+    for pattern in _PACKAGE_PATTERNS:
+        match = pattern.search(normalized)
+        if not match:
+            continue
+        # Groups: first non-None group is the package name; optional pin-count group may follow.
+        groups = [g for g in match.groups() if g is not None]
+        if not groups:
+            continue
+        # Combine base name + pin-count suffix if present (e.g. "SOT-23" + " (5)")
+        value = _clean_value("".join(groups))
+        if value:
+            return value, _truncate_evidence(match.group(0))
+    return None
+
+
 def extract_pdf_candidates(pdf_bytes: bytes) -> dict[str, dict]:
     pages = _extract_text_pages(pdf_bytes)
     multiple_pages = len(pages) > 1
@@ -84,13 +134,27 @@ def extract_pdf_candidates(pdf_bytes: bytes) -> dict[str, dict]:
                     "method": "pdf-labeled-text",
                     "page_ref": page_idx + 1 if multiple_pages else None,
                 }
+        if "package" not in candidates:
+            result = _match_package(normalized)
+            if result:
+                value, evidence = result
+                candidates["package"] = {
+                    "value": value,
+                    "evidence": evidence,
+                    "method": "pdf-labeled-text",
+                    "page_ref": page_idx + 1 if multiple_pages else None,
+                }
     return candidates
 
 
 def _clean_value(value: str) -> str:
     cleaned = _WS_RE.sub(" ", value).strip()
-    cleaned = cleaned.rstrip(")>/]")
-    return cleaned.strip()
+    # Strip trailing PDF syntax noise, but only if parens are unbalanced.
+    while cleaned and cleaned[-1] in ">/]":
+        cleaned = cleaned[:-1].strip()
+    if cleaned.endswith(")") and cleaned.count("(") < cleaned.count(")"):
+        cleaned = cleaned[:-1].strip()
+    return cleaned
 
 
 def _truncate_evidence(value: str, limit: int = 160) -> str:
