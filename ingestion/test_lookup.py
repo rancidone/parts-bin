@@ -22,11 +22,11 @@ class TestMergeSpecs:
         merged = merge_specs(record, specs)
         assert merged["package"] == "SOT-23"
 
-    def test_does_not_overwrite_user_package(self):
+    def test_overwrites_existing_package(self):
         record = {"package": "SOT-323", "manufacturer": None, "description": None}
         specs = {"package": "SOT-23"}
         merged = merge_specs(record, specs)
-        assert merged["package"] == "SOT-323"
+        assert merged["package"] == "SOT-23"
 
     def test_empty_specs_leaves_record_unchanged(self):
         record = {"package": "0402", "manufacturer": None, "description": None}
