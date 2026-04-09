@@ -60,6 +60,13 @@ export function Chat() {
         {messages.map((msg, i) => (
           <MessageBubble key={i} msg={msg} />
         ))}
+        {sending && (
+          <div className={styles.thinkingBubble}>
+            <span className={styles.dot} />
+            <span className={styles.dot} />
+            <span className={styles.dot} />
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -127,6 +134,15 @@ function MessageBubble({ msg }: { msg: Message }) {
     return (
       <div className={styles.systemMsg}>
         <PartCard part={m.part} added={true} />
+      </div>
+    )
+  }
+
+  if (m.kind === 'chat') {
+    return (
+      <div className={styles.systemMsg}>
+        {m.text && <span>{m.text}</span>}
+        {m.part && <PartCard part={m.part} added={true} />}
       </div>
     )
   }

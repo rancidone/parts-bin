@@ -28,7 +28,8 @@ export default function App() {
         </div>
       </nav>
       <main className={styles.main}>
-        {surface === 'chat' ? <Chat /> : <Inventory />}
+        <div style={{ display: surface === 'chat' ? 'contents' : 'none' }}><Chat /></div>
+        <div style={{ display: surface === 'inventory' ? 'contents' : 'none' }}><Inventory active={surface === 'inventory'} /></div>
       </main>
     </div>
   )

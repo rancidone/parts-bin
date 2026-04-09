@@ -73,6 +73,17 @@ export function useChat() {
     if (event === 'result') {
       const type = data.type as string
 
+      if (type === 'chat') {
+        addMessage({
+          role: 'system',
+          kind: 'chat',
+          text: String(data.response ?? ''),
+          part: (data.part as Part) ?? undefined,
+        })
+        return
+      }
+
+      // Legacy types kept for backwards compatibility.
       if (type === 'ingest') {
         const part = data.part as Part
         addMessage({ role: 'system', kind: 'ingest-result', part })

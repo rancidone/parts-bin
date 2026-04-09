@@ -17,10 +17,9 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from db.persistence import export_csv, init_db, list_all
-from ingestion.ingest import run_ingestion
+from db.persistence import export_csv, get_by_id, init_db, list_all, query, update_fields, upsert
+from ingestion.lookup import fetch_specs, merge_specs
 from llm.client import ConversationHistory, LLMClient
-from query.search import run_query
 
 # ---------------------------------------------------------------------------
 # Config
@@ -62,43 +61,9 @@ app.add_middleware(
 
 _llm = LLMClient(base_url=_cfg["llama"]["base_url"])
 _history = ConversationHistory()
-_ingestion_history = ConversationHistory(max_turns=10)
 
 # Initialise DB at startup.
 init_db(_DB_PATH)
-
-# ---------------------------------------------------------------------------
-# Routing heuristic
-# ---------------------------------------------------------------------------
-
-import re as _re
-
-# Phrases that indicate an inventory mutation command.
-# Anchored to avoid matching "do I have" or "how many ... I have".
-_INGEST_PATTERNS = _re.compile(
-    r"\b(add|remove|put|stock|got|bought|received)\b"
-    r"|^i have\b",  # "I have X" at start of message only
-    _re.IGNORECASE,
-)
-
-# Follow-up corrections: "those were 5mm LEDs", "they are common anode", etc.
-_CORRECTION_PATTERNS = _re.compile(
-    r"^those (were|are)\b"
-    r"|^they (were|are)\b"
-    r"|^it (is|was|'s) (a|an)\b",
-    _re.IGNORECASE,
-)
-
-
-def _is_correction(message: str) -> bool:
-    return bool(_CORRECTION_PATTERNS.match(message))
-
-
-def _is_ingestion(message: str, has_photo: bool) -> bool:
-    if has_photo:
-        return True
-    return bool(_INGEST_PATTERNS.search(message)) or _is_correction(message)
-
 
 # ---------------------------------------------------------------------------
 # SSE helpers
@@ -108,26 +73,68 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-async def _ingestion_stream(message: str, image_b64: str | None, is_correction: bool = False) -> AsyncGenerator[str, None]:
-    async for evt in run_ingestion(_DB_PATH, _llm, message, image_b64, _DIGIKEY_CREDS,
-                                   history=_ingestion_history, is_correction=is_correction):
-        if evt["type"] == "result":
-            yield _sse("result", {"type": "ingest", "part": evt["part"]})
-        elif evt["type"] == "clarification":
-            yield _sse("result", {"type": "clarification", "message": evt["message"]})
-        elif evt["type"] == "error":
-            yield _sse("error", {"message": evt["message"], "detail": ""})
-    yield _sse("done", {})
+async def _execute_action(action_type: str, part: dict) -> int | None:
+    """Execute a db_action from the LLM. Returns part_id or None."""
+    if action_type == "upsert":
+        if not (part.get("part_category") and part.get("quantity")):
+            return None
+        part.setdefault("manufacturer", None)
+        if part.get("part_number"):
+            specs = await fetch_specs(part["part_number"], _DIGIKEY_CREDS)
+            part = merge_specs(part, specs)
+        return upsert(_DB_PATH, part)
+
+    if action_type == "update":
+        part_id = part.get("id")
+        if not part_id:
+            return None
+        return update_fields(_DB_PATH, part_id, part)
+
+    if action_type == "lookup":
+        part_id = part.get("id")
+        part_number = part.get("part_number")
+        if not part_id or not part_number:
+            return None
+        specs = await fetch_specs(part_number, _DIGIKEY_CREDS)
+        if specs:
+            update_fields(_DB_PATH, part_id, specs)
+        return part_id if specs else None
+
+    return None
 
 
-async def _query_stream(message: str) -> AsyncGenerator[str, None]:
-    result = await run_query(_DB_PATH, _llm, message, _history)
-    if result["type"] == "results":
-        yield _sse("result", {"type": "query", "matches": result["parts"], "answer": result.get("answer")})
-    elif result["type"] == "not_found":
-        yield _sse("result", {"type": "query", "matches": [], "answer": result.get("answer")})
-    elif result["type"] == "error":
-        yield _sse("error", {"message": result["message"], "detail": ""})
+async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[str, None]:
+    inventory = list_all(_DB_PATH)
+    try:
+        result = await _llm.chat(message, image_b64, _history, inventory)
+    except Exception as exc:
+        _logger.error("chat failed", extra={"error": str(exc)})
+        yield _sse("error", {"message": str(exc), "detail": ""})
+        yield _sse("done", {})
+        return
+
+    action = result["db_action"]
+    action_type = action["type"]
+    part = {k: action.get(k) for k in
+            ("id", "part_category", "profile", "value", "package", "part_number", "quantity", "description")}
+
+    part_id = await _execute_action(action_type, part)
+    saved_part = get_by_id(_DB_PATH, part_id) if part_id else None
+
+    # If the LLM intended an update but it didn't persist, append a note.
+    response_text = result["response"]
+    if action_type in ("update", "lookup") and not part_id:
+        response_text += "\n\n_(Note: the change wasn't saved — I couldn't identify which inventory record to update.)_"
+
+    _logger.info("chat", extra={"action": action_type, "part_id": part_id,
+                                "response": response_text})
+
+    yield _sse("result", {
+        "type": "chat",
+        "response": response_text,
+        "action": action_type,
+        "part": saved_part,
+    })
     yield _sse("done", {})
 
 
@@ -181,13 +188,5 @@ async def chat(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-    route = "ingestion" if _is_ingestion(message, has_photo=image_b64 is not None) else "query"
-    correction = route == "ingestion" and _is_correction(message)
-    _logger.info("chat request", extra={"route": route, "is_correction": correction, "has_photo": image_b64 is not None, "user_message": message})
-
-    if route == "ingestion":
-        stream = _ingestion_stream(message, image_b64, is_correction=correction)
-    else:
-        stream = _query_stream(message)
-
-    return StreamingResponse(stream, media_type="text/event-stream")
+    _logger.info("chat request", extra={"has_photo": image_b64 is not None, "user_message": message})
+    return StreamingResponse(_chat_stream(message, image_b64), media_type="text/event-stream")
