@@ -72,32 +72,34 @@ export function Settings({ active }: { active: boolean }) {
           </p>
         )}
         {jlc && jlc.status !== 'not_configured' && (
-          <div className={styles.row}>
-            <span className={`${styles.statusDot} ${styles[jlc.status]}`} />
-            <span className={styles.statusText}>
-              {statusLabel(jlc.status)}
-              {jlc.status === 'ready' && jlc.size_mb != null && ` (${jlc.size_mb} MB)`}
-            </span>
-            {(jlc.status === 'missing' || jlc.status === 'error') && (
-              <button
-                className={styles.downloadBtn}
-                onClick={startDownload}
-                disabled={triggering}
-              >
-                Download
-              </button>
-            )}
-            {jlc.status === 'ready' && (
-              <button
-                className={styles.downloadBtn}
-                onClick={startDownload}
-                disabled={triggering}
-              >
-                Re-download
-              </button>
-            )}
-          </div>
-          {jlc.path && <div className={styles.path}>{jlc.path}</div>}
+          <>
+            <div className={styles.row}>
+              <span className={`${styles.statusDot} ${styles[jlc.status]}`} />
+              <span className={styles.statusText}>
+                {statusLabel(jlc.status)}
+                {jlc.status === 'ready' && jlc.size_mb != null && ` (${jlc.size_mb} MB)`}
+              </span>
+              {(jlc.status === 'missing' || jlc.status === 'error') && (
+                <button
+                  className={styles.downloadBtn}
+                  onClick={startDownload}
+                  disabled={triggering}
+                >
+                  Download
+                </button>
+              )}
+              {jlc.status === 'ready' && (
+                <button
+                  className={styles.downloadBtn}
+                  onClick={startDownload}
+                  disabled={triggering}
+                >
+                  Re-download
+                </button>
+              )}
+            </div>
+            {jlc.path && <div className={styles.path}>{jlc.path}</div>}
+          </>
         )}
       </section>
     </div>
