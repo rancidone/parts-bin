@@ -37,19 +37,26 @@ _LABEL_PATTERNS = {
 
 
 def extract_pdf_candidates(pdf_bytes: bytes) -> dict[str, dict]:
-    text = _normalize_pdf_text(pdf_bytes)
+    decoded = pdf_bytes.decode("latin-1", errors="ignore")
+    pages = decoded.split("\x0c")
+    multiple_pages = len(pages) > 1
     candidates: dict[str, dict] = {}
-    for field_name, pattern in _LABEL_PATTERNS.items():
-        match = pattern.search(text)
-        if not match:
-            continue
-        value = _clean_value(match.group(1))
-        if value:
-            candidates[field_name] = {
-                "value": value,
-                "evidence": _truncate_evidence(match.group(0)),
-                "method": "pdf-labeled-text",
-            }
+    for page_idx, raw_page in enumerate(pages):
+        normalized = _WS_RE.sub(" ", raw_page)
+        for field_name, pattern in _LABEL_PATTERNS.items():
+            if field_name in candidates:
+                continue
+            match = pattern.search(normalized)
+            if not match:
+                continue
+            value = _clean_value(match.group(1))
+            if value:
+                candidates[field_name] = {
+                    "value": value,
+                    "evidence": _truncate_evidence(match.group(0)),
+                    "method": "pdf-labeled-text",
+                    "page_ref": page_idx + 1 if multiple_pages else None,
+                }
     return candidates
 
 
