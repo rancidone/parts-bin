@@ -11,11 +11,10 @@ import asyncio
 import json
 import tomllib
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 import log
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from ingestion.jlcparts_download import download_if_missing
@@ -58,19 +57,13 @@ _DIGIKEY_CREDS: dict | None = (
     else None
 )
 _JLCPARTS_DB_PATH: str | None = _cfg.get("jlcparts", {}).get("db_path") or None
+_jlcparts_dl_status: str = "idle"  # idle | downloading | error
 
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 
-@asynccontextmanager
-async def _lifespan(app: FastAPI):
-    if _JLCPARTS_DB_PATH and not Path(_JLCPARTS_DB_PATH).exists():
-        asyncio.create_task(download_if_missing(_JLCPARTS_DB_PATH))
-    yield
-
-
-app = FastAPI(title="Parts Bin", lifespan=_lifespan)
+app = FastAPI(title="Parts Bin")
 
 app.add_middleware(
     CORSMiddleware,
@@ -268,6 +261,45 @@ async def refresh_part(part_id: int) -> dict:
         "part": get_by_id(_DB_PATH, part_id),
         "outcome": lookup_result["outcome"],
     }
+
+
+@app.get("/jlcparts/status")
+async def jlcparts_status() -> dict:
+    if not _JLCPARTS_DB_PATH:
+        return {"status": "not_configured"}
+    db_path = Path(_JLCPARTS_DB_PATH)
+    if _jlcparts_dl_status == "downloading":
+        return {"status": "downloading", "path": str(db_path)}
+    if _jlcparts_dl_status == "error":
+        return {"status": "error", "path": str(db_path)}
+    if db_path.exists():
+        size_mb = round(db_path.stat().st_size / 1_048_576, 1)
+        return {"status": "ready", "path": str(db_path), "size_mb": size_mb}
+    return {"status": "missing", "path": str(db_path)}
+
+
+async def _run_jlcparts_download() -> None:
+    global _jlcparts_dl_status
+    _jlcparts_dl_status = "downloading"
+    try:
+        from ingestion.jlcparts_download import download_if_missing
+        await asyncio.to_thread(download_if_missing, _JLCPARTS_DB_PATH)
+        _jlcparts_dl_status = "idle"
+    except Exception as exc:
+        _logger.error("jlcparts download failed", extra={"error": str(exc)})
+        _jlcparts_dl_status = "error"
+
+
+@app.post("/jlcparts/download")
+async def jlcparts_download(background_tasks: BackgroundTasks) -> dict:
+    global _jlcparts_dl_status
+    if not _JLCPARTS_DB_PATH:
+        raise HTTPException(status_code=422, detail="jlcparts.db_path not configured")
+    if _jlcparts_dl_status == "downloading":
+        return {"status": "already_downloading"}
+    background_tasks.add_task(_run_jlcparts_download)
+    _jlcparts_dl_status = "downloading"
+    return {"status": "started"}
 
 
 @app.post("/chat")
