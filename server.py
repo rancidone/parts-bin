@@ -7,15 +7,18 @@ Endpoints:
   GET  /health      readiness check
 """
 
+import asyncio
 import json
 import tomllib
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import log
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from ingestion.jlcparts_download import download_if_missing
 
 from db.persistence import (
     export_csv,
@@ -27,7 +30,7 @@ from db.persistence import (
     update_fields_with_provenance,
     upsert,
 )
-from ingestion.lookup import fetch_specs, fetch_specs_detailed, merge_specs
+from ingestion.lookup import fetch_specs_detailed, merge_specs
 from llm.client import ConversationHistory, LLMClient
 
 # ---------------------------------------------------------------------------
@@ -54,12 +57,20 @@ _DIGIKEY_CREDS: dict | None = (
     if _cfg["digikey"].get("client_id")
     else None
 )
+_JLCPARTS_DB_PATH: str | None = _cfg.get("jlcparts", {}).get("db_path") or None
 
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="Parts Bin")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    if _JLCPARTS_DB_PATH and not Path(_JLCPARTS_DB_PATH).exists():
+        asyncio.create_task(download_if_missing(_JLCPARTS_DB_PATH))
+    yield
+
+
+app = FastAPI(title="Parts Bin", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -88,10 +99,19 @@ async def _execute_action(action_type: str, part: dict) -> tuple[int | None, str
         if not (part.get("part_category") and part.get("quantity")):
             return None, "invalid"
         part.setdefault("manufacturer", None)
+        enrichment_result: dict | None = None
         if part.get("part_number"):
-            specs = await fetch_specs(part["part_number"], _DIGIKEY_CREDS)
-            part = merge_specs(part, specs)
-        return upsert(_DB_PATH, part), "saved"
+            enrichment_result = await fetch_specs_detailed(part["part_number"], _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH)
+            part = merge_specs(part, enrichment_result["chosen_updates"])
+        part_id = upsert(_DB_PATH, part)
+        if enrichment_result and enrichment_result["chosen_updates"]:
+            update_fields_with_provenance(
+                _DB_PATH,
+                part_id,
+                enrichment_result["chosen_updates"],
+                enrichment_result["durable_provenance"],
+            )
+        return part_id, "saved"
 
     if action_type == "update":
         part_id = part.get("id")
@@ -104,7 +124,7 @@ async def _execute_action(action_type: str, part: dict) -> tuple[int | None, str
         part_number = part.get("part_number")
         if not part_id or not part_number:
             return None, "missing-target"
-        lookup_result = await fetch_specs_detailed(part_number, _DIGIKEY_CREDS)
+        lookup_result = await fetch_specs_detailed(part_number, _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH)
         chosen_updates = lookup_result["chosen_updates"]
         if chosen_updates:
             update_fields_with_provenance(

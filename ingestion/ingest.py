@@ -27,6 +27,7 @@ async def run_ingestion(
     user_message: str,
     image_b64: str | None = None,
     digikey_credentials: dict | None = None,
+    jlcparts_db_path: str | None = None,
     history: ConversationHistory | None = None,
     is_correction: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
@@ -63,7 +64,7 @@ async def run_ingestion(
 
     # Spec lookup for new discrete/IC parts.
     if record.get("profile") == "discrete_ic" and record.get("part_number"):
-        enrichment_result = await fetch_specs_detailed(record["part_number"], digikey_credentials)
+        enrichment_result = await fetch_specs_detailed(record["part_number"], digikey_credentials, jlcparts_db_path=jlcparts_db_path)
         record = merge_specs(record, enrichment_result["chosen_updates"])
 
     if is_correction:

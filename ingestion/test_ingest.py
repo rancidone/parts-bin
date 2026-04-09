@@ -108,7 +108,7 @@ class TestRunIngestionDiscreteIc:
         }
         with patch("ingestion.ingest.fetch_specs_detailed", new=AsyncMock(return_value=mock_result)) as mock_fetch:
             events = await _collect(run_ingestion(db, llm, "add 5 2N7002", digikey_credentials=None))
-        mock_fetch.assert_called_once_with("2N7002", None)
+        mock_fetch.assert_called_once_with("2N7002", None, jlcparts_db_path=None)
         assert events[0]["type"] == "result"
         assert events[0]["enrichment"]["outcome"] == "saved"
 
@@ -169,7 +169,7 @@ class TestRunIngestionDiscreteIc:
             }],
             "outcome": "saved",
             "conflicts": [],
-            "source_attempts": [{"provider": "lcsc", "status": "ok"}],
+            "source_attempts": [{"provider": "digikey", "status": "ok"}],
         })):
             events = await _collect(run_ingestion(db, llm, "add 5 2N7002"))
 
