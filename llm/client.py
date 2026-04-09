@@ -9,10 +9,15 @@ Conversation history management lives in ConversationHistory.
 """
 
 import json
+import time
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
+
+import log
+
+_logger = log.get_logger("parts_bin.llm")
 
 # ---------------------------------------------------------------------------
 # Extraction schemas
@@ -79,6 +84,14 @@ QUERY_SYSTEM_PROMPT = (
     "You are a parts inventory search assistant. "
     "Parse the user's query into structured filter criteria. "
     "Return only valid JSON matching the schema."
+)
+
+ANSWER_SYSTEM_PROMPT = (
+    "You are a helpful electronics parts inventory assistant. "
+    "Answer the user's question based on their inventory. "
+    "Be concise and conversational. "
+    "If inventory data is provided, use it to give specific, accurate answers. "
+    "If the inventory is empty or doesn't contain what they asked about, say so."
 )
 
 # ---------------------------------------------------------------------------
@@ -185,10 +198,12 @@ class LLMClient:
         self,
         user_message: str,
         image_b64: str | None = None,
+        history_messages: list[dict] | None = None,
     ) -> dict[str, Any]:
         """
         Extract structured part data from a text message and optional image.
 
+        history_messages: prior ingestion turns (text only, no images) for context.
         Returns the parsed JSON dict.
         Raises ValueError if JSON parsing fails after one retry.
         Raises httpx.HTTPError on transport failures.
@@ -196,6 +211,7 @@ class LLMClient:
         content = _build_content(user_message, image_b64)
         messages = [
             {"role": "system", "content": INGESTION_SYSTEM_PROMPT},
+            *(history_messages or []),
             {"role": "user",   "content": content},
         ]
         return await self._extract_with_retry(messages, INGESTION_SCHEMA)
@@ -207,8 +223,11 @@ class LLMClient:
     ) -> dict[str, Any]:
         raw = await self._complete(messages, schema)
         try:
-            return json.loads(raw)
+            result = json.loads(raw)
+            _logger.debug("llm extract ok", extra={"schema": schema["name"], "result": result})
+            return result
         except json.JSONDecodeError:
+            _logger.warning("llm extract invalid json, retrying", extra={"schema": schema["name"], "raw": raw})
             # One retry with an explicit correction nudge.
             messages = messages + [
                 {"role": "assistant", "content": raw},
@@ -217,15 +236,18 @@ class LLMClient:
                     "content": "Your previous response was not valid JSON. Return only the JSON object.",
                 },
             ]
-            raw2 = await self._complete(messages, schema)
+            raw2 = await self._complete(messages, schema, retry=True)
             try:
-                return json.loads(raw2)
+                result2 = json.loads(raw2)
+                _logger.debug("llm extract retry ok", extra={"schema": schema["name"], "result": result2})
+                return result2
             except json.JSONDecodeError as exc:
+                _logger.error("llm extract failed after retry", extra={"schema": schema["name"], "raw": raw2})
                 raise ValueError(
                     f"LLM returned invalid JSON after retry. Raw output: {raw2!r}"
                 ) from exc
 
-    async def _complete(self, messages: list[dict], schema: dict[str, Any]) -> str:
+    async def _complete(self, messages: list[dict], schema: dict[str, Any], retry: bool = False) -> str:
         """Send a non-streaming chat completion request; return the content string."""
         payload = {
             "model": self._model,
@@ -233,6 +255,7 @@ class LLMClient:
             "response_format": {"type": "json_schema", "json_schema": schema},
             "stream": False,
         }
+        t0 = time.monotonic()
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 self._completions_url,
@@ -240,10 +263,93 @@ class LLMClient:
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
+        latency_ms = round((time.monotonic() - t0) * 1000)
+        usage = data.get("usage", {})
+        _logger.info(
+            "llm complete",
+            extra={
+                "schema": schema["name"],
+                "retry": retry,
+                "latency_ms": latency_ms,
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+                "messages": messages,
+                "response": content,
+            },
+        )
+        return content
 
     # ------------------------------------------------------------------
-    # Query / chat path — streaming, history-aware
+    # Query path — parse intent + conversational answer
+    # ------------------------------------------------------------------
+
+    async def parse_query(self, user_message: str) -> dict[str, Any]:
+        """
+        Parse a natural language query into structured filter criteria.
+
+        Returns the parsed JSON dict (filters + freetext).
+        Raises ValueError on JSON parse failure after retry.
+        """
+        messages = [
+            {"role": "system", "content": QUERY_SYSTEM_PROMPT},
+            {"role": "user",   "content": user_message},
+        ]
+        return await self._extract_with_retry(messages, QUERY_SCHEMA)
+
+    async def answer(
+        self,
+        user_message: str,
+        parts: list[dict],
+        history: ConversationHistory,
+    ) -> str:
+        """
+        Generate a conversational answer to the user's question given matching parts.
+
+        Appends the exchange to history.
+        """
+        inventory_ctx = json.dumps(parts, indent=2) if parts else "No matching parts found."
+        user_turn = f"{user_message}\n\nInventory context:\n{inventory_ctx}"
+
+        history.append("user", user_message)
+        messages = [
+            {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
+            *history.messages()[:-1],  # history without the just-appended user turn
+            {"role": "user", "content": user_turn},
+        ]
+        reply = await self._complete_text(messages)
+        history.append("assistant", reply)
+        return reply
+
+    async def _complete_text(self, messages: list[dict]) -> str:
+        """Send a non-streaming chat completion request with free-form text output."""
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "stream": False,
+        }
+        t0 = time.monotonic()
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(self._completions_url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+        latency_ms = round((time.monotonic() - t0) * 1000)
+        usage = data.get("usage", {})
+        _logger.info(
+            "llm answer",
+            extra={
+                "latency_ms": latency_ms,
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+                "messages": messages,
+                "response": content,
+            },
+        )
+        return content
+
+    # ------------------------------------------------------------------
+    # Streaming (kept for future use)
     # ------------------------------------------------------------------
 
     async def stream(
@@ -273,6 +379,7 @@ class LLMClient:
         }
 
         assembled: list[str] = []
+        t0 = time.monotonic()
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             async with client.stream(
                 "POST",
@@ -296,4 +403,14 @@ class LLMClient:
                         assembled.append(token)
                         yield token
 
-        history.append("assistant", "".join(assembled))
+        reply = "".join(assembled)
+        latency_ms = round((time.monotonic() - t0) * 1000)
+        _logger.info(
+            "llm stream",
+            extra={
+                "latency_ms": latency_ms,
+                "messages": messages,
+                "response": reply,
+            },
+        )
+        history.append("assistant", reply)

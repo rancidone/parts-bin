@@ -12,6 +12,7 @@ import tomllib
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
+import log
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -34,6 +35,9 @@ def _load_config() -> dict:
     with open(_CONFIG_PATH, "rb") as f:
         return tomllib.load(f)
 
+
+log.init()
+_logger = log.get_logger("parts_bin.server")
 
 _cfg = _load_config()
 _DB_PATH = Path(_cfg["db"]["path"])
@@ -58,6 +62,7 @@ app.add_middleware(
 
 _llm = LLMClient(base_url=_cfg["llama"]["base_url"])
 _history = ConversationHistory()
+_ingestion_history = ConversationHistory(max_turns=10)
 
 # Initialise DB at startup.
 init_db(_DB_PATH)
@@ -76,11 +81,23 @@ _INGEST_PATTERNS = _re.compile(
     _re.IGNORECASE,
 )
 
+# Follow-up corrections: "those were 5mm LEDs", "they are common anode", etc.
+_CORRECTION_PATTERNS = _re.compile(
+    r"^those (were|are)\b"
+    r"|^they (were|are)\b"
+    r"|^it (is|was|'s) (a|an)\b",
+    _re.IGNORECASE,
+)
+
+
+def _is_correction(message: str) -> bool:
+    return bool(_CORRECTION_PATTERNS.match(message))
+
 
 def _is_ingestion(message: str, has_photo: bool) -> bool:
     if has_photo:
         return True
-    return bool(_INGEST_PATTERNS.search(message))
+    return bool(_INGEST_PATTERNS.search(message)) or _is_correction(message)
 
 
 # ---------------------------------------------------------------------------
@@ -91,8 +108,9 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-async def _ingestion_stream(message: str, image_b64: str | None) -> AsyncGenerator[str, None]:
-    async for evt in run_ingestion(_DB_PATH, _llm, message, image_b64, _DIGIKEY_CREDS):
+async def _ingestion_stream(message: str, image_b64: str | None, is_correction: bool = False) -> AsyncGenerator[str, None]:
+    async for evt in run_ingestion(_DB_PATH, _llm, message, image_b64, _DIGIKEY_CREDS,
+                                   history=_ingestion_history, is_correction=is_correction):
         if evt["type"] == "result":
             yield _sse("result", {"type": "ingest", "part": evt["part"]})
         elif evt["type"] == "clarification":
@@ -105,9 +123,9 @@ async def _ingestion_stream(message: str, image_b64: str | None) -> AsyncGenerat
 async def _query_stream(message: str) -> AsyncGenerator[str, None]:
     result = await run_query(_DB_PATH, _llm, message, _history)
     if result["type"] == "results":
-        yield _sse("result", {"type": "query", "matches": result["parts"]})
+        yield _sse("result", {"type": "query", "matches": result["parts"], "answer": result.get("answer")})
     elif result["type"] == "not_found":
-        yield _sse("result", {"type": "query", "matches": [], "message": result["message"]})
+        yield _sse("result", {"type": "query", "matches": [], "answer": result.get("answer")})
     elif result["type"] == "error":
         yield _sse("error", {"message": result["message"], "detail": ""})
     yield _sse("done", {})
@@ -140,12 +158,17 @@ async def inventory_csv():
 
 @app.post("/chat")
 async def chat(
-    message: str = Form(...),
+    message: str = Form(default=""),
     photo: UploadFile | None = File(default=None),
 ) -> StreamingResponse:
     # Validate photo type if provided.
     if photo is not None and photo.content_type not in ("image/jpeg", "image/png", "image/webp"):
         raise HTTPException(status_code=400, detail="Unsupported image type. Use JPEG, PNG, or WebP.")
+
+    if not message and photo is None:
+        raise HTTPException(status_code=422, detail="message or photo required")
+    if not message and photo is not None:
+        message = "add this"
 
     image_b64: str | None = None
     if photo is not None:
@@ -158,8 +181,12 @@ async def chat(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-    if _is_ingestion(message, has_photo=image_b64 is not None):
-        stream = _ingestion_stream(message, image_b64)
+    route = "ingestion" if _is_ingestion(message, has_photo=image_b64 is not None) else "query"
+    correction = route == "ingestion" and _is_correction(message)
+    _logger.info("chat request", extra={"route": route, "is_correction": correction, "has_photo": image_b64 is not None, "user_message": message})
+
+    if route == "ingestion":
+        stream = _ingestion_stream(message, image_b64, is_correction=correction)
     else:
         stream = _query_stream(message)
 
