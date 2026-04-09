@@ -48,12 +48,6 @@ _PROVIDER_LABEL_FIELD_MAP = {
         "supplier device package": "package",
         "detailed description": "description",
     },
-    "lcsc": {
-        **_GENERIC_LABEL_FIELD_MAP,
-        "encapsulation": "package",
-        "package/ case": "package",
-        "manufacturer": "manufacturer",
-    },
 }
 
 
@@ -74,8 +68,6 @@ def detect_provider(url: str) -> str | None:
     host = urlparse(url).netloc.lower()
     if "digikey." in host:
         return "digikey"
-    if "lcsc." in host:
-        return "lcsc"
     return None
 
 
@@ -90,7 +82,7 @@ def extract_html_candidates(url: str, body: str) -> dict[str, dict]:
     _merge_candidates(candidates, _extract_json_ld_candidates(body))
     _merge_candidates(candidates, _extract_meta_description_candidate(body))
 
-    if provider in {"digikey", "lcsc"}:
+    if provider == "digikey":
         _merge_candidates(candidates, _extract_labeled_row_candidates(body, provider))
 
     return {
