@@ -113,6 +113,102 @@ class TestLookupResolution:
         assert result["requires_confirmation"] is True
         assert result["conflicts"][0]["field_name"] == "manufacturer"
 
+    @pytest.mark.asyncio
+    async def test_fetch_specs_detailed_uses_api_derived_page_to_fill_missing_field(self):
+        original_async_client = httpx.AsyncClient
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/product":
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "text/html"},
+                    text="""
+                    <html>
+                      <head>
+                        <script type="application/ld+json">
+                          {
+                            "@type": "Product",
+                            "mpn": "TLV62565DBVR",
+                            "manufacturer": {"name": "Texas Instruments"},
+                            "additionalProperty": [
+                              {"name": "Package / Case", "value": "SOT-23-5"}
+                            ]
+                          }
+                        </script>
+                      </head>
+                    </html>
+                    """,
+                )
+            return httpx.Response(404)
+
+        transport = httpx.MockTransport(handler)
+
+        with patch(
+            "ingestion.lookup.httpx.AsyncClient",
+            side_effect=lambda *args, **kwargs: original_async_client(transport=transport),
+        ):
+            with patch("ingestion.lookup._lcsc_lookup_detailed", AsyncMock(return_value={
+                "specs": {
+                    "part_number": "TLV62565DBVR",
+                    "manufacturer": "Texas Instruments",
+                },
+                "debug": {"product_url": "https://example.com/product"},
+                "status": "ok",
+            })):
+                result = await fetch_specs_detailed("TLV62565DBVR", digikey_credentials=None)
+
+        assert result["outcome"] == "saved"
+        assert result["chosen_updates"]["package"] == "SOT-23-5"
+        assert any(
+            attempt["authority_tier"] == "api_derived_page"
+            for attempt in result["source_attempts"]
+        )
+        package_candidates = result["field_candidates"]["package"]
+        assert package_candidates[0]["extraction_method"] in {
+            "digikey-html-labeled-row",
+            "json-ld-additional-property",
+        }
+        assert package_candidates[0]["evidence"]
+
+    @pytest.mark.asyncio
+    async def test_fetch_specs_detailed_uses_api_derived_pdf_to_fill_missing_field(self):
+        original_async_client = httpx.AsyncClient
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/datasheet.pdf":
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "application/pdf"},
+                    content=b"%PDF-1.4 Manufacturer: Texas Instruments Package / Case: SOT-23-5",
+                )
+            return httpx.Response(404)
+
+        transport = httpx.MockTransport(handler)
+
+        with patch(
+            "ingestion.lookup.httpx.AsyncClient",
+            side_effect=lambda *args, **kwargs: original_async_client(transport=transport),
+        ):
+            with patch("ingestion.lookup._lcsc_lookup_detailed", AsyncMock(return_value={
+                "specs": {
+                    "part_number": "TLV62565DBVR",
+                    "manufacturer": "Texas Instruments",
+                },
+                "debug": {"datasheet_url": "https://example.com/datasheet.pdf"},
+                "status": "ok",
+            })):
+                result = await fetch_specs_detailed("TLV62565DBVR", digikey_credentials=None)
+
+        assert result["outcome"] == "saved"
+        assert result["chosen_updates"]["package"] == "SOT-23-5"
+        assert any(
+            attempt["authority_tier"] == "api_derived_pdf"
+            for attempt in result["source_attempts"]
+        )
+        package_candidates = result["field_candidates"]["package"]
+        assert package_candidates[0]["extraction_method"] == "pdf-labeled-text"
+        assert "Package / Case" in package_candidates[0]["evidence"]
+
     def test_digikey_debug_summary_extracts_identifying_fields(self):
         summary = _digikey_debug_summary({
             "Product": {

@@ -132,6 +132,10 @@ async def _execute_action(action_type: str, part: dict) -> tuple[int | None, str
         })
         if lookup_result.get("outcome") == "conflict":
             return part_id, "lookup-conflict"
+        if lookup_result.get("outcome") == "incomplete":
+            return part_id, "lookup-incomplete"
+        if lookup_result.get("outcome") == "failed":
+            return part_id, "lookup-failed"
         if lookup_result.get("status") == "timeout":
             return part_id, "lookup-timeout"
         return part_id, "no-specs"
@@ -176,6 +180,10 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
         response_text = "I reached the configured parts providers, but the DigiKey lookup timed out before it returned specifications."
     elif action_type == "lookup" and action_status == "lookup-conflict":
         response_text = "I found conflicting high-authority part metadata across the configured providers, so I did not update the inventory record automatically."
+    elif action_type == "lookup" and action_status == "lookup-incomplete":
+        response_text = "I found the part in the configured provider sources, but they still did not expose enough trustworthy metadata to update the inventory record."
+    elif action_type == "lookup" and action_status == "lookup-failed":
+        response_text = "The lookup terminated due to a provider or retrieval error before I could verify enough metadata to update the inventory record."
     elif action_type == "lookup" and action_status == "no-specs":
         response_text = "I ran the lookup, but the configured parts providers did not return matching specifications for that part number."
 

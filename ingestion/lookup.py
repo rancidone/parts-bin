@@ -6,12 +6,16 @@ Lookup failure is non-fatal; callers receive a structured enrichment result.
 """
 
 from collections import defaultdict
+from urllib.parse import urlparse
 
 import httpx
 
 import log
+from ingestion.pdf_extract import extract_pdf_candidates
+from ingestion.source_extract import classify_content, extract_html_candidates
 
 _logger = log.get_logger("parts_bin.lookup")
+_FALLBACK_FIELD_SCOPE = ("manufacturer", "part_number", "package", "description")
 
 # ---------------------------------------------------------------------------
 # LCSC
@@ -58,6 +62,7 @@ def _lcsc_debug_summary(product: dict, part_number: str) -> dict:
         "requested_part_number": part_number,
         "manufacturer_part_number": product.get("productModel"),
         "product_url": product.get("productUrl"),
+        "datasheet_url": _first_present_url(product, "dataManualUrl", "datasheetUrl", "dataSheetUrl"),
         "product_description": product.get("productDescEn"),
         "manufacturer": product.get("brandNameEn"),
         "package": product.get("encapStandard"),
@@ -230,12 +235,26 @@ def _digikey_debug_summary(data: dict, part_number: str) -> dict:
         "digikey_part_number": product.get("DigiKeyPartNumber"),
         "manufacturer_part_number": product.get("ManufacturerPartNumber"),
         "product_url": product.get("ProductUrl"),
+        "datasheet_url": _first_present_url(product, "DatasheetUrl", "PrimaryDatasheet", "PrimaryDatasheetUrl"),
         "product_description": product.get("ProductDescription"),
         "detailed_description": product.get("DetailedDescription"),
         "manufacturer": manufacturer.get("Name") if isinstance(manufacturer, dict) else manufacturer,
         "package": package_type.get("Name") if isinstance(package_type, dict) else package_type,
         "series": product.get("Series"),
     }
+
+
+def _first_present_url(payload: dict, *keys: str) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, dict):
+            for nested_key in ("Url", "url", "Value", "value"):
+                nested_value = value.get(nested_key)
+                if isinstance(nested_value, str) and nested_value.strip():
+                    return nested_value.strip()
+        elif isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def _build_source_attempt(
@@ -257,22 +276,26 @@ def _build_source_attempt(
         "status": lookup_status,
         "source_locator": locator,
         "fields": specs or {},
+        "field_metadata": {},
         "diagnostics": debug,
+        "warnings": [],
         "error": error,
     }
 
 
 def _candidate_from_attempt(field_name: str, value: str, attempt: dict) -> dict:
+    field_metadata = (attempt.get("field_metadata") or {}).get(field_name, {})
     return {
         "field_name": field_name,
         "candidate_value": value,
         "source_tier": attempt["authority_tier"],
         "source_kind": attempt["source_kind"],
         "source_locator": attempt["source_locator"],
-        "extraction_method": "api",
+        "extraction_method": field_metadata.get("method", "api"),
         "confidence_marker": "high",
         "conflict_status": "clear",
         "provider": attempt["provider"],
+        "evidence": field_metadata.get("evidence"),
     }
 
 
@@ -363,8 +386,198 @@ def _provenance_from_candidates(chosen_candidates: list[dict]) -> list[dict]:
             "conflict_status": candidate["conflict_status"],
             "normalization_method": "direct_copy",
             "competing_candidates": [],
+            "evidence": candidate.get("evidence"),
         })
     return records
+
+
+def _missing_fallback_fields(chosen_updates: dict) -> list[str]:
+    return [field_name for field_name in _FALLBACK_FIELD_SCOPE if not chosen_updates.get(field_name)]
+
+
+async def _fetch_api_derived_product_page(
+    source_attempts: list[dict],
+    chosen_updates: dict,
+    client: httpx.AsyncClient,
+) -> dict | None:
+    missing_fields = _missing_fallback_fields(chosen_updates)
+    if not missing_fields:
+        return None
+
+    for attempt in source_attempts:
+        if attempt["status"] != "ok" or not attempt["diagnostics"]:
+            continue
+        product_url = attempt["diagnostics"].get("product_url")
+        if not product_url:
+            continue
+        try:
+            resp = await client.get(product_url, timeout=10.0, follow_redirects=True)
+            resp.raise_for_status()
+            classification = classify_content(resp.headers.get("content-type"), resp.text)
+            if classification != "structured_html_product_page":
+                return {
+                    "provider": attempt["provider"],
+                    "authority_tier": "api_derived_page",
+                    "source_kind": "product_page",
+                    "status": "unsupported-content",
+                    "source_locator": str(resp.url),
+                    "fields": {},
+                    "diagnostics": {
+                        "requested_url": product_url,
+                        "resolved_url": str(resp.url),
+                        "content_type": resp.headers.get("content-type"),
+                        "classification": classification,
+                    },
+                    "error": None,
+                }
+
+            extracted_candidates = extract_html_candidates(str(resp.url), resp.text)
+            filtered_candidates = {
+                field_name: candidate
+                for field_name, candidate in extracted_candidates.items()
+                if field_name in missing_fields
+            }
+            return {
+                "provider": attempt["provider"],
+                "authority_tier": "api_derived_page",
+                "source_kind": "product_page",
+                "status": "ok" if filtered_candidates else "no-candidates",
+                "source_locator": str(resp.url),
+                "fields": {
+                    field_name: candidate["value"]
+                    for field_name, candidate in filtered_candidates.items()
+                },
+                "field_metadata": filtered_candidates,
+                "diagnostics": {
+                    "requested_url": product_url,
+                    "resolved_url": str(resp.url),
+                    "content_type": resp.headers.get("content-type"),
+                    "classification": classification,
+                    "provider_host": urlparse(str(resp.url)).netloc.lower(),
+                },
+                "warnings": [] if filtered_candidates else ["extractor-produced-no-candidates"],
+                "error": None,
+            }
+        except httpx.ReadTimeout as exc:
+            return {
+                "provider": attempt["provider"],
+                "authority_tier": "api_derived_page",
+                "source_kind": "product_page",
+                "status": "timeout",
+                "source_locator": product_url,
+                "fields": {},
+                "field_metadata": {},
+                "diagnostics": {"requested_url": product_url},
+                "warnings": ["retrieval-timeout"],
+                "error": _http_error_details(exc),
+            }
+        except Exception as exc:
+            return {
+                "provider": attempt["provider"],
+                "authority_tier": "api_derived_page",
+                "source_kind": "product_page",
+                "status": "failed",
+                "source_locator": product_url,
+                "fields": {},
+                "field_metadata": {},
+                "diagnostics": {"requested_url": product_url},
+                "warnings": ["retrieval-failed"],
+                "error": _http_error_details(exc),
+            }
+    return None
+
+
+async def _fetch_api_derived_pdf(
+    source_attempts: list[dict],
+    chosen_updates: dict,
+    client: httpx.AsyncClient,
+) -> dict | None:
+    missing_fields = _missing_fallback_fields(chosen_updates)
+    if not missing_fields:
+        return None
+
+    for attempt in source_attempts:
+        if attempt["status"] != "ok" or not attempt["diagnostics"]:
+            continue
+        datasheet_url = attempt["diagnostics"].get("datasheet_url")
+        if not datasheet_url:
+            continue
+        try:
+            resp = await client.get(datasheet_url, timeout=10.0, follow_redirects=True)
+            resp.raise_for_status()
+            classification = classify_content(resp.headers.get("content-type"), resp.content.decode("latin-1", errors="ignore"))
+            if classification != "pdf_document":
+                return {
+                    "provider": attempt["provider"],
+                    "authority_tier": "api_derived_pdf",
+                    "source_kind": "pdf_document",
+                    "status": "unsupported-content",
+                    "source_locator": str(resp.url),
+                    "fields": {},
+                    "field_metadata": {},
+                    "diagnostics": {
+                        "requested_url": datasheet_url,
+                        "resolved_url": str(resp.url),
+                        "content_type": resp.headers.get("content-type"),
+                        "classification": classification,
+                    },
+                    "warnings": ["pdf-url-did-not-return-pdf"],
+                    "error": None,
+                }
+
+            extracted_candidates = extract_pdf_candidates(resp.content)
+            filtered_candidates = {
+                field_name: candidate
+                for field_name, candidate in extracted_candidates.items()
+                if field_name in missing_fields
+            }
+            return {
+                "provider": attempt["provider"],
+                "authority_tier": "api_derived_pdf",
+                "source_kind": "pdf_document",
+                "status": "ok" if filtered_candidates else "no-candidates",
+                "source_locator": str(resp.url),
+                "fields": {
+                    field_name: candidate["value"]
+                    for field_name, candidate in filtered_candidates.items()
+                },
+                "field_metadata": filtered_candidates,
+                "diagnostics": {
+                    "requested_url": datasheet_url,
+                    "resolved_url": str(resp.url),
+                    "content_type": resp.headers.get("content-type"),
+                    "classification": classification,
+                },
+                "warnings": [] if filtered_candidates else ["pdf-extractor-produced-no-candidates"],
+                "error": None,
+            }
+        except httpx.ReadTimeout as exc:
+            return {
+                "provider": attempt["provider"],
+                "authority_tier": "api_derived_pdf",
+                "source_kind": "pdf_document",
+                "status": "timeout",
+                "source_locator": datasheet_url,
+                "fields": {},
+                "field_metadata": {},
+                "diagnostics": {"requested_url": datasheet_url},
+                "warnings": ["pdf-retrieval-timeout"],
+                "error": _http_error_details(exc),
+            }
+        except Exception as exc:
+            return {
+                "provider": attempt["provider"],
+                "authority_tier": "api_derived_pdf",
+                "source_kind": "pdf_document",
+                "status": "failed",
+                "source_locator": datasheet_url,
+                "fields": {},
+                "field_metadata": {},
+                "diagnostics": {"requested_url": datasheet_url},
+                "warnings": ["pdf-retrieval-failed"],
+                "error": _http_error_details(exc),
+            }
+    return None
 
 
 async def fetch_specs_detailed(
@@ -418,12 +631,33 @@ async def fetch_specs_detailed(
             if digikey_result.get("debug"):
                 _logger.debug("digikey raw response", extra=digikey_result["debug"])
 
-    field_candidates = _build_field_candidates(source_attempts)
-    chosen_updates, chosen_candidates, conflicts, outcome = _reconcile_candidates(
-        part_number,
-        field_candidates,
-        source_attempts,
-    )
+        field_candidates = _build_field_candidates(source_attempts)
+        chosen_updates, chosen_candidates, conflicts, outcome = _reconcile_candidates(
+            part_number,
+            field_candidates,
+            source_attempts,
+        )
+
+        if outcome != "conflict":
+            page_attempt = await _fetch_api_derived_product_page(source_attempts, chosen_updates, client)
+            if page_attempt is not None:
+                source_attempts.append(page_attempt)
+                field_candidates = _build_field_candidates(source_attempts)
+                chosen_updates, chosen_candidates, conflicts, outcome = _reconcile_candidates(
+                    part_number,
+                    field_candidates,
+                    source_attempts,
+                )
+            pdf_attempt = await _fetch_api_derived_pdf(source_attempts, chosen_updates, client)
+            if pdf_attempt is not None:
+                source_attempts.append(pdf_attempt)
+                field_candidates = _build_field_candidates(source_attempts)
+                chosen_updates, chosen_candidates, conflicts, outcome = _reconcile_candidates(
+                    part_number,
+                    field_candidates,
+                    source_attempts,
+                )
+
     provenance = _provenance_from_candidates(chosen_candidates)
     provider = chosen_candidates[0]["provider"] if chosen_candidates else None
 
