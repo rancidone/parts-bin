@@ -391,8 +391,8 @@ async def _fetch_api_derived_product_page(
             })
         except httpx.ReadTimeout:
             _logger.debug("product page timeout", extra={"provider": attempt["provider"], "url": product_url})
-        except Exception:
-            _logger.debug("product page failed", extra={"provider": attempt["provider"], "url": product_url})
+        except Exception as exc:
+            _logger.debug("product page failed", extra={"provider": attempt["provider"], "url": product_url, **_http_error_details(exc)})
     return None
 
 
