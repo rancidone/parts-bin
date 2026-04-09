@@ -66,7 +66,12 @@ export function Settings({ active }: { active: boolean }) {
           Local JLCPCB/LCSC parts catalog for offline spec lookup.
           The database is several hundred MB and is fetched from the jlcparts project.
         </p>
-        {jlc && (
+        {jlc?.status === 'not_configured' && (
+          <p className={styles.notConfigured}>
+            Set <code>jlcparts.db_path</code> in <code>config.toml</code> to enable.
+          </p>
+        )}
+        {jlc && jlc.status !== 'not_configured' && (
           <div className={styles.row}>
             <span className={`${styles.statusDot} ${styles[jlc.status]}`} />
             <span className={styles.statusText}>
@@ -92,8 +97,8 @@ export function Settings({ active }: { active: boolean }) {
               </button>
             )}
           </div>
+          {jlc.path && <div className={styles.path}>{jlc.path}</div>}
         )}
-        {jlc?.path && <div className={styles.path}>{jlc.path}</div>}
       </section>
     </div>
   )
