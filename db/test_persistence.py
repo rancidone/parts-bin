@@ -4,6 +4,7 @@ Tests for normalization and persistence layer.
 
 import tempfile
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -211,6 +212,7 @@ class TestFieldProvenance:
                 "confidence_marker": "high",
                 "conflict_status": "clear",
                 "normalization_method": "direct_copy",
+                "evidence": "Manufacturer: Texas Instruments",
                 "competing_candidates": [],
             }],
         )
@@ -219,6 +221,7 @@ class TestFieldProvenance:
         assert len(provenance) == 1
         assert provenance[0]["field_name"] == "manufacturer"
         assert provenance[0]["field_value"] == "Texas Instruments"
+        assert provenance[0]["evidence"] == "Manufacturer: Texas Instruments"
 
     def test_update_fields_with_provenance_replaces_stale_field_record(self, db):
         part_id = upsert(db, DISCRETE_IC)
@@ -237,6 +240,7 @@ class TestFieldProvenance:
                 "confidence_marker": "high",
                 "conflict_status": "clear",
                 "normalization_method": "direct_copy",
+                "evidence": "Manufacturer: Texas Instruments",
                 "competing_candidates": [],
             }],
         )
@@ -254,6 +258,7 @@ class TestFieldProvenance:
                 "confidence_marker": "high",
                 "conflict_status": "clear",
                 "normalization_method": "direct_copy",
+                "evidence": "Manufacturer: TI",
                 "competing_candidates": [],
             }],
         )
@@ -262,3 +267,38 @@ class TestFieldProvenance:
         assert len(provenance) == 1
         assert provenance[0]["field_value"] == "TI"
         assert provenance[0]["source_locator"] == "https://example.com/second"
+        assert provenance[0]["evidence"] == "Manufacturer: TI"
+
+    def test_init_db_adds_missing_evidence_column_for_existing_provenance_table(self, tmp_path):
+        db_path = tmp_path / "legacy.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            """
+            CREATE TABLE part_field_provenance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                part_id INTEGER NOT NULL,
+                field_name TEXT NOT NULL,
+                field_value TEXT,
+                source_tier TEXT NOT NULL,
+                source_kind TEXT NOT NULL,
+                source_locator TEXT,
+                extraction_method TEXT NOT NULL,
+                confidence_marker TEXT,
+                conflict_status TEXT NOT NULL DEFAULT 'clear',
+                normalization_method TEXT,
+                competing_candidates TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        init_db(db_path)
+
+        conn = sqlite3.connect(db_path)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(part_field_provenance)").fetchall()}
+        conn.close()
+
+        assert "evidence" in columns

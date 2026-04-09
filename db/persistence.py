@@ -157,7 +157,22 @@ def init_db(db_path: str | Path) -> None:
     conn = _connect(db_path)
     with conn:
         conn.executescript(schema)
+        _ensure_part_field_provenance_columns(conn)
     conn.close()
+
+
+def _ensure_part_field_provenance_columns(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(part_field_provenance)").fetchall()
+    if not rows:
+        return
+
+    existing_columns = {row["name"] for row in rows}
+    required_columns = {
+        "evidence": "TEXT",
+    }
+    for column_name, column_type in required_columns.items():
+        if column_name not in existing_columns:
+            conn.execute(f"ALTER TABLE part_field_provenance ADD COLUMN {column_name} {column_type}")
 
 
 def _update_fields_with_conn(conn: sqlite3.Connection, part_id: int, fields: dict) -> int:
@@ -187,10 +202,12 @@ def _save_field_provenance_with_conn(
             INSERT INTO part_field_provenance
                 (part_id, field_name, field_value, source_tier, source_kind, source_locator,
                  extraction_method, confidence_marker, conflict_status, normalization_method,
+                 evidence,
                  competing_candidates, created_at, updated_at)
             VALUES
                 (:part_id, :field_name, :field_value, :source_tier, :source_kind, :source_locator,
                  :extraction_method, :confidence_marker, :conflict_status, :normalization_method,
+                 :evidence,
                  :competing_candidates, :created_at, :updated_at)
             ON CONFLICT(part_id, field_name) DO UPDATE SET
                 field_value = excluded.field_value,
@@ -201,6 +218,7 @@ def _save_field_provenance_with_conn(
                 confidence_marker = excluded.confidence_marker,
                 conflict_status = excluded.conflict_status,
                 normalization_method = excluded.normalization_method,
+                evidence = excluded.evidence,
                 competing_candidates = excluded.competing_candidates,
                 updated_at = excluded.updated_at
             """,
@@ -215,6 +233,7 @@ def _save_field_provenance_with_conn(
                 "confidence_marker": record.get("confidence_marker"),
                 "conflict_status": record.get("conflict_status", "clear"),
                 "normalization_method": record.get("normalization_method"),
+                "evidence": record.get("evidence"),
                 "competing_candidates": json.dumps(record.get("competing_candidates", [])),
                 "created_at": now,
                 "updated_at": now,
@@ -338,7 +357,7 @@ def list_field_provenance(db_path: str | Path, part_id: int) -> list[dict]:
             """
             SELECT field_name, field_value, source_tier, source_kind, source_locator,
                    extraction_method, confidence_marker, conflict_status,
-                   normalization_method, competing_candidates
+                   normalization_method, evidence, competing_candidates
             FROM part_field_provenance
             WHERE part_id = ?
             ORDER BY field_name

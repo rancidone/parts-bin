@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS part_field_provenance (
     confidence_marker    TEXT,
     conflict_status      TEXT    NOT NULL DEFAULT 'clear',
     normalization_method TEXT,
+    evidence             TEXT,
     competing_candidates TEXT,
     created_at           TEXT    NOT NULL,
     updated_at           TEXT    NOT NULL

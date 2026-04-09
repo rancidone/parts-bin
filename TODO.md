@@ -21,27 +21,27 @@
 - [x] Normalize LCSC and DigiKey API responses into source records instead of raw field dicts.
 - [x] Detect blocking disagreement on `part_number`, `package`, `manufacturer`, and categorization.
 - [x] Reconcile non-conflicting high-authority fields into chosen updates.
-- [ ] Return explicit outcomes: `saved`, `no_match`, `incomplete`, `conflict`, `timeout`, `failed`, `needs_confirmation`.
+- [x] Return explicit outcomes: `saved`, `no_match`, `incomplete`, `conflict`, `timeout`, `failed`, `needs_confirmation`.
 
 ### 4. API-derived page extraction
 
-- [ ] Fetch only API-derived product page URLs.
-- [ ] Classify fetched content before extraction.
-- [ ] Add dedicated DigiKey and LCSC HTML extractors with structured-first parsing.
-- [ ] Emit candidate values with bounded evidence snippets and warnings.
+- [x] Fetch only API-derived product page URLs.
+- [x] Classify fetched content before extraction.
+- [x] Add dedicated DigiKey and LCSC HTML extractors with structured-first parsing.
+- [x] Emit candidate values with bounded evidence snippets and warnings.
 
 ### 5. API-derived PDF extraction
 
-- [ ] Follow PDF URLs from API payloads or API-derived pages only.
-- [ ] Add bounded PDF metadata extraction for inventory-relevant fields.
+- [x] Follow PDF URLs from API payloads or API-derived pages only.
+- [x] Add bounded PDF metadata extraction for inventory-relevant fields.
 - [ ] Emit page references and extraction snippets for recovered candidates.
 - [ ] Keep ambiguous family-level or variant-level PDF data out of automatic updates.
 
 ### 6. Server and ingestion integration
 
 - [x] Update lookup actions to persist reconciled updates plus provenance.
-- [ ] Surface conflict/incomplete/timeout outcomes in server responses.
-- [ ] Route new-part ingestion through the same enrichment runtime.
+- [x] Surface conflict/incomplete/timeout outcomes in server responses.
+- [x] Route new-part ingestion through the same enrichment runtime.
 - [ ] Avoid direct field writes from raw provider payloads.
 
 ### 7. Tests
