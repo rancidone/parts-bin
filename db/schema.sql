@@ -21,3 +21,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_passive
 CREATE UNIQUE INDEX IF NOT EXISTS uq_discrete
     ON parts (part_number)
     WHERE part_number IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS part_field_provenance (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    part_id              INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+    field_name           TEXT    NOT NULL,
+    field_value          TEXT,
+    source_tier          TEXT    NOT NULL,
+    source_kind          TEXT    NOT NULL,
+    source_locator       TEXT,
+    extraction_method    TEXT    NOT NULL,
+    confidence_marker    TEXT,
+    conflict_status      TEXT    NOT NULL DEFAULT 'clear',
+    normalization_method TEXT,
+    competing_candidates TEXT,
+    created_at           TEXT    NOT NULL,
+    updated_at           TEXT    NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_part_field_provenance
+    ON part_field_provenance (part_id, field_name);

@@ -11,8 +11,10 @@ from db.persistence import (
     export_csv,
     init_db,
     list_all,
+    list_field_provenance,
     normalize_value,
     query,
+    update_fields_with_provenance,
     upsert,
 )
 
@@ -189,3 +191,74 @@ class TestExportCsv:
         lines = csv_str.splitlines()
         assert "resistor" in lines[1]
         assert "10k" in lines[1]
+
+
+class TestFieldProvenance:
+    def test_update_fields_with_provenance_persists_records(self, db):
+        part_id = upsert(db, DISCRETE_IC)
+
+        update_fields_with_provenance(
+            db,
+            part_id,
+            {"manufacturer": "Texas Instruments"},
+            [{
+                "field_name": "manufacturer",
+                "field_value": "Texas Instruments",
+                "source_tier": "primary_api",
+                "source_kind": "api",
+                "source_locator": "https://example.com/product",
+                "extraction_method": "api",
+                "confidence_marker": "high",
+                "conflict_status": "clear",
+                "normalization_method": "direct_copy",
+                "competing_candidates": [],
+            }],
+        )
+
+        provenance = list_field_provenance(db, part_id)
+        assert len(provenance) == 1
+        assert provenance[0]["field_name"] == "manufacturer"
+        assert provenance[0]["field_value"] == "Texas Instruments"
+
+    def test_update_fields_with_provenance_replaces_stale_field_record(self, db):
+        part_id = upsert(db, DISCRETE_IC)
+
+        update_fields_with_provenance(
+            db,
+            part_id,
+            {"manufacturer": "Texas Instruments"},
+            [{
+                "field_name": "manufacturer",
+                "field_value": "Texas Instruments",
+                "source_tier": "primary_api",
+                "source_kind": "api",
+                "source_locator": "https://example.com/first",
+                "extraction_method": "api",
+                "confidence_marker": "high",
+                "conflict_status": "clear",
+                "normalization_method": "direct_copy",
+                "competing_candidates": [],
+            }],
+        )
+        update_fields_with_provenance(
+            db,
+            part_id,
+            {"manufacturer": "TI"},
+            [{
+                "field_name": "manufacturer",
+                "field_value": "TI",
+                "source_tier": "primary_api",
+                "source_kind": "api",
+                "source_locator": "https://example.com/second",
+                "extraction_method": "api",
+                "confidence_marker": "high",
+                "conflict_status": "clear",
+                "normalization_method": "direct_copy",
+                "competing_candidates": [],
+            }],
+        )
+
+        provenance = list_field_provenance(db, part_id)
+        assert len(provenance) == 1
+        assert provenance[0]["field_value"] == "TI"
+        assert provenance[0]["source_locator"] == "https://example.com/second"
