@@ -7,6 +7,7 @@ Normalization of `value` is applied here before every read and write.
 
 import csv
 import io
+import json
 import re
 import sqlite3
 from datetime import datetime, timezone
@@ -159,6 +160,68 @@ def init_db(db_path: str | Path) -> None:
     conn.close()
 
 
+def _update_fields_with_conn(conn: sqlite3.Connection, part_id: int, fields: dict) -> int:
+    allowed = {"part_category", "profile", "value", "package", "part_number",
+               "manufacturer", "description"}
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not updates:
+        return part_id
+    updates["updated_at"] = _now()
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+    conn.execute(
+        f"UPDATE parts SET {set_clause} WHERE id = :id",
+        {**updates, "id": part_id},
+    )
+    return part_id
+
+
+def _save_field_provenance_with_conn(
+    conn: sqlite3.Connection,
+    part_id: int,
+    provenance_records: list[dict],
+) -> None:
+    now = _now()
+    for record in provenance_records:
+        conn.execute(
+            """
+            INSERT INTO part_field_provenance
+                (part_id, field_name, field_value, source_tier, source_kind, source_locator,
+                 extraction_method, confidence_marker, conflict_status, normalization_method,
+                 competing_candidates, created_at, updated_at)
+            VALUES
+                (:part_id, :field_name, :field_value, :source_tier, :source_kind, :source_locator,
+                 :extraction_method, :confidence_marker, :conflict_status, :normalization_method,
+                 :competing_candidates, :created_at, :updated_at)
+            ON CONFLICT(part_id, field_name) DO UPDATE SET
+                field_value = excluded.field_value,
+                source_tier = excluded.source_tier,
+                source_kind = excluded.source_kind,
+                source_locator = excluded.source_locator,
+                extraction_method = excluded.extraction_method,
+                confidence_marker = excluded.confidence_marker,
+                conflict_status = excluded.conflict_status,
+                normalization_method = excluded.normalization_method,
+                competing_candidates = excluded.competing_candidates,
+                updated_at = excluded.updated_at
+            """,
+            {
+                "part_id": part_id,
+                "field_name": record["field_name"],
+                "field_value": record.get("field_value"),
+                "source_tier": record["source_tier"],
+                "source_kind": record["source_kind"],
+                "source_locator": record.get("source_locator"),
+                "extraction_method": record["extraction_method"],
+                "confidence_marker": record.get("confidence_marker"),
+                "conflict_status": record.get("conflict_status", "clear"),
+                "normalization_method": record.get("normalization_method"),
+                "competing_candidates": json.dumps(record.get("competing_candidates", [])),
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+
+
 # ---------------------------------------------------------------------------
 # Persistence layer public API
 # ---------------------------------------------------------------------------
@@ -242,23 +305,49 @@ def update_fields(db_path: str | Path, part_id: int, fields: dict) -> int:
     Only the fields listed in `fields` with non-None values are written.
     Returns part_id.
     """
-    allowed = {"part_category", "profile", "value", "package", "part_number",
-               "manufacturer", "description"}
-    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
-    if not updates:
-        return part_id
-    updates["updated_at"] = _now()
-    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
     conn = _connect(db_path)
     try:
         with conn:
-            conn.execute(
-                f"UPDATE parts SET {set_clause} WHERE id = :id",
-                {**updates, "id": part_id},
-            )
+            _update_fields_with_conn(conn, part_id, fields)
     finally:
         conn.close()
     return part_id
+
+
+def update_fields_with_provenance(
+    db_path: str | Path,
+    part_id: int,
+    fields: dict,
+    provenance_records: list[dict],
+) -> int:
+    """Update fields and durable provenance for the same part in one transaction."""
+    conn = _connect(db_path)
+    try:
+        with conn:
+            _update_fields_with_conn(conn, part_id, fields)
+            _save_field_provenance_with_conn(conn, part_id, provenance_records)
+    finally:
+        conn.close()
+    return part_id
+
+
+def list_field_provenance(db_path: str | Path, part_id: int) -> list[dict]:
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT field_name, field_value, source_tier, source_kind, source_locator,
+                   extraction_method, confidence_marker, conflict_status,
+                   normalization_method, competing_candidates
+            FROM part_field_provenance
+            WHERE part_id = ?
+            ORDER BY field_name
+            """,
+            (part_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
 
 
 def query(db_path: str | Path, attrs: dict) -> list[dict]:

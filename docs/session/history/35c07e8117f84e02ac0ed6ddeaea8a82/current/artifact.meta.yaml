@@ -1,8 +1,0 @@
-history_id: 35c07e8117f84e02ac0ed6ddeaea8a82
-title: "Parts Bin \u2014 Implementation"
-closure_summary: 'Full implementation complete. All 6 design units built: Data Model
-  & Persistence, LLM Integration, Ingestion, Query, Photo Pipeline, Server/API, and
-  React/TypeScript/Vite UI. 74 unit tests passing. 14 E2E tests written, activate
-  automatically when LLM server is reachable. Stack running under uv.'
-closed_at: '2026-04-03T03:55:45.675172+00:00'
-checkpoint_id: 4745d323e07c41beacc34de9efead950

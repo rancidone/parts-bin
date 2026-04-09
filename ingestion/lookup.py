@@ -1,9 +1,11 @@
 """
 External spec lookup for discrete/IC parts.
 
-Provider priority: LCSC (no auth) → Digikey (OAuth2 client credentials).
-Lookup failure is non-fatal; caller receives whatever fields were found.
+Provider priority: LCSC (no auth) -> Digikey (OAuth2 client credentials).
+Lookup failure is non-fatal; callers receive a structured enrichment result.
 """
+
+from collections import defaultdict
 
 import httpx
 
@@ -40,6 +42,8 @@ async def _lcsc_lookup(part_number: str, client: httpx.AsyncClient) -> dict | No
 
 def _extract_lcsc_fields(product: dict) -> dict:
     result = {}
+    if product.get("productModel"):
+        result["part_number"] = product["productModel"]
     if product.get("brandNameEn"):
         result["manufacturer"] = product["brandNameEn"]
     if product.get("productDescEn"):
@@ -47,6 +51,45 @@ def _extract_lcsc_fields(product: dict) -> dict:
     if product.get("encapStandard"):
         result["package"] = product["encapStandard"]
     return result
+
+
+def _lcsc_debug_summary(product: dict, part_number: str) -> dict:
+    return {
+        "requested_part_number": part_number,
+        "manufacturer_part_number": product.get("productModel"),
+        "product_url": product.get("productUrl"),
+        "product_description": product.get("productDescEn"),
+        "manufacturer": product.get("brandNameEn"),
+        "package": product.get("encapStandard"),
+    }
+
+
+async def _lcsc_lookup_detailed(part_number: str, client: httpx.AsyncClient) -> dict:
+    try:
+        resp = await client.get(
+            "https://lcsc.com/api/global/search/search",
+            params={"q": part_number, "current_page": 1, "in_stock": False},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        products = data.get("result", {}).get("productSearchResultVO", {}).get("productList") or []
+        for product in products:
+            if (product.get("productModel") or "").upper() == part_number.upper():
+                return {
+                    "specs": _extract_lcsc_fields(product),
+                    "debug": _lcsc_debug_summary(product, part_number),
+                    "status": "ok",
+                }
+        return {"specs": None, "debug": None, "status": "no-match"}
+    except httpx.ReadTimeout as exc:
+        details = {"part_number": part_number, **_http_error_details(exc)}
+        _logger.warning("lcsc lookup timeout", extra=details)
+        return {"specs": None, "debug": None, "status": "timeout", "error": details}
+    except Exception as exc:
+        details = {"part_number": part_number, **_http_error_details(exc)}
+        _logger.warning("lcsc lookup failed", extra=details)
+        return {"specs": None, "debug": None, "status": "failed", "error": details}
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +206,8 @@ async def _digikey_lookup_detailed(
 
 def _extract_digikey_fields(product: dict) -> dict:
     result = {}
+    if product.get("ManufacturerPartNumber"):
+        result["part_number"] = product["ManufacturerPartNumber"]
     mfr = product.get("Manufacturer", {})
     if isinstance(mfr, dict) and mfr.get("Name"):
         result["manufacturer"] = mfr["Name"]
@@ -193,6 +238,135 @@ def _digikey_debug_summary(data: dict, part_number: str) -> dict:
     }
 
 
+def _build_source_attempt(
+    provider: str,
+    authority_tier: str,
+    lookup_status: str,
+    specs: dict | None,
+    debug: dict | None,
+    error: dict | None = None,
+) -> dict:
+    locator = None
+    if debug:
+        locator = debug.get("product_url") or debug.get("manufacturer_part_number") or debug.get("requested_part_number")
+
+    return {
+        "provider": provider,
+        "authority_tier": authority_tier,
+        "source_kind": "api",
+        "status": lookup_status,
+        "source_locator": locator,
+        "fields": specs or {},
+        "diagnostics": debug,
+        "error": error,
+    }
+
+
+def _candidate_from_attempt(field_name: str, value: str, attempt: dict) -> dict:
+    return {
+        "field_name": field_name,
+        "candidate_value": value,
+        "source_tier": attempt["authority_tier"],
+        "source_kind": attempt["source_kind"],
+        "source_locator": attempt["source_locator"],
+        "extraction_method": "api",
+        "confidence_marker": "high",
+        "conflict_status": "clear",
+        "provider": attempt["provider"],
+    }
+
+
+def _build_field_candidates(source_attempts: list[dict]) -> dict[str, list[dict]]:
+    candidates: dict[str, list[dict]] = defaultdict(list)
+    for attempt in source_attempts:
+        if attempt["status"] != "ok":
+            continue
+        for field_name, value in attempt["fields"].items():
+            if value is None:
+                continue
+            candidates[field_name].append(_candidate_from_attempt(field_name, value, attempt))
+    return dict(candidates)
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        key = value.strip().casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result
+
+
+def _reconcile_candidates(
+    part_number: str,
+    field_candidates: dict[str, list[dict]],
+    source_attempts: list[dict],
+) -> tuple[dict, list[dict], list[dict], str]:
+    identifying_fields = ("part_number", "manufacturer", "package", "part_category", "profile")
+    conflicts: list[dict] = []
+    chosen_updates: dict[str, str] = {}
+    chosen_candidates: list[dict] = []
+
+    for field_name in identifying_fields:
+        candidates = field_candidates.get(field_name, [])
+        unique_values = _dedupe_preserve_order([candidate["candidate_value"] for candidate in candidates])
+        if len(unique_values) > 1:
+            conflicts.append({
+                "field_name": field_name,
+                "values": unique_values,
+                "providers": [candidate["provider"] for candidate in candidates],
+            })
+            for candidate in candidates:
+                candidate["conflict_status"] = "conflict"
+
+    if conflicts:
+        return {}, [], conflicts, "conflict"
+
+    for field_name, candidates in field_candidates.items():
+        if not candidates:
+            continue
+        chosen = candidates[0]
+        if field_name == "description" and len(candidates) > 1:
+            longest = max(candidates, key=lambda candidate: len(candidate["candidate_value"]))
+            chosen = longest
+            chosen["extraction_method"] = "api-direct"
+        chosen_updates[field_name] = chosen["candidate_value"]
+        chosen_candidates.append(chosen)
+
+    if chosen_updates:
+        return chosen_updates, chosen_candidates, conflicts, "saved"
+
+    statuses = [attempt["status"] for attempt in source_attempts]
+    if any(status == "timeout" for status in statuses):
+        return {}, [], conflicts, "timeout"
+    if any(status == "failed" for status in statuses):
+        return {}, [], conflicts, "failed"
+    if any(status == "ok" for status in statuses):
+        return {}, [], conflicts, "incomplete"
+    return {}, [], conflicts, "no_match"
+
+
+def _provenance_from_candidates(chosen_candidates: list[dict]) -> list[dict]:
+    records: list[dict] = []
+    for candidate in chosen_candidates:
+        records.append({
+            "field_name": candidate["field_name"],
+            "field_value": candidate["candidate_value"],
+            "source_tier": candidate["source_tier"],
+            "source_kind": candidate["source_kind"],
+            "source_locator": candidate["source_locator"],
+            "extraction_method": candidate["extraction_method"],
+            "confidence_marker": candidate["confidence_marker"],
+            "conflict_status": candidate["conflict_status"],
+            "normalization_method": "direct_copy",
+            "competing_candidates": [],
+        })
+    return records
+
+
 async def fetch_specs_detailed(
     part_number: str,
     digikey_credentials: dict | None = None,
@@ -209,23 +383,21 @@ async def fetch_specs_detailed(
       }
     """
     tried_providers: list[str] = []
+    source_attempts: list[dict] = []
 
     async with httpx.AsyncClient() as client:
         tried_providers.append("lcsc")
-        result = await _lcsc_lookup(part_number, client)
-        if result:
-            _logger.info("lookup match", extra={
-                "provider": "lcsc",
-                "part_number": part_number,
-                "matched_part_number": part_number,
-                "fields": sorted(result.keys()),
-            })
-            return {
-                "specs": result,
-                "provider": "lcsc",
-                "matched_part_number": part_number,
-                "tried_providers": tried_providers,
-            }
+        lcsc_result = await _lcsc_lookup_detailed(part_number, client)
+        source_attempts.append(_build_source_attempt(
+            provider="lcsc",
+            authority_tier="primary_api",
+            lookup_status=lcsc_result["status"],
+            specs=lcsc_result.get("specs"),
+            debug=lcsc_result.get("debug"),
+            error=lcsc_result.get("error"),
+        ))
+        if lcsc_result.get("debug"):
+            _logger.debug("lcsc raw response", extra=lcsc_result["debug"])
 
         if digikey_credentials:
             tried_providers.append("digikey")
@@ -235,34 +407,56 @@ async def fetch_specs_detailed(
                 digikey_credentials["client_secret"],
                 client,
             )
-            result = digikey_result["specs"]
-            if digikey_result["debug"]:
+            source_attempts.append(_build_source_attempt(
+                provider="digikey",
+                authority_tier="primary_api",
+                lookup_status=digikey_result["status"],
+                specs=digikey_result.get("specs"),
+                debug=digikey_result.get("debug"),
+                error=digikey_result.get("error"),
+            ))
+            if digikey_result.get("debug"):
                 _logger.debug("digikey raw response", extra=digikey_result["debug"])
-            if result:
-                _logger.info("lookup match", extra={
-                    "provider": "digikey",
-                    "part_number": part_number,
-                    "matched_part_number": part_number,
-                    "fields": sorted(result.keys()),
-                })
-                return {
-                    "specs": result,
-                    "provider": "digikey",
-                    "matched_part_number": part_number,
-                    "tried_providers": tried_providers,
-                    "status": digikey_result["status"],
-                }
 
-    _logger.info("lookup no match", extra={
-        "part_number": part_number,
-        "tried_providers": tried_providers,
-    })
+    field_candidates = _build_field_candidates(source_attempts)
+    chosen_updates, chosen_candidates, conflicts, outcome = _reconcile_candidates(
+        part_number,
+        field_candidates,
+        source_attempts,
+    )
+    provenance = _provenance_from_candidates(chosen_candidates)
+    provider = chosen_candidates[0]["provider"] if chosen_candidates else None
+
+    if outcome == "saved":
+        _logger.info("lookup match", extra={
+            "part_number": part_number,
+            "provider": provider,
+            "fields": sorted(chosen_updates.keys()),
+            "outcome": outcome,
+        })
+    else:
+        _logger.info("lookup outcome", extra={
+            "part_number": part_number,
+            "tried_providers": tried_providers,
+            "outcome": outcome,
+            "conflicts": conflicts,
+        })
+
     return {
-        "specs": {},
-        "provider": None,
-        "matched_part_number": None,
+        "request": {"part_number": part_number, "inventory_id": None},
+        "source_attempts": source_attempts,
+        "field_candidates": field_candidates,
+        "chosen_updates": chosen_updates,
+        "outcome": outcome,
+        "requires_confirmation": outcome == "conflict",
+        "status_message": None,
+        "durable_provenance": provenance,
+        "conflicts": conflicts,
+        "specs": chosen_updates,
+        "provider": provider,
+        "matched_part_number": chosen_updates.get("part_number"),
         "tried_providers": tried_providers,
-        "status": digikey_result["status"] if digikey_credentials else "no-match",
+        "status": outcome,
     }
 
 
@@ -281,7 +475,7 @@ async def fetch_specs(
     digikey_credentials: {"client_id": ..., "client_secret": ...} or None.
     """
     result = await fetch_specs_detailed(part_number, digikey_credentials)
-    return result["specs"]
+    return result["chosen_updates"]
 
 
 def merge_specs(record: dict, specs: dict) -> dict:
