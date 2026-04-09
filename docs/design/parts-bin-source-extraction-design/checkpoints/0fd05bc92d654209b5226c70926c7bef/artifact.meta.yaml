@@ -1,0 +1,29 @@
+artifact_id: parts-bin-source-extraction-design
+checkpoint_id: 0fd05bc92d654209b5226c70926c7bef
+created_at: '2026-04-09T02:56:30.295620+00:00'
+flush_reason: checkpoint
+is_current: true
+stage_metadata:
+  design_unit_id: parts-bin-source-extraction-design
+  title: Source Retrieval And Extraction
+  status: draft
+  readiness: high
+  readiness_rationale: 'The design now fixes the extractor strategy: dedicated DigiKey
+    and LCSC parsers with structured-first, bounded-fuzzy fallback. Remaining uncertainty
+    is limited to evidence retention depth rather than core extraction behavior.'
+  scope_summary: Child design unit for fetching and extracting metadata from API-derived
+    product pages and PDFs using dedicated DigiKey and LCSC parsers plus bounded fuzzy
+    fallback.
+  assumptions:
+  - API-derived pages and PDFs can be fetched directly enough for bounded automated
+    extraction.
+  - DigiKey and LCSC are important enough to justify dedicated parser logic.
+  - Bounded fuzzy matching can reduce parser brittleness without turning extraction
+    into unrestricted scraping.
+  open_questions:
+  - What raw evidence should be stored durably versus referenced indirectly in provenance
+    records?
+  depends_on:
+  - parts-bin-fallback-enrichment-design
+  children: []
+  parent: parts-bin-fallback-enrichment-design
