@@ -21,6 +21,7 @@ export interface UserMessage {
 export interface SystemMessage {
   role: 'system'
   kind:
+    | 'chat'
     | 'text'
     | 'ingest-result'
     | 'ingest-increment'
