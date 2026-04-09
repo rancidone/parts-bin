@@ -293,6 +293,16 @@ def query(db_path: str | Path, attrs: dict) -> list[dict]:
         conn.close()
 
 
+def get_by_id(db_path: str | Path, part_id: int) -> dict | None:
+    """Return a single part by id, or None if not found."""
+    conn = _connect(db_path)
+    try:
+        row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
 def list_all(db_path: str | Path) -> list[dict]:
     """Return all parts ordered by category, then value/part_number."""
     return query(db_path, {})

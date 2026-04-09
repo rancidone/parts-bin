@@ -1,4 +1,4 @@
-"""Tests for server routing logic and HTTP endpoints."""
+"""Tests for server HTTP endpoints."""
 
 import io
 from unittest.mock import AsyncMock, patch
@@ -9,7 +9,6 @@ from starlette.testclient import TestClient
 
 import server
 from db.persistence import init_db, upsert
-from server import _is_ingestion
 
 
 @pytest.fixture
@@ -64,12 +63,12 @@ class TestChatValidation:
 
     def test_photo_without_message_does_not_422(self, client):
         c, _ = client
-        mock_stream = AsyncMock(return_value=iter([]))
 
-        async def fake_ingest(*args, **kwargs):
-            yield '{"type":"done"}'
+        async def fake_chat(*args, **kwargs):
+            yield 'event: result\ndata: {"type":"chat","response":"ok","action":"none","part":null}\n\n'
+            yield 'event: done\ndata: {}\n\n'
 
-        with patch.object(server, "_ingestion_stream", side_effect=fake_ingest):
+        with patch.object(server, "_chat_stream", side_effect=fake_chat):
             resp = c.post(
                 "/chat",
                 files={"photo": ("part.jpg", _jpeg_bytes(), "image/jpeg")},
@@ -86,21 +85,28 @@ class TestChatValidation:
         assert resp.status_code == 400
 
 
-class TestRoutingHeuristic:
-    def test_photo_always_ingestion(self):
-        assert _is_ingestion("what is this?", has_photo=True)
+class TestExecuteAction:
+    @pytest.mark.asyncio
+    async def test_upsert_requires_part_category_and_quantity(self, client):
+        _, db = client
+        part_id = await server._execute_action("upsert", {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "description": None,
+        })
+        assert part_id is not None
 
-    def test_add_keyword(self):
-        assert _is_ingestion("add 10 resistors", has_photo=False)
+    @pytest.mark.asyncio
+    async def test_upsert_without_quantity_returns_none(self, client):
+        _, db = client
+        part_id = await server._execute_action("upsert", {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": None,
+            "part_number": None, "description": None,
+        })
+        assert part_id is None
 
-    def test_i_have_keyword(self):
-        assert _is_ingestion("I have 5 2N7002", has_photo=False)
-
-    def test_query_goes_to_query_path(self):
-        assert not _is_ingestion("do I have any 10k resistors?", has_photo=False)
-
-    def test_how_many_is_query(self):
-        assert not _is_ingestion("how many 100nF caps do I have?", has_photo=False)
-
-    def test_stock_keyword(self):
-        assert _is_ingestion("stock 20 0402 caps", has_photo=False)
+    @pytest.mark.asyncio
+    async def test_action_none_returns_none(self, client):
+        _, db = client
+        assert await server._execute_action("none", {}) is None

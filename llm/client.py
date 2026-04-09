@@ -1,11 +1,13 @@
 """
 LLM client — Qwen 3.5 via llama.cpp OpenAI-compatible API.
 
-Two call modes:
-  extract()  — ingestion path; stateless, buffered, JSON schema output.
-  stream()   — query/chat path; returns an async generator of token strings.
+Primary call mode:
+  chat()     — unified conversational path; returns response + optional DB action.
 
-Conversation history management lives in ConversationHistory.
+Legacy extraction helpers (used by ingestion/query pipelines in tests):
+  extract()      — structured part extraction
+  parse_query()  — query filter extraction
+  answer()       — freeform answer given inventory context
 """
 
 import json
@@ -35,8 +37,9 @@ INGESTION_SCHEMA: dict[str, Any] = {
             "package":       {"type": ["string", "null"]},
             "part_number":   {"type": ["string", "null"]},
             "quantity":      {"type": ["integer", "null"]},
+            "description":   {"type": ["string", "null"]},
         },
-        "required": ["part_category", "profile", "value", "package", "part_number", "quantity"],
+        "required": ["part_category", "profile", "value", "package", "part_number", "quantity", "description"],
         "additionalProperties": False,
     },
 }
@@ -75,7 +78,9 @@ INGESTION_SYSTEM_PROMPT = (
     "You are a parts inventory assistant. "
     "Extract part information from the user's message and/or photo. "
     "Classify the part as 'passive' (resistors, capacitors, inductors, etc.) "
-    "or 'discrete_ic' (transistors, diodes, ICs, MOSFETs, etc.). "
+    "or 'discrete_ic' (transistors, diodes, ICs, MOSFETs, LEDs, etc.). "
+    "Populate 'description' with any useful details from the message such as color, "
+    "polarity (common anode/cathode), wavelength, voltage rating, or other characteristics. "
     "Return only valid JSON matching the schema. "
     "Set any field to null if it cannot be resolved."
 )
@@ -84,6 +89,57 @@ QUERY_SYSTEM_PROMPT = (
     "You are a parts inventory search assistant. "
     "Parse the user's query into structured filter criteria. "
     "Return only valid JSON matching the schema."
+)
+
+_PART_FIELDS: dict[str, Any] = {
+    "part_category": {"type": ["string", "null"]},
+    "profile":       {"type": ["string", "null"], "enum": ["passive", "discrete_ic", None]},
+    "value":         {"type": ["string", "null"]},
+    "package":       {"type": ["string", "null"]},
+    "part_number":   {"type": ["string", "null"]},
+    "quantity":      {"type": ["integer", "null"]},
+    "description":   {"type": ["string", "null"]},
+}
+
+CHAT_SCHEMA: dict[str, Any] = {
+    "name": "chat_response",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "response": {"type": "string"},
+            "db_action": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["none", "upsert", "update", "lookup"]},
+                    "id":   {"type": ["integer", "null"]},
+                    **_PART_FIELDS,
+                },
+                "required": ["type", "id", *_PART_FIELDS.keys()],
+                "additionalProperties": False,
+            },
+        },
+        "required": ["response", "db_action"],
+        "additionalProperties": False,
+    },
+}
+
+CHAT_SYSTEM_PROMPT = (
+    "You are a helpful electronics parts inventory assistant. "
+    "You manage an inventory database and have natural conversations about parts.\n\n"
+    "For every message return JSON with:\n"
+    "  'response': your conversational reply to the user\n"
+    "  'db_action.type': what to do with the database:\n"
+    "    'upsert'  — user is adding parts or reporting stock (fill in part fields, quantity required)\n"
+    "    'update'  — user is correcting or adding details to an existing part (set id from inventory, no quantity change)\n"
+    "    'lookup'  — fetch specs from an external parts API for an existing part (set id and part_number)\n"
+    "    'none'    — just chatting, answering a question, or you need more info before acting\n"
+    "  For 'update': set db_action.id to the inventory id of the part being changed.\n"
+    "  part fields in db_action: set to null when not applicable\n\n"
+    "Use 'none' and ask naturally when you need more information. "
+    "If inventory is provided below, use it to answer questions. "
+    "Always respond conversationally — never output raw data at the user. "
+    "In 'response', never interpolate field values directly — describe changes in plain prose only."
 )
 
 ANSWER_SYSTEM_PROMPT = (
@@ -347,6 +403,41 @@ class LLMClient:
             },
         )
         return content
+
+    # ------------------------------------------------------------------
+    # Unified conversational chat
+    # ------------------------------------------------------------------
+
+    async def chat(
+        self,
+        user_message: str,
+        image_b64: str | None,
+        history: ConversationHistory,
+        inventory: list[dict],
+    ) -> dict[str, Any]:
+        """
+        Primary entry point for all user interactions.
+
+        Returns {"response": str, "db_action": {"type": str, <part fields>}}.
+        Updates history with the exchange.
+        """
+        content = _build_content(user_message, image_b64)
+
+        system = CHAT_SYSTEM_PROMPT
+        if inventory:
+            system += f"\n\nCurrent inventory:\n{json.dumps(inventory, indent=2)}"
+
+        messages = [
+            {"role": "system", "content": system},
+            *history.messages(),
+            {"role": "user", "content": content},
+        ]
+
+        result = await self._extract_with_retry(messages, CHAT_SCHEMA)
+
+        history.append("user", user_message)
+        history.append("assistant", result["response"])
+        return result
 
     # ------------------------------------------------------------------
     # Streaming (kept for future use)
