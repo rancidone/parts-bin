@@ -7,7 +7,7 @@ Lookup failure is non-fatal; callers receive a structured enrichment result.
 
 from collections import defaultdict
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -396,6 +396,24 @@ async def _fetch_api_derived_product_page(
     return None
 
 
+def _resolve_datasheet_url(url: str) -> list[str]:
+    """
+    Return the canonical URL(s) to try for a datasheet.
+
+    Some distributors (e.g. DigiKey) link to manufacturer redirect/tracking
+    pages instead of the PDF directly.  When we detect a known redirect pattern
+    we extract the inner URL and prepend it so it is tried first.
+    """
+    candidates = [url]
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+    # TI suppproductinfo redirect: ?gotoUrl=<actual_url>
+    goto = qs.get("gotoUrl") or qs.get("gotourl")
+    if goto:
+        candidates.insert(0, goto[0])
+    return candidates
+
+
 async def _fetch_api_derived_pdf(
     source_attempts: list[dict],
     chosen_updates: dict,
@@ -410,56 +428,58 @@ async def _fetch_api_derived_pdf(
         if attempt["status"] != "ok" or not attempt["diagnostics"]:
             continue
         datasheet_url = attempt["diagnostics"].get("datasheet_url")
-        if not datasheet_url or datasheet_url in seen_urls:
+        if not datasheet_url:
             continue
-        seen_urls.add(datasheet_url)
-        try:
-            resp = await client.get(datasheet_url, timeout=10.0, follow_redirects=True)
-            resp.raise_for_status()
-            classification = classify_content(resp.headers.get("content-type"), resp.content.decode("latin-1", errors="ignore"))
-            if classification != "pdf_document":
-                _logger.debug("datasheet url not a pdf", extra={
-                    "provider": attempt["provider"],
-                    "url": datasheet_url,
-                    "classification": classification,
-                })
+        for url_to_try in _resolve_datasheet_url(datasheet_url):
+            if url_to_try in seen_urls:
                 continue
-
-            extracted_candidates = extract_pdf_candidates(resp.content)
-            filtered_candidates = {
-                field_name: candidate
-                for field_name, candidate in extracted_candidates.items()
-                if field_name in missing_fields
-            }
-            if filtered_candidates:
-                return {
-                    "provider": attempt["provider"],
-                    "authority_tier": "api_derived_pdf",
-                    "source_kind": "pdf_document",
-                    "status": "ok",
-                    "source_locator": str(resp.url),
-                    "fields": {
-                        field_name: candidate["value"]
-                        for field_name, candidate in filtered_candidates.items()
-                    },
-                    "field_metadata": filtered_candidates,
-                    "diagnostics": {
-                        "requested_url": datasheet_url,
-                        "resolved_url": str(resp.url),
-                        "content_type": resp.headers.get("content-type"),
+            seen_urls.add(url_to_try)
+            try:
+                resp = await client.get(url_to_try, timeout=10.0, follow_redirects=True)
+                resp.raise_for_status()
+                classification = classify_content(resp.headers.get("content-type"), resp.content.decode("latin-1", errors="ignore"))
+                if classification != "pdf_document":
+                    _logger.debug("datasheet url not a pdf", extra={
+                        "provider": attempt["provider"],
+                        "url": url_to_try,
                         "classification": classification,
-                    },
-                    "warnings": [],
-                    "error": None,
+                    })
+                    continue
+                extracted_candidates = extract_pdf_candidates(resp.content)
+                filtered_candidates = {
+                    field_name: candidate
+                    for field_name, candidate in extracted_candidates.items()
+                    if field_name in missing_fields
                 }
-            _logger.debug("pdf no candidates", extra={
-                "provider": attempt["provider"],
-                "url": datasheet_url,
-            })
-        except httpx.ReadTimeout:
-            _logger.debug("pdf retrieval timeout", extra={"provider": attempt["provider"], "url": datasheet_url})
-        except Exception:
-            _logger.debug("pdf retrieval failed", extra={"provider": attempt["provider"], "url": datasheet_url})
+                if filtered_candidates:
+                    return {
+                        "provider": attempt["provider"],
+                        "authority_tier": "api_derived_pdf",
+                        "source_kind": "pdf_document",
+                        "status": "ok",
+                        "source_locator": str(resp.url),
+                        "fields": {
+                            field_name: candidate["value"]
+                            for field_name, candidate in filtered_candidates.items()
+                        },
+                        "field_metadata": filtered_candidates,
+                        "diagnostics": {
+                            "requested_url": url_to_try,
+                            "resolved_url": str(resp.url),
+                            "content_type": resp.headers.get("content-type"),
+                            "classification": classification,
+                        },
+                        "warnings": [],
+                        "error": None,
+                    }
+                _logger.debug("pdf no candidates", extra={
+                    "provider": attempt["provider"],
+                    "url": url_to_try,
+                })
+            except httpx.ReadTimeout:
+                _logger.debug("pdf retrieval timeout", extra={"provider": attempt["provider"], "url": url_to_try})
+            except Exception:
+                _logger.debug("pdf retrieval failed", extra={"provider": attempt["provider"], "url": url_to_try})
     return None
 
 
