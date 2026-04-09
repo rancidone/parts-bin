@@ -337,32 +337,25 @@ async def _fetch_api_derived_product_page(
     if not missing_fields:
         return None
 
+    seen_urls: set[str] = set()
     for attempt in source_attempts:
         if attempt["status"] != "ok" or not attempt["diagnostics"]:
             continue
         product_url = attempt["diagnostics"].get("product_url")
-        if not product_url:
+        if not product_url or product_url in seen_urls:
             continue
+        seen_urls.add(product_url)
         try:
             resp = await client.get(product_url, timeout=10.0, follow_redirects=True)
             resp.raise_for_status()
             classification = classify_content(resp.headers.get("content-type"), resp.text)
             if classification != "structured_html_product_page":
-                return {
+                _logger.debug("product page unsupported content", extra={
                     "provider": attempt["provider"],
-                    "authority_tier": "api_derived_page",
-                    "source_kind": "product_page",
-                    "status": "unsupported-content",
-                    "source_locator": str(resp.url),
-                    "fields": {},
-                    "diagnostics": {
-                        "requested_url": product_url,
-                        "resolved_url": str(resp.url),
-                        "content_type": resp.headers.get("content-type"),
-                        "classification": classification,
-                    },
-                    "error": None,
-                }
+                    "url": product_url,
+                    "classification": classification,
+                })
+                continue
 
             extracted_candidates = extract_html_candidates(str(resp.url), resp.text)
             filtered_candidates = {
@@ -370,53 +363,36 @@ async def _fetch_api_derived_product_page(
                 for field_name, candidate in extracted_candidates.items()
                 if field_name in missing_fields
             }
-            return {
+            if filtered_candidates:
+                return {
+                    "provider": attempt["provider"],
+                    "authority_tier": "api_derived_page",
+                    "source_kind": "product_page",
+                    "status": "ok",
+                    "source_locator": str(resp.url),
+                    "fields": {
+                        field_name: candidate["value"]
+                        for field_name, candidate in filtered_candidates.items()
+                    },
+                    "field_metadata": filtered_candidates,
+                    "diagnostics": {
+                        "requested_url": product_url,
+                        "resolved_url": str(resp.url),
+                        "content_type": resp.headers.get("content-type"),
+                        "classification": classification,
+                        "provider_host": urlparse(str(resp.url)).netloc.lower(),
+                    },
+                    "warnings": [],
+                    "error": None,
+                }
+            _logger.debug("product page no candidates", extra={
                 "provider": attempt["provider"],
-                "authority_tier": "api_derived_page",
-                "source_kind": "product_page",
-                "status": "ok" if filtered_candidates else "no-candidates",
-                "source_locator": str(resp.url),
-                "fields": {
-                    field_name: candidate["value"]
-                    for field_name, candidate in filtered_candidates.items()
-                },
-                "field_metadata": filtered_candidates,
-                "diagnostics": {
-                    "requested_url": product_url,
-                    "resolved_url": str(resp.url),
-                    "content_type": resp.headers.get("content-type"),
-                    "classification": classification,
-                    "provider_host": urlparse(str(resp.url)).netloc.lower(),
-                },
-                "warnings": [] if filtered_candidates else ["extractor-produced-no-candidates"],
-                "error": None,
-            }
-        except httpx.ReadTimeout as exc:
-            return {
-                "provider": attempt["provider"],
-                "authority_tier": "api_derived_page",
-                "source_kind": "product_page",
-                "status": "timeout",
-                "source_locator": product_url,
-                "fields": {},
-                "field_metadata": {},
-                "diagnostics": {"requested_url": product_url},
-                "warnings": ["retrieval-timeout"],
-                "error": _http_error_details(exc),
-            }
-        except Exception as exc:
-            return {
-                "provider": attempt["provider"],
-                "authority_tier": "api_derived_page",
-                "source_kind": "product_page",
-                "status": "failed",
-                "source_locator": product_url,
-                "fields": {},
-                "field_metadata": {},
-                "diagnostics": {"requested_url": product_url},
-                "warnings": ["retrieval-failed"],
-                "error": _http_error_details(exc),
-            }
+                "url": product_url,
+            })
+        except httpx.ReadTimeout:
+            _logger.debug("product page timeout", extra={"provider": attempt["provider"], "url": product_url})
+        except Exception:
+            _logger.debug("product page failed", extra={"provider": attempt["provider"], "url": product_url})
     return None
 
 
@@ -429,34 +405,25 @@ async def _fetch_api_derived_pdf(
     if not missing_fields:
         return None
 
+    seen_urls: set[str] = set()
     for attempt in source_attempts:
         if attempt["status"] != "ok" or not attempt["diagnostics"]:
             continue
         datasheet_url = attempt["diagnostics"].get("datasheet_url")
-        if not datasheet_url:
+        if not datasheet_url or datasheet_url in seen_urls:
             continue
+        seen_urls.add(datasheet_url)
         try:
             resp = await client.get(datasheet_url, timeout=10.0, follow_redirects=True)
             resp.raise_for_status()
             classification = classify_content(resp.headers.get("content-type"), resp.content.decode("latin-1", errors="ignore"))
             if classification != "pdf_document":
-                return {
+                _logger.debug("datasheet url not a pdf", extra={
                     "provider": attempt["provider"],
-                    "authority_tier": "api_derived_pdf",
-                    "source_kind": "pdf_document",
-                    "status": "unsupported-content",
-                    "source_locator": str(resp.url),
-                    "fields": {},
-                    "field_metadata": {},
-                    "diagnostics": {
-                        "requested_url": datasheet_url,
-                        "resolved_url": str(resp.url),
-                        "content_type": resp.headers.get("content-type"),
-                        "classification": classification,
-                    },
-                    "warnings": ["pdf-url-did-not-return-pdf"],
-                    "error": None,
-                }
+                    "url": datasheet_url,
+                    "classification": classification,
+                })
+                continue
 
             extracted_candidates = extract_pdf_candidates(resp.content)
             filtered_candidates = {
@@ -464,52 +431,35 @@ async def _fetch_api_derived_pdf(
                 for field_name, candidate in extracted_candidates.items()
                 if field_name in missing_fields
             }
-            return {
+            if filtered_candidates:
+                return {
+                    "provider": attempt["provider"],
+                    "authority_tier": "api_derived_pdf",
+                    "source_kind": "pdf_document",
+                    "status": "ok",
+                    "source_locator": str(resp.url),
+                    "fields": {
+                        field_name: candidate["value"]
+                        for field_name, candidate in filtered_candidates.items()
+                    },
+                    "field_metadata": filtered_candidates,
+                    "diagnostics": {
+                        "requested_url": datasheet_url,
+                        "resolved_url": str(resp.url),
+                        "content_type": resp.headers.get("content-type"),
+                        "classification": classification,
+                    },
+                    "warnings": [],
+                    "error": None,
+                }
+            _logger.debug("pdf no candidates", extra={
                 "provider": attempt["provider"],
-                "authority_tier": "api_derived_pdf",
-                "source_kind": "pdf_document",
-                "status": "ok" if filtered_candidates else "no-candidates",
-                "source_locator": str(resp.url),
-                "fields": {
-                    field_name: candidate["value"]
-                    for field_name, candidate in filtered_candidates.items()
-                },
-                "field_metadata": filtered_candidates,
-                "diagnostics": {
-                    "requested_url": datasheet_url,
-                    "resolved_url": str(resp.url),
-                    "content_type": resp.headers.get("content-type"),
-                    "classification": classification,
-                },
-                "warnings": [] if filtered_candidates else ["pdf-extractor-produced-no-candidates"],
-                "error": None,
-            }
-        except httpx.ReadTimeout as exc:
-            return {
-                "provider": attempt["provider"],
-                "authority_tier": "api_derived_pdf",
-                "source_kind": "pdf_document",
-                "status": "timeout",
-                "source_locator": datasheet_url,
-                "fields": {},
-                "field_metadata": {},
-                "diagnostics": {"requested_url": datasheet_url},
-                "warnings": ["pdf-retrieval-timeout"],
-                "error": _http_error_details(exc),
-            }
-        except Exception as exc:
-            return {
-                "provider": attempt["provider"],
-                "authority_tier": "api_derived_pdf",
-                "source_kind": "pdf_document",
-                "status": "failed",
-                "source_locator": datasheet_url,
-                "fields": {},
-                "field_metadata": {},
-                "diagnostics": {"requested_url": datasheet_url},
-                "warnings": ["pdf-retrieval-failed"],
-                "error": _http_error_details(exc),
-            }
+                "url": datasheet_url,
+            })
+        except httpx.ReadTimeout:
+            _logger.debug("pdf retrieval timeout", extra={"provider": attempt["provider"], "url": datasheet_url})
+        except Exception:
+            _logger.debug("pdf retrieval failed", extra={"provider": attempt["provider"], "url": datasheet_url})
     return None
 
 
