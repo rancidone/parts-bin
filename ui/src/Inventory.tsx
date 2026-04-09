@@ -12,6 +12,7 @@ export function Inventory({ active }: { active: boolean }) {
   const [filter, setFilter] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('part_category')
   const [sortAsc, setSortAsc] = useState(true)
+  const [refreshing, setRefreshing] = useState<Set<number>>(new Set())
 
   async function load() {
     setLoading(true)
@@ -28,6 +29,18 @@ export function Inventory({ active }: { active: boolean }) {
   }
 
   useEffect(() => { if (active) load() }, [active])
+
+  async function refreshPart(id: number) {
+    setRefreshing(prev => new Set(prev).add(id))
+    try {
+      const resp = await fetch(`/inventory/${id}/refresh`, { method: 'POST' })
+      if (!resp.ok) throw new Error(resp.statusText)
+      const { part } = await resp.json()
+      setParts(prev => prev.map(p => p.id === id ? part : p))
+    } finally {
+      setRefreshing(prev => { const next = new Set(prev); next.delete(id); return next })
+    }
+  }
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) setSortAsc(a => !a)
@@ -101,6 +114,7 @@ export function Inventory({ active }: { active: boolean }) {
                 <th className={styles.th}>Part #</th>
                 <th className={styles.th}>Manufacturer</th>
                 <th className={styles.th}>Description</th>
+                <th className={styles.th}></th>
               </tr>
             </thead>
             <tbody>
@@ -113,6 +127,18 @@ export function Inventory({ active }: { active: boolean }) {
                   <td className={styles.td}>{p.part_number ?? '—'}</td>
                   <td className={styles.td}>{p.manufacturer ?? '—'}</td>
                   <td className={styles.td}>{p.description ?? '—'}</td>
+                  <td className={styles.tdAction}>
+                    {p.part_number && p.id != null && (
+                      <button
+                        className={styles.rowRefreshBtn}
+                        disabled={refreshing.has(p.id)}
+                        onClick={() => refreshPart(p.id!)}
+                        title="Refresh specs"
+                      >
+                        {refreshing.has(p.id) ? '…' : '↻'}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
