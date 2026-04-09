@@ -47,8 +47,29 @@
   color: var(--fg);
 }
 
+.assistantBubble {
+  align-self: flex-start;
+  max-width: 75%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 16px 16px 16px 4px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+  white-space: pre-wrap;
+}
+
 .error {
   color: #c0392b;
+}
+
+.errorBubble {
+  border-color: rgb(192 57 43 / 0.25);
+  background: rgb(192 57 43 / 0.08);
+  color: #8e2d23;
 }
 
 .queryHeader {

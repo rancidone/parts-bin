@@ -1,0 +1,27 @@
+has_current: false
+current: null
+recent_completed:
+- history_id: 35c07e8117f84e02ac0ed6ddeaea8a82
+  title: "Parts Bin \u2014 Implementation"
+  closure_summary: 'Full implementation complete. All 6 design units built: Data Model
+    & Persistence, LLM Integration, Ingestion, Query, Photo Pipeline, Server/API,
+    and React/TypeScript/Vite UI. 74 unit tests passing. 14 E2E tests written, activate
+    automatically when LLM server is reachable. Stack running under uv.'
+  closed_at: '2026-04-03T03:55:45.675172+00:00'
+  history_ref: /Users/maddie/repos/parts-bin/docs/session/history/35c07e8117f84e02ac0ed6ddeaea8a82/current/artifact.md
+- history_id: 6f99e1b8025b4ad88b754cffdba8df35
+  title: "Parts Bin \u2014 Discovery Migration"
+  closure_summary: Discovery migrated to flat format and accepted. Design stage completed
+    subsequently. Thread superseded.
+  closed_at: '2026-04-03T02:48:24.685065+00:00'
+  history_ref: /Users/maddie/repos/parts-bin/docs/session/history/6f99e1b8025b4ad88b754cffdba8df35/current/artifact.md
+- history_id: 444b0534b6284bd6aa5e2e80709f78e6
+  title: "Parts Bin \u2014 Design Session"
+  closure_summary: 'Design complete. All 7 units accepted: Data Model & Persistence,
+    LLM Integration, Ingestion, Query, Server/API, Photo Pipeline, UI. Stack: FastAPI
+    + SQLite + Qwen 3.5 vision via llama.cpp + React/TypeScript/Vite. Implementation
+    starting.'
+  closed_at: '2026-04-03T02:48:24.668364+00:00'
+  history_ref: /Users/maddie/repos/parts-bin/docs/session/history/444b0534b6284bd6aa5e2e80709f78e6/current/artifact.md
+updated_at: '2026-04-09T02:46:06.049651+00:00'
+checkpoint_id: 840dbf86f246491e8d008b495dd4a07b
