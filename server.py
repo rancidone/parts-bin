@@ -17,7 +17,16 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from db.persistence import export_csv, get_by_id, init_db, list_all, query, update_fields, upsert
+from db.persistence import (
+    export_csv,
+    get_by_id,
+    init_db,
+    list_all,
+    query,
+    update_fields,
+    update_fields_with_provenance,
+    upsert,
+)
 from ingestion.lookup import fetch_specs, fetch_specs_detailed, merge_specs
 from llm.client import ConversationHistory, LLMClient
 
@@ -96,15 +105,21 @@ async def _execute_action(action_type: str, part: dict) -> tuple[int | None, str
         if not part_id or not part_number:
             return None, "missing-target"
         lookup_result = await fetch_specs_detailed(part_number, _DIGIKEY_CREDS)
-        specs = lookup_result["specs"]
-        if specs:
-            update_fields(_DB_PATH, part_id, specs)
+        chosen_updates = lookup_result["chosen_updates"]
+        if chosen_updates:
+            update_fields_with_provenance(
+                _DB_PATH,
+                part_id,
+                chosen_updates,
+                lookup_result["durable_provenance"],
+            )
             _logger.info("lookup saved", extra={
                 "part_id": part_id,
                 "part_number": part_number,
                 "provider": lookup_result["provider"],
                 "tried_providers": lookup_result["tried_providers"],
-                "fields": sorted(specs.keys()),
+                "fields": sorted(chosen_updates.keys()),
+                "outcome": lookup_result["outcome"],
             })
             return part_id, "saved"
         _logger.info("lookup empty", extra={
@@ -113,7 +128,10 @@ async def _execute_action(action_type: str, part: dict) -> tuple[int | None, str
             "provider": lookup_result["provider"],
             "tried_providers": lookup_result["tried_providers"],
             "lookup_status": lookup_result.get("status"),
+            "conflicts": lookup_result.get("conflicts"),
         })
+        if lookup_result.get("outcome") == "conflict":
+            return part_id, "lookup-conflict"
         if lookup_result.get("status") == "timeout":
             return part_id, "lookup-timeout"
         return part_id, "no-specs"
@@ -156,6 +174,8 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
         response_text += "\n\n_(Note: the change wasn't saved — I couldn't identify which inventory record to update.)_"
     elif action_type == "lookup" and action_status == "lookup-timeout":
         response_text = "I reached the configured parts providers, but the DigiKey lookup timed out before it returned specifications."
+    elif action_type == "lookup" and action_status == "lookup-conflict":
+        response_text = "I found conflicting high-authority part metadata across the configured providers, so I did not update the inventory record automatically."
     elif action_type == "lookup" and action_status == "no-specs":
         response_text = "I ran the lookup, but the configured parts providers did not return matching specifications for that part number."
 
