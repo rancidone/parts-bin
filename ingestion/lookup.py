@@ -257,15 +257,26 @@ def _reconcile_candidates(
 
     for field_name in identifying_fields:
         candidates = field_candidates.get(field_name, [])
-        unique_values = _dedupe_preserve_order([candidate["candidate_value"] for candidate in candidates])
-        if len(unique_values) > 1:
-            conflicts.append({
-                "field_name": field_name,
-                "values": unique_values,
-                "providers": [candidate["provider"] for candidate in candidates],
-            })
-            for candidate in candidates:
-                candidate["conflict_status"] = "conflict"
+        if len(candidates) <= 1:
+            continue
+        # Group by authority tier. Cross-tier disagreements are resolved by
+        # priority order (first source_attempt wins). Only flag conflicts when
+        # candidates from the *same* tier disagree with each other.
+        by_tier: dict[str, list[dict]] = {}
+        for candidate in candidates:
+            by_tier.setdefault(candidate["source_tier"], []).append(candidate)
+        for tier, tier_candidates in by_tier.items():
+            unique_values = _dedupe_preserve_order(
+                [c["candidate_value"] for c in tier_candidates]
+            )
+            if len(unique_values) > 1:
+                conflicts.append({
+                    "field_name": field_name,
+                    "values": unique_values,
+                    "providers": [c["provider"] for c in tier_candidates],
+                })
+                for candidate in tier_candidates:
+                    candidate["conflict_status"] = "conflict"
 
     if conflicts:
         return {}, [], conflicts, "conflict"
@@ -636,6 +647,6 @@ def merge_specs(record: dict, specs: dict) -> dict:
         merged["manufacturer"] = specs["manufacturer"]
     if specs.get("description"):
         merged["description"] = specs["description"]
-    if merged.get("package") is None and specs.get("package"):
+    if specs.get("package"):
         merged["package"] = specs["package"]
     return merged

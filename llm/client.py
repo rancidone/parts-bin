@@ -132,7 +132,7 @@ CHAT_SYSTEM_PROMPT = (
     "  'db_action.type': what to do with the database:\n"
     "    'upsert'  — user is adding parts or reporting stock (fill in part fields, quantity required)\n"
     "    'update'  — user is correcting or adding details to an existing part (set id from inventory, no quantity change)\n"
-    "    'lookup'  — fetch specs from an external parts API for an existing part (set id and part_number)\n"
+    "    'lookup'  — fetch or refresh specs from an external parts API for an existing part (set id and part_number); use this whenever the user asks to refresh, re-fetch, or fill in specs for a part\n"
     "    'none'    — just chatting, answering a question, or you need more info before acting\n"
     "  For 'update': set db_action.id to the inventory id of the part being changed.\n"
     "  part fields in db_action: set to null when not applicable\n\n"
