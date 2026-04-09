@@ -81,3 +81,15 @@
   color: var(--muted);
   font-family: monospace;
 }
+
+.notConfigured {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.notConfigured code {
+  font-family: monospace;
+  background: var(--surface);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
