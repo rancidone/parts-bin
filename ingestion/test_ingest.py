@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from db.persistence import init_db, list_all
+from db.persistence import init_db, list_all, list_field_provenance
 from ingestion.ingest import run_ingestion
 from llm.client import LLMClient
 
@@ -99,25 +99,45 @@ class TestRunIngestionPassive:
 class TestRunIngestionDiscreteIc:
     async def test_fetches_specs_for_discrete_ic(self, db, llm):
         llm.extract.return_value = COMPLETE_DISCRETE
-        mock_specs = {"manufacturer": "Vishay", "description": "N-ch MOSFET"}
-        with patch("ingestion.ingest.fetch_specs", new=AsyncMock(return_value=mock_specs)) as mock_fetch:
+        mock_result = {
+            "chosen_updates": {"manufacturer": "Vishay", "description": "N-ch MOSFET"},
+            "durable_provenance": [],
+            "outcome": "saved",
+            "conflicts": [],
+            "source_attempts": [],
+        }
+        with patch("ingestion.ingest.fetch_specs_detailed", new=AsyncMock(return_value=mock_result)) as mock_fetch:
             events = await _collect(run_ingestion(db, llm, "add 5 2N7002", digikey_credentials=None))
         mock_fetch.assert_called_once_with("2N7002", None)
         assert events[0]["type"] == "result"
+        assert events[0]["enrichment"]["outcome"] == "saved"
 
     async def test_spec_fields_merged_into_result(self, db, llm):
         llm.extract.return_value = COMPLETE_DISCRETE
-        mock_specs = {"manufacturer": "Vishay", "description": "N-ch MOSFET"}
-        with patch("ingestion.ingest.fetch_specs", new=AsyncMock(return_value=mock_specs)):
+        mock_result = {
+            "chosen_updates": {"manufacturer": "Vishay", "description": "N-ch MOSFET"},
+            "durable_provenance": [],
+            "outcome": "saved",
+            "conflicts": [],
+            "source_attempts": [],
+        }
+        with patch("ingestion.ingest.fetch_specs_detailed", new=AsyncMock(return_value=mock_result)):
             events = await _collect(run_ingestion(db, llm, "add 5 2N7002"))
         assert events[0]["part"]["manufacturer"] == "Vishay"
 
     async def test_insertion_succeeds_when_spec_lookup_returns_nothing(self, db, llm):
         llm.extract.return_value = COMPLETE_DISCRETE
-        with patch("ingestion.ingest.fetch_specs", new=AsyncMock(return_value={})):
+        with patch("ingestion.ingest.fetch_specs_detailed", new=AsyncMock(return_value={
+            "chosen_updates": {},
+            "durable_provenance": [],
+            "outcome": "no_match",
+            "conflicts": [],
+            "source_attempts": [],
+        })):
             events = await _collect(run_ingestion(db, llm, "add 5 2N7002"))
         assert events[0]["type"] == "result"
         assert events[0]["part"]["manufacturer"] is None
+        assert events[0]["enrichment"]["outcome"] == "no_match"
         assert len(list_all(db)) == 1
 
     async def test_skips_spec_lookup_when_no_part_number(self, db, llm):
@@ -126,7 +146,34 @@ class TestRunIngestionDiscreteIc:
         # clear it to test the lookup-skip branch separately via a passive record.
         # Instead, test that a discrete record with no part_number triggers clarification.
         llm.extract.return_value = record
-        with patch("ingestion.ingest.fetch_specs", new=AsyncMock()) as mock_fetch:
+        with patch("ingestion.ingest.fetch_specs_detailed", new=AsyncMock()) as mock_fetch:
             events = await _collect(run_ingestion(db, llm, "add a mosfet"))
         mock_fetch.assert_not_called()
         assert events[0]["type"] == "clarification"
+
+    async def test_persists_provenance_for_lookup_updates(self, db, llm):
+        llm.extract.return_value = COMPLETE_DISCRETE
+        with patch("ingestion.ingest.fetch_specs_detailed", new=AsyncMock(return_value={
+            "chosen_updates": {"manufacturer": "Vishay"},
+            "durable_provenance": [{
+                "field_name": "manufacturer",
+                "field_value": "Vishay",
+                "source_tier": "primary_api",
+                "source_kind": "api",
+                "source_locator": "https://example.com/2N7002",
+                "extraction_method": "api",
+                "confidence_marker": "high",
+                "conflict_status": "clear",
+                "normalization_method": "direct_copy",
+                "competing_candidates": [],
+            }],
+            "outcome": "saved",
+            "conflicts": [],
+            "source_attempts": [{"provider": "lcsc", "status": "ok"}],
+        })):
+            events = await _collect(run_ingestion(db, llm, "add 5 2N7002"))
+
+        provenance = list_field_provenance(db, events[0]["part"]["id"])
+        assert len(provenance) == 1
+        assert provenance[0]["field_name"] == "manufacturer"
+        assert events[0]["enrichment"]["outcome"] == "saved"
