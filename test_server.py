@@ -89,24 +89,185 @@ class TestExecuteAction:
     @pytest.mark.asyncio
     async def test_upsert_requires_part_category_and_quantity(self, client):
         _, db = client
-        part_id = await server._execute_action("upsert", {
+        part_id, status = await server._execute_action("upsert", {
             "part_category": "resistor", "profile": "passive",
             "value": "10k", "package": "0402", "quantity": 5,
             "part_number": None, "description": None,
         })
         assert part_id is not None
+        assert status == "saved"
 
     @pytest.mark.asyncio
     async def test_upsert_without_quantity_returns_none(self, client):
         _, db = client
-        part_id = await server._execute_action("upsert", {
+        part_id, status = await server._execute_action("upsert", {
             "part_category": "resistor", "profile": "passive",
             "value": "10k", "package": "0402", "quantity": None,
             "part_number": None, "description": None,
         })
         assert part_id is None
+        assert status == "invalid"
 
     @pytest.mark.asyncio
     async def test_action_none_returns_none(self, client):
         _, db = client
-        assert await server._execute_action("none", {}) is None
+        assert await server._execute_action("none", {}) == (None, "noop")
+
+    @pytest.mark.asyncio
+    async def test_lookup_without_specs_reports_no_specs(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+
+        with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+            "specs": {},
+            "provider": None,
+            "matched_part_number": None,
+            "tried_providers": ["lcsc", "digikey"],
+            "status": "no-match",
+        })):
+            result = await server._execute_action("lookup", {
+                "id": part_id,
+                "part_number": "TLV62565DBVR",
+            })
+
+        assert result == (part_id, "no-specs")
+
+    @pytest.mark.asyncio
+    async def test_lookup_timeout_reports_timeout_status(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+
+        with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+            "specs": {},
+            "provider": None,
+            "matched_part_number": None,
+            "tried_providers": ["lcsc", "digikey"],
+            "status": "timeout",
+        })):
+            result = await server._execute_action("lookup", {
+                "id": part_id,
+                "part_number": "TLV62565DBVR",
+            })
+
+        assert result == (part_id, "lookup-timeout")
+
+
+class TestChatStream:
+    @pytest.mark.asyncio
+    async def test_lookup_no_specs_overrides_misleading_model_text(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+
+        with patch.object(server, "_llm") as llm:
+            llm.chat = AsyncMock(return_value={
+                "response": "I've fetched the detailed specifications for the TLV62565DBVR.",
+                "db_action": {
+                    "type": "lookup",
+                    "id": part_id,
+                    "part_category": None,
+                    "profile": None,
+                    "value": None,
+                    "package": None,
+                    "part_number": "TLV62565DBVR",
+                    "quantity": None,
+                    "description": None,
+                },
+            })
+            with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+                "specs": {},
+                "provider": None,
+                "matched_part_number": None,
+                "tried_providers": ["lcsc", "digikey"],
+                "status": "no-match",
+            })):
+                events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
+
+        assert "did not return matching specifications" in events[0]
+
+    @pytest.mark.asyncio
+    async def test_lookup_saved_overrides_misleading_model_text(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+
+        with patch.object(server, "_llm") as llm:
+            llm.chat = AsyncMock(return_value={
+                "response": "I've fetched the detailed specifications for the TLV62565DBVR.",
+                "db_action": {
+                    "type": "lookup",
+                    "id": part_id,
+                    "part_category": None,
+                    "profile": None,
+                    "value": None,
+                    "package": None,
+                    "part_number": "TLV62565DBVR",
+                    "quantity": None,
+                    "description": "Buck Switching Regulator IC Positive Adjustable 0.6V 1 Output 1.5A SC-74A, SOT-753",
+                },
+            })
+            with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+                "specs": {
+                    "manufacturer": "Texas Instruments",
+                    "description": "Buck Switching Regulator IC Positive Adjustable 0.6V 1 Output 1.5A SC-74A, SOT-753",
+                },
+                "provider": "digikey",
+                "matched_part_number": "TLV62565DBVR",
+                "tried_providers": ["lcsc", "digikey"],
+                "status": "ok",
+            })):
+                events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
+
+        assert "I updated the inventory record with the fetched specifications." in events[0]
+        assert "Buck Switching Regulator IC" in events[0]
+
+    @pytest.mark.asyncio
+    async def test_lookup_timeout_overrides_misleading_model_text(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": "Texas Instruments",
+            "description": "Wrong stale description",
+        })
+
+        with patch.object(server, "_llm") as llm:
+            llm.chat = AsyncMock(return_value={
+                "response": "Great! I'm fetching the detailed specifications for the TLV62565DBVR from DigiKey now.",
+                "db_action": {
+                    "type": "lookup",
+                    "id": part_id,
+                    "part_category": None,
+                    "profile": None,
+                    "value": None,
+                    "package": None,
+                    "part_number": "TLV62565DBVR",
+                    "quantity": None,
+                    "description": None,
+                },
+            })
+            with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+                "specs": {},
+                "provider": None,
+                "matched_part_number": None,
+                "tried_providers": ["lcsc", "digikey"],
+                "status": "timeout",
+            })):
+                events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
+
+        assert "timed out" in events[0]
+        assert "Wrong stale description" not in events[0]

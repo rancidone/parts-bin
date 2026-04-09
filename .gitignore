@@ -3,6 +3,8 @@ clauderfall.db
 
 # parts-bin
 config.toml
+parts.db
+*.log
 
 # macos
 .DS_Store

@@ -140,7 +140,7 @@ function MessageBubble({ msg }: { msg: Message }) {
 
   if (m.kind === 'chat') {
     return (
-      <div className={styles.systemMsg}>
+      <div className={styles.assistantBubble}>
         {m.text && <span>{m.text}</span>}
         {m.part && <PartCard part={m.part} added={true} />}
       </div>
@@ -149,7 +149,7 @@ function MessageBubble({ msg }: { msg: Message }) {
 
   if (m.kind === 'clarification' || m.kind === 'not-found' || m.kind === 'text' || m.kind === 'error') {
     return (
-      <div className={`${styles.systemMsg} ${m.kind === 'error' ? styles.error : ''}`}>
+      <div className={`${styles.assistantBubble} ${m.kind === 'error' ? styles.errorBubble : ''}`}>
         {m.text}
       </div>
     )

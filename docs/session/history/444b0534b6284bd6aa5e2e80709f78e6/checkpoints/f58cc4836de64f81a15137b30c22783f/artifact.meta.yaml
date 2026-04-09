@@ -1,0 +1,8 @@
+history_id: 444b0534b6284bd6aa5e2e80709f78e6
+title: "Parts Bin \u2014 Design Session"
+closure_summary: 'Design complete. All 7 units accepted: Data Model & Persistence,
+  LLM Integration, Ingestion, Query, Server/API, Photo Pipeline, UI. Stack: FastAPI
+  + SQLite + Qwen 3.5 vision via llama.cpp + React/TypeScript/Vite. Implementation
+  starting.'
+closed_at: '2026-04-03T02:48:24.668364+00:00'
+checkpoint_id: 99522b69f79048ad87ed7676e1be41a5
