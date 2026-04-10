@@ -10,6 +10,7 @@ export default defineConfig({
       '/chat':      'http://localhost:8000',
       '/inventory': 'http://localhost:8000',
       '/health':    'http://localhost:8000',
+      '/jlcparts':  'http://localhost:8000',
     },
   },
 })

@@ -60,6 +60,12 @@
   font-size: 0.88rem;
 }
 
+.errorText {
+  font-size: 0.88rem;
+  color: #c0392b;
+  margin: 0 0 10px;
+}
+
 .downloadBtn {
   padding: 5px 12px;
   border: 1px solid var(--border);
