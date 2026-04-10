@@ -2,7 +2,7 @@ artifact_id: parts-bin-ingestion-enrichment-integration-design
 checkpoint_id: 87441e7953794f37bf0da5f2136def95
 created_at: '2026-04-10T00:44:18.392419+00:00'
 flush_reason: checkpoint
-is_current: true
+is_current: false
 stage_metadata:
   design_unit_id: parts-bin-ingestion-enrichment-integration-design
   title: Ingestion Against The Enrichment Attempt Model

@@ -2,7 +2,7 @@ artifact_id: parts-bin-ui-review-and-settings-design
 checkpoint_id: 91ab49f7282b43bcba34ee94ad1a9511
 created_at: '2026-04-10T00:44:28.375405+00:00'
 flush_reason: checkpoint
-is_current: true
+is_current: false
 stage_metadata:
   design_unit_id: parts-bin-ui-review-and-settings-design
   title: UI Against The Enrichment Review Model
