@@ -175,6 +175,58 @@ class TestLookupResolution:
         assert package_candidates[0]["extraction_method"] == "pdf-labeled-text"
         assert "Package / Case" in package_candidates[0]["evidence"]
 
+    @pytest.mark.asyncio
+    async def test_fetch_specs_detailed_suppresses_ambiguous_pdf_variant_fields(self):
+        original_async_client = httpx.AsyncClient
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/datasheet.pdf":
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "application/pdf"},
+                    content=b"""
+                    %PDF-1.4
+                    Manufacturer: Texas Instruments
+                    MPN: TLV62565DBVR
+                    Package / Case: SOT-23-5
+                    Description: Buck Switching Regulator IC
+                    MPN: TLV62566DBVR
+                    Package / Case: WSON-6
+                    Description: Buck Switching Regulator IC
+                    endstream
+                    """,
+                )
+            return httpx.Response(404)
+
+        transport = httpx.MockTransport(handler)
+
+        with patch(
+            "ingestion.lookup.httpx.AsyncClient",
+            side_effect=lambda *args, **kwargs: original_async_client(transport=transport),
+        ):
+            with patch("ingestion.lookup._digikey_lookup_detailed", AsyncMock(return_value={
+                "specs": {
+                    "part_number": "TLV62565DBVR",
+                    "manufacturer": "Texas Instruments",
+                },
+                "debug": {"datasheet_url": "https://example.com/datasheet.pdf"},
+                "status": "ok",
+            })):
+                result = await fetch_specs_detailed("TLV62565DBVR", {
+                    "client_id": "id",
+                    "client_secret": "secret",
+                })
+
+        assert result["outcome"] == "saved"
+        assert "package" not in result["chosen_updates"]
+        assert "description" not in result["chosen_updates"]
+        pdf_attempt = next(
+            attempt for attempt in result["source_attempts"]
+            if attempt["authority_tier"] == "api_derived_pdf"
+        )
+        assert pdf_attempt["fields"] == {}
+        assert "ambiguous_pdf_candidates:description,package,part_number" in pdf_attempt["warnings"]
+
     def test_digikey_debug_summary_extracts_identifying_fields(self):
         summary = _digikey_debug_summary({
             "Product": {

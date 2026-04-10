@@ -1,0 +1,26 @@
+artifact_id: parts-bin-enrichment-migration-design
+checkpoint_id: ff475be9c70140d3952fd01c7dce6f7f
+created_at: '2026-04-10T00:44:28.324425+00:00'
+flush_reason: checkpoint
+is_current: true
+stage_metadata:
+  design_unit_id: parts-bin-enrichment-migration-design
+  title: Migration To The Structured Enrichment Model
+  status: draft
+  readiness: high
+  readiness_rationale: 'The migration path is now explicit: keep the flat `parts`
+    table, add adjacent provenance and pending-review tables, treat the structured
+    enrichment result as authoritative, and keep flattened compatibility fields only
+    as derived transitional outputs.'
+  scope_summary: Follow-on design for migrating runtime, persistence, and callers
+    from the legacy flat lookup helper to the structured enrichment attempt model.
+  parent: parts-bin-fallback-enrichment-design
+  depends_on:
+  - parts-bin-fallback-enrichment-design
+  children: []
+  open_questions: []
+  assumptions:
+  - The repo will continue to run on the current flat `parts` schema during this migration.
+  - Historical rows without provenance are acceptable and do not need synthetic backfill.
+  - Legacy compatibility fields may persist temporarily as derived views while callers
+    migrate.

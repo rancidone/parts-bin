@@ -75,3 +75,19 @@ def test_extract_pdf_candidates_supplier_device_package():
     pdf_bytes = b"Supplier Device Package: SOT-23\n"
     candidates = extract_pdf_candidates(pdf_bytes)
     assert candidates["package"]["value"] == "SOT-23"
+
+
+def test_extract_pdf_candidates_marks_family_level_variant_fields_ambiguous():
+    pdf_bytes = b"""
+    MPN: TLV62565DBVR
+    Package / Case: SOT-23-5
+    Description: Buck Switching Regulator IC
+    MPN: TLV62566DBVR
+    Package / Case: WSON-6
+    Description: Buck Switching Regulator IC
+    """
+    candidates = extract_pdf_candidates(pdf_bytes)
+
+    assert candidates["part_number"]["ambiguous"] is True
+    assert candidates["package"]["ambiguous"] is True
+    assert candidates["description"]["ambiguous"] is True

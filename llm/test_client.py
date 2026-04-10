@@ -2,9 +2,11 @@
 Tests for LLM client — pure logic only (no HTTP calls).
 """
 
+import json
+
 import pytest
 
-from llm.client import ConversationHistory, _build_content
+from llm.client import CHAT_SCHEMA, ConversationHistory, LLMClient, _build_content
 
 
 class TestBuildContent:
@@ -77,3 +79,39 @@ class TestConversationHistory:
         msgs = h.messages()
         assert len(msgs) == 2
         assert msgs[0]["content"] == "u2"
+
+
+@pytest.mark.asyncio
+class TestChatHistory:
+    async def test_chat_persists_structured_assistant_context(self, monkeypatch):
+        client = LLMClient(base_url="http://localhost:8080")
+        history = ConversationHistory()
+        result = {
+            "response": "Added it.",
+            "db_action": {
+                "type": "upsert",
+                "id": None,
+                "items": None,
+                "part_category": "resistor",
+                "profile": "passive",
+                "value": "10k",
+                "package": "0402",
+                "part_number": None,
+                "quantity": 20,
+                "description": None,
+            },
+        }
+
+        async def fake_extract(messages, schema):
+            assert schema == CHAT_SCHEMA
+            return result
+
+        monkeypatch.setattr(client, "_extract_with_retry", fake_extract)
+
+        returned = await client.chat("add 20 10k 0402 resistors", None, history, [])
+
+        assert returned == result
+        messages = history.messages()
+        assert messages[0] == {"role": "user", "content": "add 20 10k 0402 resistors"}
+        assert messages[1]["role"] == "assistant"
+        assert json.loads(messages[1]["content"]) == result
