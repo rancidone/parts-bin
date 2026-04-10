@@ -176,6 +176,139 @@ class TestLookupResolution:
         assert "Package / Case" in package_candidates[0]["evidence"]
 
     @pytest.mark.asyncio
+    async def test_fetch_specs_detailed_keeps_lower_tier_disagreement_in_provenance(self):
+        original_async_client = httpx.AsyncClient
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/datasheet.pdf":
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "application/pdf"},
+                    content=b"%PDF-1.4 Manufacturer: Different Vendor Package / Case: SOT-23-5 endstream",
+                )
+            return httpx.Response(404)
+
+        transport = httpx.MockTransport(handler)
+
+        with patch(
+            "ingestion.lookup.httpx.AsyncClient",
+            side_effect=lambda *args, **kwargs: original_async_client(transport=transport),
+        ):
+            with patch("ingestion.lookup._digikey_lookup_detailed", AsyncMock(return_value={
+                "specs": {
+                    "part_number": "TLV62565DBVR",
+                    "manufacturer": "Texas Instruments",
+                },
+                "debug": {"datasheet_url": "https://example.com/datasheet.pdf"},
+                "status": "ok",
+            })):
+                result = await fetch_specs_detailed("TLV62565DBVR", {
+                    "client_id": "id",
+                    "client_secret": "secret",
+                })
+
+        assert result["outcome"] == "saved"
+        manufacturer_provenance = next(
+            record for record in result["durable_provenance"]
+            if record["field_name"] == "manufacturer"
+        )
+        assert manufacturer_provenance["field_value"] == "Texas Instruments"
+        assert manufacturer_provenance["competing_candidates"] == [{
+            "field_value": "Different Vendor",
+            "source_tier": "api_derived_pdf",
+            "source_kind": "pdf_document",
+            "source_locator": "https://example.com/datasheet.pdf",
+            "extraction_method": "pdf-labeled-text",
+            "provider": "digikey",
+            "evidence": "Manufacturer: Different Vendor",
+            "conflict_status": "clear",
+        }]
+
+    @pytest.mark.asyncio
+    async def test_fetch_specs_detailed_marks_description_merge_provenance(self):
+        original_async_client = httpx.AsyncClient
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/datasheet.pdf":
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "application/pdf"},
+                    content=b"%PDF-1.4 Description: Buck Switching Regulator IC with integrated power switch and 1.5A output current endstream",
+                )
+            return httpx.Response(404)
+
+        transport = httpx.MockTransport(handler)
+
+        with patch(
+            "ingestion.lookup.httpx.AsyncClient",
+            side_effect=lambda *args, **kwargs: original_async_client(transport=transport),
+        ):
+            with patch("ingestion.lookup._digikey_lookup_detailed", AsyncMock(return_value={
+                "specs": {
+                    "part_number": "TLV62565DBVR",
+                    "manufacturer": "Texas Instruments",
+                    "description": "Buck Switching Regulator IC",
+                },
+                "debug": {"datasheet_url": "https://example.com/datasheet.pdf"},
+                "status": "ok",
+            })):
+                result = await fetch_specs_detailed("TLV62565DBVR", {
+                    "client_id": "id",
+                    "client_secret": "secret",
+                })
+
+        assert result["outcome"] == "saved"
+        assert result["chosen_updates"]["description"] == (
+            "Buck Switching Regulator IC with integrated power switch and 1.5A output current"
+        )
+        description_provenance = next(
+            record for record in result["durable_provenance"]
+            if record["field_name"] == "description"
+        )
+        assert description_provenance["normalization_method"] == "source_description_merge"
+        assert description_provenance["extraction_method"] == "source-description-merge"
+        assert description_provenance["competing_candidates"] == [{
+            "field_value": "Buck Switching Regulator IC",
+            "source_tier": "primary_api",
+            "source_kind": "api",
+            "source_locator": None,
+            "extraction_method": "api",
+            "provider": "digikey",
+            "evidence": None,
+            "conflict_status": "clear",
+        }]
+
+    @pytest.mark.asyncio
+    async def test_fetch_specs_detailed_withholds_non_deterministic_taxonomy_fields(self):
+        with patch("ingestion.lookup._digikey_lookup_detailed", AsyncMock(return_value={
+            "specs": {
+                "part_category": "buck_regulator",
+                "profile": "discrete_ic",
+                "value": "0.6V",
+            },
+            "debug": {
+                "requested_part_number": "TLV62565DBVR",
+                "manufacturer_part_number": "TLV62565DBVR",
+            },
+            "status": "ok",
+        })):
+            result = await fetch_specs_detailed("TLV62565DBVR", {
+                "client_id": "id",
+                "client_secret": "secret",
+            })
+
+        assert result["chosen_updates"] == {}
+        assert result["outcome"] == "incomplete"
+        assert set(result["withheld_candidates"]) == {"part_category", "profile", "value"}
+        digikey_attempt = next(
+            attempt for attempt in result["source_attempts"]
+            if attempt["provider"] == "digikey"
+        )
+        assert "withheld_non_deterministic_field:part_category" in digikey_attempt["warnings"]
+        assert "withheld_non_deterministic_field:profile" in digikey_attempt["warnings"]
+        assert "withheld_non_deterministic_field:value" in digikey_attempt["warnings"]
+
+    @pytest.mark.asyncio
     async def test_fetch_specs_detailed_suppresses_ambiguous_pdf_variant_fields(self):
         original_async_client = httpx.AsyncClient
 
@@ -224,7 +357,7 @@ class TestLookupResolution:
             attempt for attempt in result["source_attempts"]
             if attempt["authority_tier"] == "api_derived_pdf"
         )
-        assert pdf_attempt["fields"] == {}
+        assert pdf_attempt["fields"] == {"manufacturer": "Texas Instruments"}
         assert "ambiguous_pdf_candidates:description,package,part_number" in pdf_attempt["warnings"]
 
     def test_digikey_debug_summary_extracts_identifying_fields(self):
