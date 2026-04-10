@@ -6,6 +6,7 @@
 
 .thread {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px;
   display: flex;
@@ -62,6 +63,16 @@
   white-space: pre-wrap;
 }
 
+.batchSummary {
+  font-size: 0.8rem;
+  color: var(--fg-muted, #888);
+  padding: 3px 8px;
+  background: var(--surface-raised, rgba(255,255,255,0.05));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  align-self: flex-start;
+}
+
 .error {
   color: #c0392b;
 }
@@ -70,6 +81,12 @@
   border-color: rgb(192 57 43 / 0.25);
   background: rgb(192 57 43 / 0.08);
   color: #8e2d23;
+}
+
+.queryAnswer {
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  color: #e8eaf0;
 }
 
 .queryHeader {

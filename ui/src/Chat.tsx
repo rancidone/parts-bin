@@ -141,6 +141,14 @@ function MessageBubble({ msg }: { msg: Message }) {
     return (
       <div className={styles.assistantBubble}>
         {m.text && <span>{m.text}</span>}
+        {m.batchSummary && (
+          <div className={styles.batchSummary}>
+            Updated {m.batchSummary.count} part{m.batchSummary.count !== 1 ? 's' : ''}
+            {m.batchSummary.fields.length > 0 && (
+              <> — {m.batchSummary.fields.join(', ')}</>
+            )}
+          </div>
+        )}
         {m.part && <PartCard part={m.part} added={true} />}
       </div>
     )
@@ -157,6 +165,7 @@ function MessageBubble({ msg }: { msg: Message }) {
   if (m.kind === 'query-result' && m.matches) {
     return (
       <div className={styles.systemMsg}>
+        {m.text && <div className={styles.queryAnswer}>{m.text}</div>}
         <div className={styles.queryHeader}>
           <span>{m.matches.length} part{m.matches.length !== 1 ? 's' : ''} found</span>
           <button

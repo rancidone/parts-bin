@@ -257,8 +257,8 @@ def _execute_upsert_part(part: dict) -> int | None:
     return part_id
 
 
-async def _execute_action(action: dict) -> tuple[int | None, str]:
-    """Execute a db_action from the LLM. Returns (part_id, status)."""
+async def _execute_action(action: dict) -> tuple[int | None, str, dict]:
+    """Execute a db_action from the LLM. Returns (part_id, status, extras)."""
     action = _repair_action(action)
     action_type = action["type"]
     if action_type == "upsert":
@@ -268,28 +268,27 @@ async def _execute_action(action: dict) -> tuple[int | None, str]:
             for item in items:
                 part_id = _execute_upsert_part(item)
                 if part_id is None:
-                    return None, "invalid"
+                    return None, "invalid", {}
                 saved_ids.append(part_id)
-            return saved_ids[-1], "saved-batch"
+            return saved_ids[-1], "saved-batch", {"count": len(saved_ids)}
 
         part_id = _execute_upsert_part(action)
         if part_id is None:
-            return None, "invalid"
-        return part_id, "saved"
+            return None, "invalid", {}
+        return part_id, "saved", {}
 
     if action_type == "update":
         # Filter+patch: deterministic DB lookup, then apply patch to all matching parts.
-        filter_criteria = action.get("filter") or None
-        patch = action.get("patch") or None
+        filter_criteria = {k: v for k, v in (action.get("filter") or {}).items() if v is not None} or None
+        patch = {k: v for k, v in (action.get("patch") or {}).items() if v is not None} or None
         if filter_criteria and patch:
-            attrs: dict = {k: v for k, v in filter_criteria.items() if v is not None}
-            cat = attrs.get("part_category")
-            if "value" in attrs and cat:
-                attrs["value"] = normalize_value(attrs["value"], cat)
-            matched = query(_DB_PATH, attrs)
+            cat = filter_criteria.get("part_category")
+            if "value" in filter_criteria and cat:
+                filter_criteria["value"] = normalize_value(filter_criteria["value"], cat)
+            matched = query(_DB_PATH, filter_criteria)
             if not matched:
-                return None, "missing-target"
-            patch_fields = {k: v for k, v in patch.items() if v is not None}
+                return None, "missing-target", {}
+            patch_fields = patch
             saved_ids: list[int] = []
             for part in matched:
                 part_id = part["id"]
@@ -300,39 +299,49 @@ async def _execute_action(action: dict) -> tuple[int | None, str]:
                 clear_pending_review(_DB_PATH, part_id)
                 saved_ids.append(part_id)
             if not saved_ids:
-                return None, "missing-target"
-            return saved_ids[-1], "saved-batch"
+                return None, "missing-target", {}
+            return saved_ids[-1], "saved-batch", {
+                "count": len(saved_ids),
+                "fields": sorted(patch_fields.keys()),
+            }
 
         items = action.get("items") or None
         if items:
             saved_ids: list[int] = []
+            # Collect which fields actually varied across items.
+            all_fields: set[str] = set()
+            _part_field_keys = {"part_category", "profile", "value", "package", "part_number", "quantity", "description", "manufacturer"}
             for item in items:
                 item_id = item.get("id")
                 if not item_id:
-                    return None, "missing-target"
+                    return None, "missing-target", {}
                 merged = _merge_existing_part_for_replace(item_id, item)
                 if merged is None:
-                    return None, "missing-target"
+                    return None, "missing-target", {}
                 replace_part(_DB_PATH, item_id, merged)
                 clear_pending_review(_DB_PATH, item_id)
                 saved_ids.append(item_id)
-            return saved_ids[-1], "saved-batch"
+                all_fields.update(k for k in _part_field_keys if item.get(k) is not None)
+            return saved_ids[-1], "saved-batch", {
+                "count": len(saved_ids),
+                "fields": sorted(all_fields),
+            }
 
         part_id = action.get("id")
         if not part_id:
-            return None, "missing-target"
+            return None, "missing-target", {}
         merged = _merge_existing_part_for_replace(part_id, action)
         if merged is None:
-            return None, "missing-target"
+            return None, "missing-target", {}
         replace_part(_DB_PATH, part_id, merged)
         clear_pending_review(_DB_PATH, part_id)
-        return part_id, "saved"
+        return part_id, "saved", {}
 
     if action_type == "lookup":
         part_id = action.get("id")
         part_number = action.get("part_number")
         if not part_id or not part_number:
-            return None, "missing-target"
+            return None, "missing-target", {}
         lookup_result = await fetch_specs_detailed(part_number, _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH)
         chosen_updates = lookup_result["chosen_updates"]
         if chosen_updates:
@@ -350,7 +359,7 @@ async def _execute_action(action: dict) -> tuple[int | None, str]:
                 "fields": sorted(chosen_updates.keys()),
                 "outcome": lookup_result["outcome"],
             })
-            return part_id, "saved"
+            return part_id, "saved", {}
         _logger.info("lookup empty", extra={
             "part_id": part_id,
             "part_number": part_number,
@@ -360,28 +369,28 @@ async def _execute_action(action: dict) -> tuple[int | None, str]:
             "conflicts": lookup_result.get("conflicts"),
         })
         if lookup_result.get("outcome") == "conflict":
-            return part_id, "lookup-conflict"
+            return part_id, "lookup-conflict", {}
         if lookup_result.get("outcome") == "incomplete":
-            return part_id, "lookup-incomplete"
+            return part_id, "lookup-incomplete", {}
         if lookup_result.get("outcome") == "failed":
-            return part_id, "lookup-failed"
+            return part_id, "lookup-failed", {}
         if lookup_result.get("outcome") == "needs_confirmation":
-            return part_id, "lookup-needs-confirmation"
+            return part_id, "lookup-needs-confirmation", {}
         if lookup_result.get("status") == "timeout":
-            return part_id, "lookup-timeout"
-        return part_id, "no-specs"
+            return part_id, "lookup-timeout", {}
+        return part_id, "no-specs", {}
 
     if action_type == "delete":
         part_id = action.get("id")
         if not part_id:
-            return None, "missing-target"
+            return None, "missing-target", {}
         existing = get_by_id(_DB_PATH, part_id)
         if existing is None:
-            return None, "missing-target"
+            return None, "missing-target", {}
         delete_part(_DB_PATH, part_id)
-        return part_id, "deleted"
+        return part_id, "deleted", {}
 
-    return None, "noop"
+    return None, "noop", {}
 
 
 async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[str, None]:
@@ -396,7 +405,7 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
 
     action = result["db_action"]
     action_type = action["type"]
-    part_id, action_status = await _execute_action(action)
+    part_id, action_status, action_extras = await _execute_action(action)
     saved_part = get_by_id(_DB_PATH, part_id) if part_id and action_status == "saved" else None
 
     response_text = result["response"]
@@ -431,15 +440,36 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
     elif action_type == "lookup" and action_status == "no-specs":
         response_text = "I ran the lookup, but the configured parts providers did not return matching specifications for that part number."
 
+    # Query filter: deterministic lookup when the LLM signals an inventory question.
+    query_parts: list[dict] | None = None
+    if action_type == "none":
+        qf_attrs = {k: v for k, v in (action.get("query_filter") or {}).items() if v is not None}
+        if qf_attrs:
+            cat = qf_attrs.get("part_category")
+            if "value" in qf_attrs and cat:
+                qf_attrs["value"] = normalize_value(qf_attrs["value"], cat)
+            query_parts = query(_DB_PATH, qf_attrs)
+            _logger.info("chat query filter", extra={"attrs": qf_attrs, "match_count": len(query_parts)})
+
     _logger.info("chat", extra={"action": action_type, "action_status": action_status, "part_id": part_id,
                                 "response": response_text})
 
-    yield _sse("result", {
-        "type": "chat",
-        "response": response_text,
-        "action": action_type,
-        "part": saved_part,
-    })
+    if query_parts is not None:
+        yield _sse("result", {
+            "type": "query",
+            "response": response_text,
+            "matches": query_parts,
+        })
+    else:
+        payload: dict = {
+            "type": "chat",
+            "response": response_text,
+            "action": action_type,
+            "part": saved_part,
+        }
+        if action_status == "saved-batch" and action_extras:
+            payload["batch_summary"] = action_extras
+        yield _sse("result", payload)
     yield _sse("done", {})
 
 

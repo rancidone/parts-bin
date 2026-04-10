@@ -150,11 +150,12 @@ CHAT_SCHEMA: dict[str, Any] = {
                         "type": ["array", "null"],
                         "items": _PART_ITEM_SCHEMA,
                     },
-                    "filter": {"oneOf": [_FILTER_SCHEMA, {"type": "null"}]},
-                    "patch":  {"oneOf": [_PATCH_SCHEMA,  {"type": "null"}]},
+                    "filter":       _FILTER_SCHEMA,
+                    "patch":        _PATCH_SCHEMA,
+                    "query_filter": _FILTER_SCHEMA,
                     **_PART_FIELDS,
                 },
-                "required": ["type", "id", "items", "filter", "patch", *_PART_FIELDS.keys()],
+                "required": ["type", "id", "items", "filter", "patch", "query_filter", *_PART_FIELDS.keys()],
                 "additionalProperties": False,
             },
         },
@@ -180,6 +181,8 @@ CHAT_SYSTEM_PROMPT = (
     "  For multi-part adds, set 'db_action.type' to 'upsert' and populate 'db_action.items' with one part object per record to insert. Leave the top-level part fields null in that case.\n"
     "  If the user asks to add parts as separate records, use 'items' and include every record; do not collapse the add into one top-level part.\n"
     "  For single-record actions, set 'db_action.items', 'db_action.filter', and 'db_action.patch' to null.\n"
+    "  When the user is asking a question about their inventory (e.g. 'do I have any 0603 resistors?', 'show me all capacitors'), set 'db_action.type' to 'none' and populate 'db_action.query_filter' with the criteria. The server will resolve matches and return them as structured results. Leave query_filter null for general chat or when no inventory lookup is needed.\n"
+    "  For filter+patch updates: only use patch when the same value applies to every matched part. For per-part variable fields like description, use query_filter first (type='none') to surface the matching parts, then in the next turn use 'items' with individual descriptions per part id.\n"
     "  part fields in db_action: set to null when not applicable\n\n"
     "For resistors, capacitors, and inductors, use profile='passive'. Put the electrical value in 'value', the footprint/package in 'package', and leave 'part_number' null unless the user explicitly gives a manufacturer part number. Never put a package like 0402 or 0603 in 'value'.\n"
     "If the user already asked to add, update, or look up a part earlier in the conversation, keep that intent active through follow-up clarification turns. Do not ask them to reconfirm the same operation.\n"
