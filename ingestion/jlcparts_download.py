@@ -14,8 +14,8 @@ until it completes.
 from __future__ import annotations
 
 import shutil
+import subprocess
 import tempfile
-import zipfile
 from pathlib import Path
 
 import httpx
@@ -24,9 +24,15 @@ import log
 
 _logger = log.get_logger("parts_bin.jlcparts_download")
 _BASE_URL = "https://yaqwsx.github.io/jlcparts/data"
+_DEFAULT_MIN_FREE_BYTES = 4 * 1024 * 1024 * 1024
 
 
-async def download_if_missing(db_path: str | Path) -> None:
+async def download_if_missing(
+    db_path: str | Path,
+    *,
+    min_free_bytes: int = _DEFAULT_MIN_FREE_BYTES,
+    max_sqlite_bytes: int | None = None,
+) -> None:
     """
     Download the jlcparts database to db_path if it does not already exist.
     Logs progress and errors; never raises.
@@ -39,22 +45,30 @@ async def download_if_missing(db_path: str | Path) -> None:
                  extra={"db_path": str(db_path)})
 
     try:
-        await _download(db_path)
+        await _download(
+            db_path,
+            min_free_bytes=min_free_bytes,
+            max_sqlite_bytes=max_sqlite_bytes,
+        )
     except Exception as exc:
         _logger.error("jlcparts download failed",
                       extra={"error": str(exc), "error_type": type(exc).__name__})
 
 
-async def _download(db_path: Path) -> None:
+async def _download(
+    db_path: Path,
+    *,
+    min_free_bytes: int = _DEFAULT_MIN_FREE_BYTES,
+    max_sqlite_bytes: int | None = None,
+) -> None:
     with tempfile.TemporaryDirectory() as tmp_str:
         tmp_dir = Path(tmp_str)
-        part_paths: list[Path] = []
+        numbered_part_paths: list[Path] = []
+        final_zip_path: Path | None = None
 
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
-            # Main part.
-            part_paths.append(
-                await _stream_part(client, f"{_BASE_URL}/cache.zip", tmp_dir / "cache.zip")
-            )
+            # Final segment containing the central directory.
+            final_zip_path = await _stream_part(client, f"{_BASE_URL}/cache.zip", tmp_dir / "cache.zip")
             _logger.info("jlcparts downloaded part", extra={"part": "cache.zip", "n": 1})
 
             # Numbered parts — stop on first 404.
@@ -64,21 +78,24 @@ async def _download(db_path: Path) -> None:
                 probe = await client.head(url)
                 if probe.status_code == 404:
                     break
-                part_paths.append(await _stream_part(client, url, tmp_dir / part_name))
+                numbered_part_paths.append(await _stream_part(client, url, tmp_dir / part_name))
                 _logger.info("jlcparts downloaded part",
-                             extra={"part": part_name, "n": len(part_paths)})
+                             extra={"part": part_name, "n": len(numbered_part_paths) + 1})
+
+        part_paths = [*numbered_part_paths, final_zip_path] if final_zip_path else [*numbered_part_paths]
 
         _logger.info("jlcparts concatenating and extracting",
                      extra={"total_parts": len(part_paths)})
 
-        # Concatenate all parts into one file that zipfile can read.
+        # Concatenate all parts into one file that system unzip tools can read.
         concat_path = tmp_dir / "cache_full.zip"
         with open(concat_path, "wb") as out:
             for part in part_paths:
                 with open(part, "rb") as src:
                     shutil.copyfileobj(src, out)
 
-        sqlite_path = _extract_sqlite(concat_path, tmp_dir)
+        _ensure_free_space(tmp_dir, min_free_bytes)
+        sqlite_path = _extract_sqlite(concat_path, tmp_dir, max_sqlite_bytes=max_sqlite_bytes)
         if sqlite_path is None:
             raise RuntimeError("no .sqlite3 file found in jlcparts archive")
 
@@ -106,61 +123,107 @@ async def _stream_part(client: httpx.AsyncClient, url: str, dest: Path) -> Path:
 
 
 _SQLITE_MAGIC = b"SQLite format 3\x00"
-_MAX_EXTRACT_BYTES = 8 * 1024 * 1024 * 1024  # 8 GB hard cap against zip bombs
 
 
-def _extract_sqlite(zip_path: Path, dest_dir: Path) -> Path | None:
-    try:
-        with zipfile.ZipFile(zip_path) as zf:
-            for info in zf.infolist():
-                name = info.filename
+def _system_zip_extractor() -> tuple[str, list[str], list[str]] | None:
+    """
+    Return (name, list_cmd_prefix, extract_cmd_prefix) for an available extractor.
+    """
+    bsdtar = shutil.which("bsdtar")
+    if bsdtar:
+        return ("bsdtar", [bsdtar, "-tf"], [bsdtar, "-xOf"])
 
-                # Skip anything that is not a plain sqlite3/sqlite file.
-                if not (name.endswith(".sqlite3") or name.endswith(".sqlite")):
-                    continue
+    unzip = shutil.which("unzip")
+    if unzip:
+        zipinfo = shutil.which("zipinfo")
+        if zipinfo:
+            return ("unzip", [zipinfo, "-1"], [unzip, "-p"])
 
-                # Reject symlinks (external_attr encodes Unix mode in the high 16 bits).
-                unix_mode = (info.external_attr >> 16) & 0xFFFF
-                if unix_mode and (unix_mode & 0xA000) == 0xA000:
-                    _logger.warning("jlcparts skipping symlink entry", extra={"name": name})
-                    continue
-
-                # Reject path traversal — only keep the bare filename.
-                safe_name = Path(name).name
-                if not safe_name or safe_name.startswith("."):
-                    _logger.warning("jlcparts skipping suspicious entry", extra={"name": name})
-                    continue
-
-                # Zip bomb guard: uncompressed size must be within cap.
-                if info.file_size > _MAX_EXTRACT_BYTES:
-                    _logger.error("jlcparts entry exceeds size cap, aborting",
-                                  extra={"name": name, "size": info.file_size})
-                    return None
-
-                out_path = dest_dir / safe_name
-                written = 0
-                with zf.open(info) as src, open(out_path, "wb") as dst:
-                    for chunk in iter(lambda: src.read(1024 * 1024), b""):
-                        written += len(chunk)
-                        if written > _MAX_EXTRACT_BYTES:
-                            _logger.error("jlcparts extraction exceeded size cap, aborting")
-                            dst.close()
-                            out_path.unlink(missing_ok=True)
-                            return None
-                        dst.write(chunk)
-
-                # Verify SQLite magic bytes.
-                with open(out_path, "rb") as f:
-                    magic = f.read(len(_SQLITE_MAGIC))
-                if magic != _SQLITE_MAGIC:
-                    _logger.error("jlcparts extracted file is not a SQLite database",
-                                  extra={"name": name})
-                    out_path.unlink(missing_ok=True)
-                    return None
-
-                return out_path
-
-    except zipfile.BadZipFile as exc:
-        _logger.error("jlcparts zip extraction failed — split-zip format may need 7z",
-                      extra={"error": str(exc)})
     return None
+
+
+def _ensure_free_space(path: Path, min_free_bytes: int) -> None:
+    usage = shutil.disk_usage(path)
+    if usage.free < min_free_bytes:
+        raise RuntimeError(
+            f"insufficient free disk for jlcparts extraction: "
+            f"{usage.free} bytes available, {min_free_bytes} required"
+        )
+
+
+def _extract_sqlite(
+    zip_path: Path,
+    dest_dir: Path,
+    *,
+    max_sqlite_bytes: int | None = None,
+) -> Path | None:
+    """Extract the sqlite payload using system zip tools."""
+    extractor = _system_zip_extractor()
+    if extractor is None:
+        _logger.error("no supported system zip extractor found")
+        return None
+
+    extractor_name, list_prefix, extract_prefix = extractor
+    try:
+        listing = subprocess.run(
+            [*list_prefix, str(zip_path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        _logger.error("jlcparts system zip listing failed",
+                      extra={"error": str(exc), "extractor": extractor_name})
+        return None
+
+    entries = [line.strip() for line in listing.stdout.splitlines() if line.strip()]
+    sqlite_entry = next(
+        (name for name in entries if name.endswith(".sqlite3") or name.endswith(".sqlite")),
+        None,
+    )
+    if sqlite_entry is None:
+        _logger.error("jlcparts system zip listing found no sqlite file",
+                      extra={"extractor": extractor_name})
+        return None
+
+    safe_name = Path(sqlite_entry).name
+    if not safe_name or safe_name.startswith("."):
+        _logger.warning("jlcparts system zip skipping suspicious entry",
+                        extra={"entry_name": sqlite_entry, "extractor": extractor_name})
+        return None
+
+    out_path = dest_dir / safe_name
+    try:
+        with open(out_path, "wb") as dst:
+            subprocess.run(
+                [*extract_prefix, str(zip_path), sqlite_entry],
+                stdout=dst,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        _logger.error("jlcparts system extraction failed",
+                      extra={"error": str(exc), "extractor": extractor_name})
+        out_path.unlink(missing_ok=True)
+        return None
+
+    with open(out_path, "rb") as f:
+        magic = f.read(len(_SQLITE_MAGIC))
+    if magic != _SQLITE_MAGIC:
+        _logger.error("jlcparts system extraction produced a non-SQLite file",
+                      extra={"entry_name": sqlite_entry, "extractor": extractor_name})
+        out_path.unlink(missing_ok=True)
+        return None
+
+    sqlite_size = out_path.stat().st_size
+    if max_sqlite_bytes is not None and sqlite_size > max_sqlite_bytes:
+        _logger.error(
+            "jlcparts extracted sqlite exceeds configured size limit",
+            extra={"size_bytes": sqlite_size, "limit_bytes": max_sqlite_bytes, "extractor": extractor_name},
+        )
+        out_path.unlink(missing_ok=True)
+        return None
+
+    _logger.info("jlcparts extracted with system tool",
+                 extra={"entry_name": sqlite_entry, "extractor": extractor_name, "size_bytes": sqlite_size})
+    return out_path

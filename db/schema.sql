@@ -42,3 +42,16 @@ CREATE TABLE IF NOT EXISTS part_field_provenance (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_part_field_provenance
     ON part_field_provenance (part_id, field_name);
+
+CREATE TABLE IF NOT EXISTS part_pending_field_review (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    part_id        INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+    field_name     TEXT    NOT NULL,
+    proposed_value TEXT,
+    provenance_json TEXT   NOT NULL,
+    created_at     TEXT    NOT NULL,
+    updated_at     TEXT    NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_part_pending_field_review
+    ON part_pending_field_review (part_id, field_name);
