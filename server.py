@@ -17,19 +17,20 @@ import log
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from ingestion.jlcparts_download import download_if_missing
-
 from db.persistence import (
+    clear_pending_review,
     export_csv,
     get_by_id,
     init_db,
     list_all,
+    list_pending_reviews,
     query,
+    save_pending_review,
     update_fields,
     update_fields_with_provenance,
     upsert,
 )
-from ingestion.lookup import fetch_specs_detailed, merge_specs
+from ingestion.lookup import fetch_specs_detailed
 from llm.client import ConversationHistory, LLMClient
 
 # ---------------------------------------------------------------------------
@@ -57,7 +58,11 @@ _DIGIKEY_CREDS: dict | None = (
     else None
 )
 _JLCPARTS_DB_PATH: str | None = _cfg.get("jlcparts", {}).get("db_path") or None
+_JLCPARTS_MIN_FREE_BYTES: int = int(_cfg.get("jlcparts", {}).get("min_free_bytes", 4 * 1024 * 1024 * 1024))
+_JLCPARTS_MAX_SQLITE_BYTES: int | None = _cfg.get("jlcparts", {}).get("max_sqlite_bytes")
 _jlcparts_dl_status: str = "idle"  # idle | downloading | error
+_background_enrichment_tasks: set[asyncio.Task] = set()
+_PASSIVE_CATEGORIES = {"resistor", "capacitor", "inductor"}
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -86,35 +91,106 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-async def _execute_action(action_type: str, part: dict) -> tuple[int | None, str]:
-    """Execute a db_action from the LLM. Returns (part_id, status)."""
-    if action_type == "upsert":
-        if not (part.get("part_category") and part.get("quantity")):
-            return None, "invalid"
-        part.setdefault("manufacturer", None)
-        enrichment_result: dict | None = None
-        if part.get("part_number"):
-            enrichment_result = await fetch_specs_detailed(part["part_number"], _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH)
-            part = merge_specs(part, enrichment_result["chosen_updates"])
-        part_id = upsert(_DB_PATH, part)
-        if enrichment_result and enrichment_result["chosen_updates"]:
-            update_fields_with_provenance(
+def _track_background_task(task: asyncio.Task) -> None:
+    _background_enrichment_tasks.add(task)
+    task.add_done_callback(_background_enrichment_tasks.discard)
+
+
+async def _enrich_upserted_part(part_id: int, part_number: str) -> None:
+    try:
+        lookup_result = await fetch_specs_detailed(
+            part_number,
+            _DIGIKEY_CREDS,
+            jlcparts_db_path=_JLCPARTS_DB_PATH,
+        )
+        chosen_updates = lookup_result["chosen_updates"]
+        if chosen_updates:
+            save_pending_review(
                 _DB_PATH,
                 part_id,
-                enrichment_result["chosen_updates"],
-                enrichment_result["durable_provenance"],
+                chosen_updates,
+                lookup_result["durable_provenance"],
             )
+            _logger.info("background upsert enrichment proposed", extra={
+                "part_id": part_id,
+                "part_number": part_number,
+                "provider": lookup_result["provider"],
+                "tried_providers": lookup_result["tried_providers"],
+                "fields": sorted(chosen_updates.keys()),
+                "outcome": lookup_result["outcome"],
+            })
+        else:
+            _logger.info("background upsert enrichment empty", extra={
+                "part_id": part_id,
+                "part_number": part_number,
+                "provider": lookup_result["provider"],
+                "tried_providers": lookup_result["tried_providers"],
+                "outcome": lookup_result["outcome"],
+                "lookup_status": lookup_result.get("status"),
+                "conflicts": lookup_result.get("conflicts"),
+            })
+    except Exception as exc:
+        _logger.error("background upsert enrichment failed", extra={
+            "part_id": part_id,
+            "part_number": part_number,
+            "error": str(exc),
+        })
+
+
+def _should_enqueue_enrichment(part: dict) -> bool:
+    if not part.get("part_number"):
+        return False
+    if part.get("profile") != "discrete_ic":
+        return False
+    if str(part.get("part_category", "")).lower() in _PASSIVE_CATEGORIES:
+        return False
+    return True
+
+
+def _coerce_part_payload(part: dict) -> dict:
+    payload = dict(part)
+    payload.setdefault("manufacturer", None)
+    return payload
+
+
+def _execute_upsert_part(part: dict) -> int | None:
+    if not (part.get("part_category") and part.get("quantity")):
+        return None
+    payload = _coerce_part_payload(part)
+    part_id = upsert(_DB_PATH, payload)
+    if _should_enqueue_enrichment(payload):
+        _track_background_task(asyncio.create_task(_enrich_upserted_part(part_id, payload["part_number"])))
+    return part_id
+
+
+async def _execute_action(action: dict) -> tuple[int | None, str]:
+    """Execute a db_action from the LLM. Returns (part_id, status)."""
+    action_type = action["type"]
+    if action_type == "upsert":
+        items = action.get("items") or None
+        if items:
+            saved_ids: list[int] = []
+            for item in items:
+                part_id = _execute_upsert_part(item)
+                if part_id is None:
+                    return None, "invalid"
+                saved_ids.append(part_id)
+            return saved_ids[-1], "saved-batch"
+
+        part_id = _execute_upsert_part(action)
+        if part_id is None:
+            return None, "invalid"
         return part_id, "saved"
 
     if action_type == "update":
-        part_id = part.get("id")
+        part_id = action.get("id")
         if not part_id:
             return None, "missing-target"
-        return update_fields(_DB_PATH, part_id, part), "saved"
+        return update_fields(_DB_PATH, part_id, action), "saved"
 
     if action_type == "lookup":
-        part_id = part.get("id")
-        part_number = part.get("part_number")
+        part_id = action.get("id")
+        part_number = action.get("part_number")
         if not part_id or not part_number:
             return None, "missing-target"
         lookup_result = await fetch_specs_detailed(part_number, _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH)
@@ -168,10 +244,7 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
 
     action = result["db_action"]
     action_type = action["type"]
-    part = {k: action.get(k) for k in
-            ("id", "part_category", "profile", "value", "package", "part_number", "quantity", "description")}
-
-    part_id, action_status = await _execute_action(action_type, part)
+    part_id, action_status = await _execute_action(action)
     saved_part = get_by_id(_DB_PATH, part_id) if part_id and action_status == "saved" else None
 
     response_text = result["response"]
@@ -187,6 +260,8 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
                 details.append(fetched_description)
             if details:
                 response_text += f"\n\n{'. '.join(details)}."
+    elif action_type == "upsert" and action_status == "saved-batch":
+        response_text = result["response"]
     elif action_type in ("update", "lookup") and action_status == "missing-target":
         response_text += "\n\n_(Note: the change wasn't saved — I couldn't identify which inventory record to update.)_"
     elif action_type == "lookup" and action_status == "lookup-timeout":
@@ -224,6 +299,11 @@ async def health() -> dict:
 @app.get("/inventory")
 async def inventory() -> list[dict]:
     return list_all(_DB_PATH)
+
+
+@app.get("/inventory/pending")
+async def inventory_pending() -> dict:
+    return {"reviews": list_pending_reviews(_DB_PATH)}
 
 
 @app.get("/inventory/export.csv")
@@ -274,8 +354,19 @@ async def accept_refresh(part_id: int, body: dict) -> dict:
     if part is None:
         raise HTTPException(status_code=404, detail="Part not found")
     update_fields_with_provenance(_DB_PATH, part_id, updates, provenance)
+    clear_pending_review(_DB_PATH, part_id, list(updates.keys()))
     _logger.info("refresh accepted", extra={"part_id": part_id, "fields": sorted(updates.keys())})
     return {"part": get_by_id(_DB_PATH, part_id)}
+
+
+@app.post("/inventory/{part_id}/dismiss")
+async def dismiss_review(part_id: int) -> dict:
+    part = get_by_id(_DB_PATH, part_id)
+    if part is None:
+        raise HTTPException(status_code=404, detail="Part not found")
+    clear_pending_review(_DB_PATH, part_id)
+    _logger.info("review dismissed", extra={"part_id": part_id})
+    return {"ok": True}
 
 
 @app.get("/jlcparts/status")
@@ -298,7 +389,11 @@ async def _run_jlcparts_download() -> None:
     _jlcparts_dl_status = "downloading"
     try:
         from ingestion.jlcparts_download import download_if_missing
-        await asyncio.to_thread(download_if_missing, _JLCPARTS_DB_PATH)
+        await download_if_missing(
+            _JLCPARTS_DB_PATH,
+            min_free_bytes=_JLCPARTS_MIN_FREE_BYTES,
+            max_sqlite_bytes=_JLCPARTS_MAX_SQLITE_BYTES,
+        )
         _jlcparts_dl_status = "idle"
     except Exception as exc:
         _logger.error("jlcparts download failed", extra={"error": str(exc)})

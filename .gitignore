@@ -5,6 +5,7 @@ clauderfall.db
 config.toml
 parts.db
 *.log
+jlcparts.sqlite3
 
 # macos
 .DS_Store

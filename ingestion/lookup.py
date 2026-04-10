@@ -7,6 +7,7 @@ Lookup failure is non-fatal; callers receive a structured enrichment result.
 
 from collections import defaultdict
 from pathlib import Path
+from time import perf_counter
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -25,6 +26,7 @@ _FALLBACK_FIELD_SCOPE = ("manufacturer", "part_number", "package", "description"
 
 async def _digikey_token(client_id: str, client_secret: str, client: httpx.AsyncClient) -> str | None:
     """Fetch a Digikey OAuth2 access token via client credentials."""
+    started = perf_counter()
     try:
         resp = await client.post(
             "https://api.digikey.com/v1/oauth2/token",
@@ -36,8 +38,16 @@ async def _digikey_token(client_id: str, client_secret: str, client: httpx.Async
             timeout=10.0,
         )
         resp.raise_for_status()
+        _logger.info("digikey token fetched", extra={
+            "latency_ms": round((perf_counter() - started) * 1000, 1),
+            "status_code": resp.status_code,
+        })
         return resp.json().get("access_token")
-    except Exception:
+    except Exception as exc:
+        _logger.warning("digikey token failed", extra={
+            "latency_ms": round((perf_counter() - started) * 1000, 1),
+            **_http_error_details(exc),
+        })
         return None
 
 
@@ -90,12 +100,14 @@ async def _digikey_lookup_detailed(
     client_secret: str,
     client: httpx.AsyncClient,
 ) -> dict:
+    lookup_started = perf_counter()
     token = await _digikey_token(client_id, client_secret, client)
     if not token:
         return {"specs": None, "debug": None, "status": "auth-failed"}
 
     last_error: dict | None = None
     for attempt in range(2):
+        attempt_started = perf_counter()
         try:
             resp = await client.get(
                 f"https://api.digikey.com/products/v4/search/{part_number}/productdetails",
@@ -107,6 +119,13 @@ async def _digikey_lookup_detailed(
             )
             resp.raise_for_status()
             data = resp.json()
+            _logger.info("digikey productdetails fetched", extra={
+                "part_number": part_number,
+                "attempt": attempt + 1,
+                "latency_ms": round((perf_counter() - attempt_started) * 1000, 1),
+                "total_latency_ms": round((perf_counter() - lookup_started) * 1000, 1),
+                "status_code": resp.status_code,
+            })
             return {
                 "specs": _extract_digikey_fields(data.get("Product", {})),
                 "debug": _digikey_debug_summary(data, part_number),
@@ -116,6 +135,8 @@ async def _digikey_lookup_detailed(
             last_error = {
                 "part_number": part_number,
                 "attempt": attempt + 1,
+                "latency_ms": round((perf_counter() - attempt_started) * 1000, 1),
+                "total_latency_ms": round((perf_counter() - lookup_started) * 1000, 1),
                 **_http_error_details(exc),
             }
             _logger.warning("digikey lookup timeout", extra=last_error)
@@ -123,6 +144,8 @@ async def _digikey_lookup_detailed(
             last_error = {
                 "part_number": part_number,
                 "attempt": attempt + 1,
+                "latency_ms": round((perf_counter() - attempt_started) * 1000, 1),
+                "total_latency_ms": round((perf_counter() - lookup_started) * 1000, 1),
                 **_http_error_details(exc),
             }
             _logger.warning("digikey lookup failed", extra=last_error)
@@ -501,11 +524,18 @@ async def fetch_specs_detailed(
     """
     tried_providers: list[str] = []
     source_attempts: list[dict] = []
+    total_started = perf_counter()
 
     async with httpx.AsyncClient() as client:
         if jlcparts_db_path and Path(jlcparts_db_path).exists():
+            jlcparts_started = perf_counter()
             tried_providers.append("jlcparts")
             jlcparts_result = _jlcparts_lookup_by_mpn(jlcparts_db_path, part_number)
+            _logger.info("jlcparts lookup finished", extra={
+                "part_number": part_number,
+                "latency_ms": round((perf_counter() - jlcparts_started) * 1000, 1),
+                "status": jlcparts_result["status"],
+            })
             source_attempts.append(_build_source_attempt(
                 provider="jlcparts",
                 authority_tier="local_db",
@@ -580,6 +610,13 @@ async def fetch_specs_detailed(
             "outcome": outcome,
             "conflicts": conflicts,
         })
+
+    _logger.info("lookup finished", extra={
+        "part_number": part_number,
+        "latency_ms": round((perf_counter() - total_started) * 1000, 1),
+        "tried_providers": tried_providers,
+        "outcome": outcome,
+    })
 
     return {
         "request": {"part_number": part_number, "inventory_id": None},
