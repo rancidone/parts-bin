@@ -1,6 +1,6 @@
 artifact_id: parts-bin-source-extraction-design
-checkpoint_id: 0fd05bc92d654209b5226c70926c7bef
-created_at: '2026-04-09T02:56:30.295620+00:00'
+checkpoint_id: 9498e097e8dd427e8ade17366504bd85
+created_at: '2026-04-10T00:47:45.761058+00:00'
 flush_reason: checkpoint
 is_current: true
 stage_metadata:
@@ -8,9 +8,9 @@ stage_metadata:
   title: Source Retrieval And Extraction
   status: draft
   readiness: high
-  readiness_rationale: 'The design now fixes the extractor strategy: dedicated DigiKey
-    and LCSC parsers with structured-first, bounded-fuzzy fallback. Remaining uncertainty
-    is limited to evidence retention depth rather than core extraction behavior.'
+  readiness_rationale: Core extraction behavior is still design-ready. Remaining follow-ups
+    are bounded implementation-policy questions about evidence retention depth and
+    stricter ambiguity suppression for PDF-derived candidates.
   scope_summary: Child design unit for fetching and extracting metadata from API-derived
     product pages and PDFs using dedicated DigiKey and LCSC parsers plus bounded fuzzy
     fallback.
@@ -23,6 +23,8 @@ stage_metadata:
   open_questions:
   - What raw evidence should be stored durably versus referenced indirectly in provenance
     records?
+  - Should PDF extraction explicitly suppress family-level or multi-variant candidate
+    fields when exact variant identity is not proven?
   depends_on:
   - parts-bin-fallback-enrichment-design
   children: []

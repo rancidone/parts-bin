@@ -1,5 +1,5 @@
 """
-Ingestion pipeline: extraction → completeness → lookup → upsert.
+Ingestion pipeline: extraction → completeness → write → enrichment proposal.
 
 `run_ingestion` is a generator that yields events for the SSE layer:
   {"type": "clarification", "message": str}   — missing fields, ask user
@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any
 
 import log
-from db.persistence import query, update_fields, update_fields_with_provenance, upsert
+from db.persistence import get_by_id, query, save_pending_review, update_fields, upsert
 from ingestion.completeness import clarification_prompt, is_complete
-from ingestion.lookup import fetch_specs_detailed, merge_specs
+from ingestion.lookup import fetch_specs_detailed
 from llm.client import ConversationHistory, LLMClient
 
 _logger = log.get_logger("parts_bin.ingestion")
@@ -60,13 +60,6 @@ async def run_ingestion(
     # manufacturer is not in the extraction schema; default it for the DB.
     record.setdefault("manufacturer", None)
 
-    enrichment_result: dict | None = None
-
-    # Spec lookup for new discrete/IC parts.
-    if record.get("profile") == "discrete_ic" and record.get("part_number"):
-        enrichment_result = await fetch_specs_detailed(record["part_number"], digikey_credentials, jlcparts_db_path=jlcparts_db_path)
-        record = merge_specs(record, enrichment_result["chosen_updates"])
-
     if is_correction:
         part_id = _apply_correction(db_path, record)
     else:
@@ -75,32 +68,44 @@ async def run_ingestion(
     if part_id is None:
         part_id = upsert(db_path, record)
 
-    if enrichment_result and enrichment_result["chosen_updates"]:
-        update_fields_with_provenance(
-            db_path,
-            part_id,
-            enrichment_result["chosen_updates"],
-            enrichment_result["durable_provenance"],
+    committed_part = get_by_id(db_path, part_id) or {**record, "id": part_id}
+
+    enrichment_result: dict | None = None
+
+    # Spec lookup for discrete/IC parts becomes a proposal flow after the write.
+    if committed_part.get("profile") == "discrete_ic" and committed_part.get("part_number"):
+        enrichment_result = await fetch_specs_detailed(
+            committed_part["part_number"],
+            digikey_credentials,
+            jlcparts_db_path=jlcparts_db_path,
         )
+        if enrichment_result["chosen_updates"]:
+            save_pending_review(
+                db_path,
+                part_id,
+                enrichment_result["chosen_updates"],
+                enrichment_result["durable_provenance"],
+            )
 
     # Store this exchange in history so follow-up corrections have context.
     if history is not None:
         history.append("user", user_message)
-        history.append("assistant", json.dumps(record))
+        history.append("assistant", json.dumps(committed_part))
 
     _logger.info("ingestion complete", extra={
         "part_id": part_id,
         "is_correction": is_correction,
-        "record": record,
+        "record": committed_part,
         "enrichment_outcome": enrichment_result["outcome"] if enrichment_result else None,
     })
     yield {
         "type": "result",
-        "part": {**record, "id": part_id},
+        "part": committed_part,
         "enrichment": {
             "outcome": enrichment_result["outcome"],
             "conflicts": enrichment_result["conflicts"],
             "source_attempts": enrichment_result["source_attempts"],
+            "proposed_updates": enrichment_result["chosen_updates"],
         } if enrichment_result else None,
     }
 

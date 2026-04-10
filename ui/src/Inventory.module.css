@@ -94,6 +94,22 @@
   vertical-align: top;
 }
 
+.cellInput {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  outline: none;
+}
+
+.cellInput:focus {
+  border-color: var(--accent);
+}
+
 .tdAction {
   padding: 4px 8px;
   border-bottom: 1px solid var(--border);
@@ -102,33 +118,147 @@
   width: 1%;
 }
 
-.rowRefreshBtn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 1rem;
-  padding: 2px 4px;
-  border-radius: 4px;
-  line-height: 1;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
+.actionGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.row:hover .rowRefreshBtn {
+.rowIconBtn,
+.rowRefreshBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.95rem;
+  border-radius: 6px;
+  line-height: 1;
   opacity: 1;
 }
 
+.rowIconBtn:hover,
 .rowRefreshBtn:hover {
   color: var(--accent);
+  border-color: var(--accent);
 }
 
+.rowDeleteBtn:hover {
+  color: #c0392b;
+  border-color: #c0392b;
+}
+
+.rowIconBtn:disabled,
 .rowRefreshBtn:disabled {
-  opacity: 1;
+  opacity: 0.5;
   cursor: default;
-  color: var(--muted);
+}
+
+.rowRefreshBtn {
+  transition: color 0.15s, border-color 0.15s;
 }
 
 .rowPending td {
   opacity: 0.6;
+}
+
+.statusRow td {
+  background: color-mix(in srgb, var(--surface) 78%, var(--accent) 22%);
+}
+
+.statusCell {
+  padding: 8px 12px 10px 32px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.provenanceRow td {
+  background: var(--surface);
+}
+
+.provenanceCell {
+  padding: 8px 12px 12px 32px;
+  border-bottom: 1px solid var(--border);
+}
+
+.provenanceList {
+  display: grid;
+  gap: 8px;
+}
+
+.provenanceItem {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.provenanceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.provenanceField {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.provenanceValue {
+  font-size: 0.84rem;
+  color: var(--fg);
+}
+
+.provenanceMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.provenanceMeta span {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.provenanceLocator {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.provenanceEvidence {
+  font-size: 0.76rem;
+  color: var(--fg);
+  line-height: 1.35;
+  background: var(--surface);
+  border-left: 2px solid var(--accent);
+  padding: 5px 8px;
+  border-radius: 0 6px 6px 0;
+}
+
+.provenanceEmpty {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.editDescription {
+  display: grid;
+  gap: 6px;
 }

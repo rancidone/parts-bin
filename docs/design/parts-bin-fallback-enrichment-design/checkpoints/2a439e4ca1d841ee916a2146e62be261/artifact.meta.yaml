@@ -2,7 +2,7 @@ artifact_id: parts-bin-fallback-enrichment-design
 checkpoint_id: 2a439e4ca1d841ee916a2146e62be261
 created_at: '2026-04-09T02:52:49.693968+00:00'
 flush_reason: checkpoint
-is_current: true
+is_current: false
 stage_metadata:
   design_unit_id: parts-bin-fallback-enrichment-design
   title: Fallback Enrichment Pipeline

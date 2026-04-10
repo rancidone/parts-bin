@@ -1,67 +1,68 @@
-# Design Unit: Ingestion
+# Design Unit: Ingestion Against The Enrichment Attempt Model
 
 ## Problem
-User adds a part from a photo, text, or both. The system must extract a structured record, detect when it is incomplete, ask only what is needed, handle duplicates, and commit deterministically.
+The older ingestion design assumed synchronous lookup and direct spec merge before the write completed. The current system no longer works that way. A valid inventory row is written first, then eligible parts may go through asynchronous enrichment that produces source-backed proposals plus durable provenance.
 
-## Required Fields by Part Category
+Without this update, the design docs contradict the implementation on three important points:
 
-| Category | Required fields |
-|---|---|
-| Passive (R, C, L) | `part_category`, `profile`, `value`, `package`, `quantity` |
-| Discrete / IC | `part_category`, `profile`, `part_number`, `quantity` |
+- writes do not block on lookup
+- source-backed updates are proposed, not silently merged
+- pending review is part of the ingestion story
 
-`part_category` and `profile` are both required for every record. `profile` (`passive` | `discrete_ic`) drives all logic branching. Fields are represented as `null` when absent or unresolvable; no separate confidence score is used.
+## Current Contract
 
-## Flow
+Ingestion runs in four phases:
 
-```
-input (photo / text / both)
-  └─ LLM extraction → structured record (null for any field that cannot be resolved)
-       └─ completeness check (all required fields non-null?)
-            ├─ INCOMPLETE → conversational clarification prompt (show partial record, name missing fields)
-            │    └─ user fills gaps → re-check (loop until complete)
-            └─ COMPLETE
-                 ├─ duplicate check
-                 │    ├─ MATCH (passive: category+value+package; discrete/IC: part_number)
-                 │    │    └─ increment quantity → write
-                 │    └─ NO MATCH → new entry
-                 │         ├─ passive → write directly
-                 │         └─ discrete/IC → external spec lookup → merge specs → write
-```
+1. LLM extraction into the current flat part payload
+2. deterministic completeness and duplicate handling
+3. immediate write or quantity increment
+4. optional background enrichment proposal for eligible rows
 
-## Boundaries
+The LLM is responsible only for the initial extracted payload. It does not decide whether source-backed proposals are saved.
 
-- LLM is responsible for extraction only. It emits `null` for any field it cannot resolve. It does not decide whether to commit.
-- Completeness check is deterministic: all required fields non-null → complete.
-- Duplicate match is deterministic: exact key match (category+value+package for passives; part_number for discrete/IC).
-- External lookup is for spec enrichment only. A lookup failure does not block the write; the record commits with available fields.
-- Clarification is conversational: the system names the missing fields in plain language and waits for user response before re-checking.
+## Eligibility For Background Enrichment
 
-## External Spec Lookup
+Post-write enrichment runs only when the saved row:
 
-Applies to new discrete/IC entries only (passives have no meaningful external record to look up).
+- has a `part_number`
+- has `profile = discrete_ic`
+- is not one of the passive categories that use value/package identity
 
-**Provider priority**: LCSC primary, Digikey fallback.
+Passives are therefore written and deduped without treating their electrical value as a manufacturer part number.
 
-**LCSC**: REST API, `part_number` as search key. No auth for basic product search. Returns: manufacturer, description, package (if absent), datasheet URL (discarded — not stored).
+## Write-Then-Enrich Behavior
 
-**Digikey**: REST API, requires OAuth2 client credentials. Credentials stored in a config file (`config.toml`) at startup — not hardcoded. Returns same field set as LCSC.
+The saved inventory row is authoritative for the ingest outcome. Background enrichment may then call the structured enrichment runtime and receive:
 
-**Fallback logic**: try LCSC first; if no result or HTTP error, try Digikey. If both fail, commit without enrichment.
+- ordered source attempts
+- field candidates
+- `chosen_updates`
+- `outcome`
+- `durable_provenance`
 
-**Field mapping**: both APIs return `manufacturer` and `description` which map directly to the schema. `package` from the API is only used if the extracted record has `package = null`. Do not overwrite a user-provided package with an API-returned one.
+If `chosen_updates` is non-empty, those fields are persisted as pending review proposals keyed by part and field. The background step does not directly overwrite the committed row.
 
-**No caching**: lookup happens once at first ingest of a given part number. The result is stored in the record. Subsequent queries against the same part number hit the DB, not the API.
+## Duplicate Handling
 
-## Assumptions
+Duplicate detection still happens before enrichment:
 
-- AliExpress labels are often ambiguous; photo + text is the normal ingestion path for non-obvious parts.
-- Null fields signal incomplete extraction — no separate confidence score needed.
-- Duplicate detection always increments; a second entry for the same part is always wrong.
-- External lookup failure is non-fatal; record commits with available fields.
-- LCSC does not require auth for basic part search; Digikey requires OAuth2 client credentials.
+- passives dedupe by `part_category + value + package`
+- discrete/IC rows dedupe by `part_number`
+
+If an existing row is incremented and remains enrichment-eligible, the system may still enqueue enrichment for that saved row.
+
+## Outcome Semantics
+
+Ingestion success is about the inventory write, not lookup completion.
+
+- `saved`, `incomplete`, `timeout`, and `failed` enrichment outcomes do not roll back the ingest write
+- `conflict` prevents automatic proposal for the conflicting fields
+- no proposals is a valid result, not an ingest failure
+
+The user-facing ingest confirmation should therefore describe the committed row or increment, not imply that enrichment has already been accepted.
 
 ## Tradeoffs
 
-- Null-as-ambiguity keeps the LLM↔completeness-check interface simple at the cost of no graded confidence signal. Acceptable given field completeness is already the confidence mechanism.
-- Exact-match duplicate detection is simple but fragile to value normalization inconsistencies (e.g. "10k" vs "10kohm"). This is addressed by the shared normalization function defined in the Query unit — Ingestion applies the same normalization before duplicate matching.
+Write-then-enrich improves responsiveness and isolates inventory writes from provider latency, but it means a new part may exist briefly without enriched metadata.
+
+Pending review is safer than silent mutation, but it creates an additional state surface that the inventory UI must expose clearly.

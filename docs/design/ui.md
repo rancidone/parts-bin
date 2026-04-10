@@ -1,76 +1,70 @@
-# Design Unit: UI
+# Design Unit: UI Against The Enrichment Review Model
 
 ## Problem
-Single-user responsive web app supporting ingest (photo/text) and query (natural language) in a unified conversational interface, plus a browsable inventory view with export. Usable on mobile and desktop, served from the same host as the local LLM.
+The older UI doc described a simpler app: chat plus inventory. The current system has more operational state than that design accounted for:
 
-## Framework & Tooling
+- ingestion may create pending field-review proposals after the write
+- users can manually refresh an existing part to request new proposals
+- local JLC parts catalog readiness affects lookup coverage
 
-**React + TypeScript** with **Vite** as the build tool. Vite gives fast dev-server HMR and a simple build step.
+The UI needs explicit boundaries between committed inventory, proposed updates, and environment setup.
 
-- `npm create vite@latest` → React + TypeScript template
-- No UI component library — plain CSS or CSS modules. Keeping dependencies minimal makes it easier to understand what React itself is doing vs. what a library is doing.
-- Fetch via the browser `EventSource` API for SSE (chat responses) and plain `fetch` for `GET /inventory`.
-- Vite dev server proxies `/chat` and `/inventory` to the FastAPI backend during development — no CORS issues locally.
+## Surface Model
 
-## Layout
+The top-level UI now has three surfaces:
 
-Two surfaces: **Chat** and **Inventory Browser**. Accessible via a top-level toggle/tab — single route with panel swap, or two routes. Chat is the default landing surface.
+- `Chat`
+- `Inventory`
+- `Settings`
 
-```
-┌─────────────────────────────┐
-│  [Chat]  [Inventory]        │  ← top-level nav
-├─────────────────────────────┤
-│                             │
-│   (active surface)          │
-│                             │
-├─────────────────────────────┤
-│  [📎] [text input      ] ▶  │  ← chat input (visible on Chat surface only)
-└─────────────────────────────┘
-```
+Chat is still the default landing surface.
 
-## Chat Surface
+## Chat
 
-Single-column message thread. Input fixed at bottom. Intent (ingest vs. query) inferred from input — no mode switching.
+Chat remains a unified input for ingestion and inventory questions.
 
-On mobile: `📎` triggers camera or file picker.
-On desktop: file picker; drag-drop onto input acceptable.
+- ingest confirmations describe the committed row or quantity increment
+- query results show committed matches only
+- pending review is not rendered as if it were already accepted inventory
 
-### Message Types
+If source-backed proposals exist, the user reviews them in Inventory rather than inside the chat thread.
 
-| Turn | Appearance |
-|---|---|
-| User text | plain bubble |
-| User photo | thumbnail + optional caption |
-| System query result | structured card (see below) |
-| System ingest confirmation | structured card: extracted record + "added" or "incremented N→M" indicator |
-| System clarification prompt | plain text naming exactly which fields are missing, with partial extracted record shown |
-| System not-found | plain text |
+## Inventory
 
-### Query Result Card
-Displays matched parts with quantity and key specs. Includes a **Export BOM** button that downloads the result set as CSV.
+Inventory is both the browse surface and the review surface.
 
-BOM CSV columns: `part_category`, `value`, `package`, `quantity`, `part_number` (if applicable), `manufacturer`, `description` (spec fields from external lookup where available).
+Committed row data remains the main table view. When a part has pending proposals, the row should expose a review editor that lets the user:
 
-### Clarification Flow
-System shows the partial extracted record alongside the prompt — user sees what was captured and what is missing. User responds in the next chat turn. No modal or form overlay.
+- compare old and proposed values by field
+- opt individual proposed fields in or out
+- edit proposed values before acceptance
+- accept the selected updates
+- dismiss the proposal set
 
-## Inventory Browser Surface
+Acceptance writes both the updated fields and their provenance. Dismissal clears pending review state without mutating the committed row.
 
-Flat list of all inventory records. Sortable by part category, value, package. Searchable by text filter (client-side, no LLM involved).
+Inventory also owns manual refresh for existing parts with a valid `part_number`. Refresh generates proposals; it does not directly mutate the row.
 
-Controls:
-- **Export CSV** button — downloads full inventory as CSV with the same column schema as BOM export.
-- Per-row: part details inline; no separate detail view required for v1.
+## Settings
 
-CSV columns (both inventory export and BOM): `part_category`, `value`, `package`, `quantity`, `part_number`, `manufacturer`, `description`.
+Settings is a lightweight operational surface for local catalog readiness.
 
-## Constraints
-- Responsive: single codebase, no separate mobile build.
-- No auth, no multi-user state.
-- Served from same host as LLM — Vite dev server proxies `/chat` and `/inventory` to FastAPI during development.
-- Client-side search/filter in inventory browser (no extra server round-trip for browsing).
+In this slice it covers JLC parts catalog status:
 
-## Assumptions
-- BOM export and full inventory export share the same CSV column schema.
-- Inventory browser sort/filter is client-side; the full inventory (hundreds of SKUs) fits in memory without pagination for v1.
-- Camera access on mobile requires HTTPS or localhost — deployment must account for this.
+- not configured
+- missing
+- downloading
+- ready
+- error
+
+It also provides the user action to download or re-download the local catalog database.
+
+## Export And Search Boundaries
+
+Inventory export and client-side filtering continue to operate on committed inventory rows only. Pending review proposals and provenance metadata are not part of ordinary CSV export in this slice.
+
+## Tradeoffs
+
+Keeping review in Inventory instead of Chat preserves a cleaner conversational surface, but users may need to switch tabs after ingest to approve source-backed updates.
+
+Adding Settings increases top-level navigation slightly, but it keeps operational download state out of both chat and the inventory table.
