@@ -19,6 +19,11 @@ from ingestion.source_extract import classify_content, extract_html_candidates
 
 _logger = log.get_logger("parts_bin.lookup")
 _FALLBACK_FIELD_SCOPE = ("manufacturer", "part_number", "package", "description")
+_WITHHELD_FALLBACK_FIELDS = ("part_category", "profile", "value")
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((perf_counter() - started) * 1000, 1)
 
 # ---------------------------------------------------------------------------
 # Digikey
@@ -244,16 +249,86 @@ def _candidate_from_attempt(field_name: str, value: str, attempt: dict) -> dict:
     }
 
 
+def _competing_candidates(chosen: dict, candidates: list[dict]) -> list[dict]:
+    competing: list[dict] = []
+    seen: set[tuple[str, str, str | None]] = set()
+    chosen_key = (
+        chosen["candidate_value"].strip().casefold(),
+        chosen["source_tier"],
+        chosen.get("source_locator"),
+    )
+    for candidate in candidates:
+        key = (
+            candidate["candidate_value"].strip().casefold(),
+            candidate["source_tier"],
+            candidate.get("source_locator"),
+        )
+        if key == chosen_key or key in seen:
+            continue
+        seen.add(key)
+        competing.append({
+            "field_value": candidate["candidate_value"],
+            "source_tier": candidate["source_tier"],
+            "source_kind": candidate["source_kind"],
+            "source_locator": candidate.get("source_locator"),
+            "extraction_method": candidate["extraction_method"],
+            "provider": candidate.get("provider"),
+            "evidence": candidate.get("evidence"),
+            "conflict_status": candidate.get("conflict_status", "clear"),
+        })
+    return competing
+
+
+def _choose_description_candidate(candidates: list[dict]) -> dict:
+    chosen = max(
+        candidates,
+        key=lambda candidate: (
+            len(candidate["candidate_value"]),
+            -candidates.index(candidate),
+        ),
+    ).copy()
+    competing = _competing_candidates(chosen, candidates)
+    if competing:
+        chosen["extraction_method"] = "source-description-merge"
+        chosen["normalization_method"] = "source_description_merge"
+    else:
+        chosen["normalization_method"] = "direct_copy"
+    chosen["competing_candidates"] = competing
+    return chosen
+
+
+def _choose_field_candidate(field_name: str, candidates: list[dict]) -> dict:
+    if field_name == "description":
+        return _choose_description_candidate(candidates)
+
+    chosen = candidates[0].copy()
+    chosen["normalization_method"] = "direct_copy"
+    chosen["competing_candidates"] = _competing_candidates(chosen, candidates)
+    return chosen
+
+
 def _build_field_candidates(source_attempts: list[dict]) -> dict[str, list[dict]]:
     candidates: dict[str, list[dict]] = defaultdict(list)
     for attempt in source_attempts:
         if attempt["status"] != "ok":
             continue
         for field_name, value in attempt["fields"].items():
-            if value is None:
+            if value is None or field_name not in _FALLBACK_FIELD_SCOPE:
                 continue
             candidates[field_name].append(_candidate_from_attempt(field_name, value, attempt))
     return dict(candidates)
+
+
+def _collect_withheld_candidates(source_attempts: list[dict]) -> dict[str, list[dict]]:
+    withheld: dict[str, list[dict]] = defaultdict(list)
+    for attempt in source_attempts:
+        if attempt["status"] != "ok":
+            continue
+        for field_name, value in attempt["fields"].items():
+            if field_name not in _WITHHELD_FALLBACK_FIELDS or value is None:
+                continue
+            withheld[field_name].append(_candidate_from_attempt(field_name, value, attempt))
+    return dict(withheld)
 
 
 def _dedupe_preserve_order(values: list[str]) -> list[str]:
@@ -307,11 +382,7 @@ def _reconcile_candidates(
     for field_name, candidates in field_candidates.items():
         if not candidates:
             continue
-        chosen = candidates[0]
-        if field_name == "description" and len(candidates) > 1:
-            longest = max(candidates, key=lambda candidate: len(candidate["candidate_value"]))
-            chosen = longest
-            chosen["extraction_method"] = "api-direct"
+        chosen = _choose_field_candidate(field_name, candidates)
         chosen_updates[field_name] = chosen["candidate_value"]
         chosen_candidates.append(chosen)
 
@@ -340,8 +411,8 @@ def _provenance_from_candidates(chosen_candidates: list[dict]) -> list[dict]:
             "extraction_method": candidate["extraction_method"],
             "confidence_marker": candidate["confidence_marker"],
             "conflict_status": candidate["conflict_status"],
-            "normalization_method": "direct_copy",
-            "competing_candidates": [],
+            "normalization_method": candidate.get("normalization_method", "direct_copy"),
+            "competing_candidates": candidate.get("competing_candidates", []),
             "evidence": candidate.get("evidence"),
         })
     return records
@@ -349,6 +420,14 @@ def _provenance_from_candidates(chosen_candidates: list[dict]) -> list[dict]:
 
 def _missing_fallback_fields(chosen_updates: dict) -> list[str]:
     return [field_name for field_name in _FALLBACK_FIELD_SCOPE if not chosen_updates.get(field_name)]
+
+
+def _filter_fallback_candidates(candidates: dict[str, dict]) -> dict[str, dict]:
+    return {
+        field_name: candidate
+        for field_name, candidate in candidates.items()
+        if field_name in _FALLBACK_FIELD_SCOPE
+    }
 
 
 async def _fetch_api_derived_product_page(
@@ -381,11 +460,7 @@ async def _fetch_api_derived_product_page(
                 continue
 
             extracted_candidates = extract_html_candidates(str(resp.url), resp.text)
-            filtered_candidates = {
-                field_name: candidate
-                for field_name, candidate in extracted_candidates.items()
-                if field_name in missing_fields
-            }
+            filtered_candidates = _filter_fallback_candidates(extracted_candidates)
             if filtered_candidates:
                 return {
                     "provider": attempt["provider"],
@@ -474,17 +549,13 @@ async def _fetch_api_derived_pdf(
                     for field_name, candidate in extracted_candidates.items()
                     if candidate.get("ambiguous")
                 )
-                filtered_candidates = {
-                    field_name: candidate
-                    for field_name, candidate in extracted_candidates.items()
-                    if field_name in missing_fields and not candidate.get("ambiguous")
-                }
+                all_filtered_candidates = _filter_fallback_candidates(extracted_candidates)
                 warnings: list[str] = []
                 if ambiguous_fields:
                     warnings.append(
                         "ambiguous_pdf_candidates:" + ",".join(ambiguous_fields)
                     )
-                if filtered_candidates:
+                if all_filtered_candidates:
                     return {
                         "provider": attempt["provider"],
                         "authority_tier": "api_derived_pdf",
@@ -493,9 +564,10 @@ async def _fetch_api_derived_pdf(
                         "source_locator": str(resp.url),
                         "fields": {
                             field_name: candidate["value"]
-                            for field_name, candidate in filtered_candidates.items()
+                            for field_name, candidate in all_filtered_candidates.items()
+                            if not candidate.get("ambiguous")
                         },
-                        "field_metadata": filtered_candidates,
+                        "field_metadata": all_filtered_candidates,
                         "diagnostics": {
                             "requested_url": url_to_try,
                             "resolved_url": str(resp.url),
@@ -553,15 +625,17 @@ async def fetch_specs_detailed(
     tried_providers: list[str] = []
     source_attempts: list[dict] = []
     total_started = perf_counter()
+    stage_timings_ms: dict[str, float] = {}
 
     async with httpx.AsyncClient() as client:
         if jlcparts_db_path and Path(jlcparts_db_path).exists():
             jlcparts_started = perf_counter()
             tried_providers.append("jlcparts")
             jlcparts_result = _jlcparts_lookup_by_mpn(jlcparts_db_path, part_number)
+            stage_timings_ms["jlcparts_lookup"] = _elapsed_ms(jlcparts_started)
             _logger.info("jlcparts lookup finished", extra={
                 "part_number": part_number,
-                "latency_ms": round((perf_counter() - jlcparts_started) * 1000, 1),
+                "latency_ms": stage_timings_ms["jlcparts_lookup"],
                 "status": jlcparts_result["status"],
             })
             source_attempts.append(_build_source_attempt(
@@ -577,12 +651,14 @@ async def fetch_specs_detailed(
 
         if digikey_credentials:
             tried_providers.append("digikey")
+            digikey_started = perf_counter()
             digikey_result = await _digikey_lookup_detailed(
                 part_number,
                 digikey_credentials["client_id"],
                 digikey_credentials["client_secret"],
                 client,
             )
+            stage_timings_ms["digikey_lookup"] = _elapsed_ms(digikey_started)
             source_attempts.append(_build_source_attempt(
                 provider="digikey",
                 authority_tier="primary_api",
@@ -594,32 +670,72 @@ async def fetch_specs_detailed(
             if digikey_result.get("debug"):
                 _logger.debug("digikey raw response", extra=digikey_result["debug"])
 
+        reconcile_started = perf_counter()
         field_candidates = _build_field_candidates(source_attempts)
+        withheld_candidates = _collect_withheld_candidates(source_attempts)
         chosen_updates, chosen_candidates, conflicts, outcome = _reconcile_candidates(
             part_number,
             field_candidates,
             source_attempts,
         )
+        stage_timings_ms["initial_reconcile"] = _elapsed_ms(reconcile_started)
 
         if outcome != "conflict":
+            page_started = perf_counter()
             page_attempt = await _fetch_api_derived_product_page(source_attempts, chosen_updates, client)
+            stage_timings_ms["api_derived_page_fetch"] = _elapsed_ms(page_started)
             if page_attempt is not None:
                 source_attempts.append(page_attempt)
+                page_reconcile_started = perf_counter()
                 field_candidates = _build_field_candidates(source_attempts)
+                withheld_candidates = _collect_withheld_candidates(source_attempts)
                 chosen_updates, chosen_candidates, conflicts, outcome = _reconcile_candidates(
                     part_number,
                     field_candidates,
                     source_attempts,
                 )
+                stage_timings_ms["api_derived_page_reconcile"] = _elapsed_ms(page_reconcile_started)
+            else:
+                stage_timings_ms["api_derived_page_reconcile"] = 0.0
+            pdf_started = perf_counter()
             pdf_attempt = await _fetch_api_derived_pdf(source_attempts, chosen_updates, client)
+            stage_timings_ms["api_derived_pdf_fetch"] = _elapsed_ms(pdf_started)
             if pdf_attempt is not None:
                 source_attempts.append(pdf_attempt)
+                pdf_reconcile_started = perf_counter()
                 field_candidates = _build_field_candidates(source_attempts)
+                withheld_candidates = _collect_withheld_candidates(source_attempts)
                 chosen_updates, chosen_candidates, conflicts, outcome = _reconcile_candidates(
                     part_number,
                     field_candidates,
                     source_attempts,
                 )
+                stage_timings_ms["api_derived_pdf_reconcile"] = _elapsed_ms(pdf_reconcile_started)
+            else:
+                stage_timings_ms["api_derived_pdf_reconcile"] = 0.0
+        else:
+            stage_timings_ms["api_derived_page_fetch"] = 0.0
+            stage_timings_ms["api_derived_page_reconcile"] = 0.0
+            stage_timings_ms["api_derived_pdf_fetch"] = 0.0
+            stage_timings_ms["api_derived_pdf_reconcile"] = 0.0
+
+    for field_name, candidates in withheld_candidates.items():
+        if not candidates:
+            continue
+        values = _dedupe_preserve_order([candidate["candidate_value"] for candidate in candidates])
+        for attempt in source_attempts:
+            if attempt["status"] != "ok":
+                continue
+            if field_name not in attempt.get("fields", {}):
+                continue
+            attempt.setdefault("warnings", []).append(
+                f"withheld_non_deterministic_field:{field_name}"
+            )
+        _logger.info("lookup withheld candidates", extra={
+            "part_number": part_number,
+            "field_name": field_name,
+            "candidate_values": values,
+        })
 
     provenance = _provenance_from_candidates(chosen_candidates)
     provider = chosen_candidates[0]["provider"] if chosen_candidates else None
@@ -639,9 +755,25 @@ async def fetch_specs_detailed(
             "conflicts": conflicts,
         })
 
+    total_latency_ms = _elapsed_ms(total_started)
+    stage_timings_ms["total"] = total_latency_ms
+    _logger.info("lookup timing breakdown", extra={
+        "part_number": part_number,
+        "outcome": outcome,
+        "stage_timings_ms": stage_timings_ms,
+        "source_attempt_statuses": [
+            {
+                "provider": attempt["provider"],
+                "authority_tier": attempt["authority_tier"],
+                "status": attempt["status"],
+                "source_kind": attempt["source_kind"],
+            }
+            for attempt in source_attempts
+        ],
+    })
     _logger.info("lookup finished", extra={
         "part_number": part_number,
-        "latency_ms": round((perf_counter() - total_started) * 1000, 1),
+        "latency_ms": total_latency_ms,
         "tried_providers": tried_providers,
         "outcome": outcome,
     })
@@ -650,6 +782,7 @@ async def fetch_specs_detailed(
         "request": {"part_number": part_number, "inventory_id": None},
         "source_attempts": source_attempts,
         "field_candidates": field_candidates,
+        "withheld_candidates": withheld_candidates,
         "chosen_updates": chosen_updates,
         "outcome": outcome,
         "requires_confirmation": outcome == "conflict",
@@ -660,6 +793,7 @@ async def fetch_specs_detailed(
         "provider": provider,
         "matched_part_number": chosen_updates.get("part_number"),
         "tried_providers": tried_providers,
+        "stage_timings_ms": stage_timings_ms,
         "status": outcome,
     }
 

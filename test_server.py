@@ -542,6 +542,61 @@ class TestExecuteAction:
         assert second["part_number"] is None
 
     @pytest.mark.asyncio
+    async def test_batch_update_updates_quantities(self, client):
+        _, db = client
+        first_id = upsert(db, {
+            "part_category": "capacitor", "profile": "passive",
+            "value": "10pF", "package": "0603", "quantity": 60,
+            "part_number": None, "manufacturer": None, "description": "0603 chip capacitor, 10pF value",
+        })
+        second_id = upsert(db, {
+            "part_category": "capacitor", "profile": "passive",
+            "value": "100nF", "package": "0603", "quantity": 40,
+            "part_number": None, "manufacturer": None, "description": "0603 chip capacitor, 100nF value",
+        })
+
+        part_id, status = await server._execute_action({
+            "type": "update",
+            "id": None,
+            "items": [
+                {
+                    "id": first_id,
+                    "part_category": "capacitor",
+                    "profile": "passive",
+                    "value": "10pF",
+                    "package": "0603",
+                    "part_number": None,
+                    "quantity": 20,
+                    "description": "0603 chip capacitor, 10pF value",
+                },
+                {
+                    "id": second_id,
+                    "part_category": "capacitor",
+                    "profile": "passive",
+                    "value": "100nF",
+                    "package": "0603",
+                    "part_number": None,
+                    "quantity": 20,
+                    "description": "0603 chip capacitor, 100nF value",
+                },
+            ],
+            "part_category": None,
+            "profile": None,
+            "value": None,
+            "package": None,
+            "part_number": None,
+            "quantity": None,
+            "description": None,
+        })
+
+        first = server.get_by_id(db, first_id)
+        second = server.get_by_id(db, second_id)
+        assert status == "saved-batch"
+        assert part_id == second_id
+        assert first["quantity"] == 20
+        assert second["quantity"] == 20
+
+    @pytest.mark.asyncio
     async def test_update_clears_pending_review_for_edited_part(self, client):
         _, db = client
         part_id = upsert(db, {
@@ -964,3 +1019,42 @@ class TestChatStream:
                 events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
 
         assert "terminated due to a provider or retrieval error" in events[0]
+
+    @pytest.mark.asyncio
+    async def test_lookup_needs_confirmation_overrides_misleading_model_text(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+
+        with patch.object(server, "_llm") as llm:
+            llm.chat = AsyncMock(return_value={
+                "response": "I updated the metadata from the provider results.",
+                "db_action": {
+                    "type": "lookup",
+                    "id": part_id,
+                    "part_category": None,
+                    "profile": None,
+                    "value": None,
+                    "package": None,
+                    "part_number": "TLV62565DBVR",
+                    "quantity": None,
+                    "description": None,
+                },
+            })
+            with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+                "specs": {},
+                "chosen_updates": {},
+                "provider": None,
+                "matched_part_number": None,
+                "tried_providers": ["digikey"],
+                "outcome": "needs_confirmation",
+                "status": "needs_confirmation",
+                "durable_provenance": [],
+                "conflicts": [],
+            })):
+                events = [event async for event in server._chat_stream("Yes, fetch more info", None)]
+
+        assert "requires explicit confirmation" in events[0]
