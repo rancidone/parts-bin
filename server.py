@@ -13,6 +13,7 @@ import re
 import tomllib
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from time import perf_counter
 
 import log
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
@@ -27,6 +28,7 @@ from db.persistence import (
     list_all,
     list_field_provenance,
     list_pending_reviews,
+    normalize_value,
     query,
     replace_part,
     save_pending_review,
@@ -36,6 +38,7 @@ from db.persistence import (
 )
 from ingestion.lookup import fetch_specs_detailed
 from llm.client import ConversationHistory, LLMClient
+from query.search import run_query
 
 # ---------------------------------------------------------------------------
 # Config
@@ -96,6 +99,7 @@ app.add_middleware(
 
 _llm = LLMClient(base_url=_cfg["llama"]["base_url"])
 _history = ConversationHistory()
+_query_history = ConversationHistory()
 
 # Initialise DB at startup.
 init_db(_DB_PATH)
@@ -236,7 +240,7 @@ def _merge_existing_part_for_replace(part_id: int, fields: dict) -> dict | None:
         "value": fields.get("value", existing.get("value")),
         "package": fields.get("package", existing.get("package")),
         "part_number": fields.get("part_number", existing.get("part_number")),
-        "quantity": existing.get("quantity"),
+        "quantity": existing.get("quantity") if fields.get("quantity") is None else fields.get("quantity"),
         "manufacturer": fields.get("manufacturer", existing.get("manufacturer")),
         "description": fields.get("description", existing.get("description")),
     }
@@ -274,6 +278,31 @@ async def _execute_action(action: dict) -> tuple[int | None, str]:
         return part_id, "saved"
 
     if action_type == "update":
+        # Filter+patch: deterministic DB lookup, then apply patch to all matching parts.
+        filter_criteria = action.get("filter") or None
+        patch = action.get("patch") or None
+        if filter_criteria and patch:
+            attrs: dict = {k: v for k, v in filter_criteria.items() if v is not None}
+            cat = attrs.get("part_category")
+            if "value" in attrs and cat:
+                attrs["value"] = normalize_value(attrs["value"], cat)
+            matched = query(_DB_PATH, attrs)
+            if not matched:
+                return None, "missing-target"
+            patch_fields = {k: v for k, v in patch.items() if v is not None}
+            saved_ids: list[int] = []
+            for part in matched:
+                part_id = part["id"]
+                merged = _merge_existing_part_for_replace(part_id, patch_fields)
+                if merged is None:
+                    continue
+                replace_part(_DB_PATH, part_id, merged)
+                clear_pending_review(_DB_PATH, part_id)
+                saved_ids.append(part_id)
+            if not saved_ids:
+                return None, "missing-target"
+            return saved_ids[-1], "saved-batch"
+
         items = action.get("items") or None
         if items:
             saved_ids: list[int] = []
@@ -336,9 +365,21 @@ async def _execute_action(action: dict) -> tuple[int | None, str]:
             return part_id, "lookup-incomplete"
         if lookup_result.get("outcome") == "failed":
             return part_id, "lookup-failed"
+        if lookup_result.get("outcome") == "needs_confirmation":
+            return part_id, "lookup-needs-confirmation"
         if lookup_result.get("status") == "timeout":
             return part_id, "lookup-timeout"
         return part_id, "no-specs"
+
+    if action_type == "delete":
+        part_id = action.get("id")
+        if not part_id:
+            return None, "missing-target"
+        existing = get_by_id(_DB_PATH, part_id)
+        if existing is None:
+            return None, "missing-target"
+        delete_part(_DB_PATH, part_id)
+        return part_id, "deleted"
 
     return None, "noop"
 
@@ -373,6 +414,8 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
                 response_text += f"\n\n{'. '.join(details)}."
     elif action_type == "upsert" and action_status == "saved-batch":
         response_text = result["response"]
+    elif action_type == "delete" and action_status == "missing-target":
+        response_text += "\n\n_(Note: the deletion wasn't applied — I couldn't identify which inventory record to remove.)_"
     elif action_type in ("update", "lookup") and action_status == "missing-target":
         response_text += "\n\n_(Note: the change wasn't saved — I couldn't identify which inventory record to update.)_"
     elif action_type == "lookup" and action_status == "lookup-timeout":
@@ -383,6 +426,8 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
         response_text = "I found the part in the configured provider sources, but they still did not expose enough trustworthy metadata to update the inventory record."
     elif action_type == "lookup" and action_status == "lookup-failed":
         response_text = "The lookup terminated due to a provider or retrieval error before I could verify enough metadata to update the inventory record."
+    elif action_type == "lookup" and action_status == "lookup-needs-confirmation":
+        response_text = "I found a candidate source that still requires explicit confirmation before I can use it to update the inventory record."
     elif action_type == "lookup" and action_status == "no-specs":
         response_text = "I ran the lookup, but the configured parts providers did not return matching specifications for that part number."
 
@@ -405,6 +450,16 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.post("/query")
+async def query_inventory(body: dict) -> dict:
+    message = body.get("message", "").strip()
+    if not message:
+        raise HTTPException(status_code=422, detail="message required")
+    _logger.info("query request", extra={"user_message": message})
+    result = await run_query(_DB_PATH, _llm, message, _query_history)
+    return result
 
 
 @app.get("/inventory")
@@ -506,6 +561,7 @@ async def inventory_csv():
 @app.post("/inventory/{part_id}/refresh")
 async def refresh_part(part_id: int) -> dict:
     """Fetch proposed spec updates without saving. Returns proposed_updates for user review."""
+    refresh_started = perf_counter()
     part = get_by_id(_DB_PATH, part_id)
     if part is None:
         raise HTTPException(status_code=404, detail="Part not found")
@@ -519,6 +575,8 @@ async def refresh_part(part_id: int) -> dict:
         "part_number": part_number,
         "fields": sorted(lookup_result["chosen_updates"].keys()),
         "outcome": lookup_result["outcome"],
+        "lookup_stage_timings_ms": lookup_result.get("stage_timings_ms", {}),
+        "refresh_handler_latency_ms": round((perf_counter() - refresh_started) * 1000, 1),
     })
 
     return {
@@ -526,6 +584,7 @@ async def refresh_part(part_id: int) -> dict:
         "proposed_updates": lookup_result["chosen_updates"],
         "provenance": lookup_result["durable_provenance"],
         "outcome": lookup_result["outcome"],
+        "withheld_candidates": lookup_result.get("withheld_candidates", {}),
     }
 
 

@@ -101,7 +101,6 @@ export function Chat() {
             onKeyDown={handleKeyDown}
             placeholder="Add a part or ask a question…"
             rows={1}
-            disabled={sending}
           />
           <button
             type="submit"
