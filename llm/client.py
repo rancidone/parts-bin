@@ -101,6 +101,29 @@ _PART_FIELDS: dict[str, Any] = {
     "description":   {"type": ["string", "null"]},
 }
 
+# Filterable fields for filter-based batch update (equality only, all nullable).
+_FILTER_FIELDS: dict[str, Any] = {
+    "part_category": {"type": ["string", "null"]},
+    "profile":       {"type": ["string", "null"]},
+    "value":         {"type": ["string", "null"]},
+    "package":       {"type": ["string", "null"]},
+    "part_number":   {"type": ["string", "null"]},
+}
+
+_FILTER_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": _FILTER_FIELDS,
+    "required": list(_FILTER_FIELDS.keys()),
+    "additionalProperties": False,
+}
+
+_PATCH_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": _PART_FIELDS,
+    "required": list(_PART_FIELDS.keys()),
+    "additionalProperties": False,
+}
+
 _PART_ITEM_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -121,15 +144,17 @@ CHAT_SCHEMA: dict[str, Any] = {
             "db_action": {
                 "type": "object",
                 "properties": {
-                    "type": {"type": "string", "enum": ["none", "upsert", "update", "lookup"]},
+                    "type": {"type": "string", "enum": ["none", "upsert", "update", "lookup", "delete"]},
                     "id":   {"type": ["integer", "null"]},
                     "items": {
                         "type": ["array", "null"],
                         "items": _PART_ITEM_SCHEMA,
                     },
+                    "filter": {"oneOf": [_FILTER_SCHEMA, {"type": "null"}]},
+                    "patch":  {"oneOf": [_PATCH_SCHEMA,  {"type": "null"}]},
                     **_PART_FIELDS,
                 },
-                "required": ["type", "id", "items", *_PART_FIELDS.keys()],
+                "required": ["type", "id", "items", "filter", "patch", *_PART_FIELDS.keys()],
                 "additionalProperties": False,
             },
         },
@@ -147,12 +172,14 @@ CHAT_SYSTEM_PROMPT = (
     "    'upsert'  — user is adding parts or reporting stock (fill in part fields, quantity required)\n"
     "    'update'  — user is correcting or adding details to an existing part (set id from inventory, no quantity change)\n"
     "    'lookup'  — fetch or refresh specs from an external parts API for an existing part (set id and part_number); use this whenever the user asks to refresh, re-fetch, or fill in specs for a part\n"
+    "    'delete'  — remove an existing part from inventory (set id to the inventory id of the part to delete)\n"
     "    'none'    — just chatting, answering a question, or you need more info before acting\n"
-    "  For 'update': set db_action.id to the inventory id of the part being changed.\n"
+    "  For 'update' targeting a single known part: set db_action.id to its inventory id.\n"
+    "  For 'update' targeting a category or group of parts (e.g. 'all 0603 capacitors'): set db_action.filter to the matching criteria and db_action.patch to the fields to overwrite. Leave id and items null. The server will resolve matching parts deterministically — do NOT enumerate ids yourself.\n"
+    "  For 'update' targeting specific named parts with different values each: use db_action.items with one entry per part, each with its own id.\n"
     "  For multi-part adds, set 'db_action.type' to 'upsert' and populate 'db_action.items' with one part object per record to insert. Leave the top-level part fields null in that case.\n"
     "  If the user asks to add parts as separate records, use 'items' and include every record; do not collapse the add into one top-level part.\n"
-    "  For multi-record corrections to existing inventory, use 'update' with 'items' and include one item per target record, each with its own inventory id.\n"
-    "  For single-record actions, set 'db_action.items' to null.\n"
+    "  For single-record actions, set 'db_action.items', 'db_action.filter', and 'db_action.patch' to null.\n"
     "  part fields in db_action: set to null when not applicable\n\n"
     "For resistors, capacitors, and inductors, use profile='passive'. Put the electrical value in 'value', the footprint/package in 'package', and leave 'part_number' null unless the user explicitly gives a manufacturer part number. Never put a package like 0402 or 0603 in 'value'.\n"
     "If the user already asked to add, update, or look up a part earlier in the conversation, keep that intent active through follow-up clarification turns. Do not ask them to reconfirm the same operation.\n"
