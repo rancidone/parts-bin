@@ -56,6 +56,11 @@ export interface UserMessage {
   photoUrl?: string // object URL for thumbnail display
 }
 
+export interface BatchSummary {
+  count: number
+  fields: string[]
+}
+
 export interface SystemMessage {
   role: 'system'
   kind:
@@ -70,6 +75,7 @@ export interface SystemMessage {
   text?: string
   part?: Part
   matches?: Part[]
+  batchSummary?: BatchSummary
 }
 
 export type Message = UserMessage | SystemMessage

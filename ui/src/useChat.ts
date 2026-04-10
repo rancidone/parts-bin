@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Message, Part } from './types'
+import type { BatchSummary, Message, Part } from './types'
 
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([])
@@ -79,6 +79,7 @@ export function useChat() {
           kind: 'chat',
           text: String(data.response ?? ''),
           part: (data.part as Part) ?? undefined,
+          batchSummary: (data.batch_summary as BatchSummary) ?? undefined,
         })
         return
       }
@@ -97,14 +98,15 @@ export function useChat() {
 
       if (type === 'query') {
         const matches = data.matches as Part[]
+        const response = data.response ? String(data.response) : undefined
         if (matches.length === 0) {
           addMessage({
             role: 'system',
             kind: 'not-found',
-            text: String(data.message ?? 'That part is not in your inventory.'),
+            text: response ?? 'That part is not in your inventory.',
           })
         } else {
-          addMessage({ role: 'system', kind: 'query-result', matches })
+          addMessage({ role: 'system', kind: 'query-result', matches, text: response })
         }
         return
       }
