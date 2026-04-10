@@ -1,7 +1,8 @@
 .app {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  position: fixed;
+  inset: 0;
   background: var(--bg);
   color: var(--fg);
 }
@@ -46,6 +47,7 @@
 
 .main {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
