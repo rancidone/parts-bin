@@ -12,13 +12,16 @@ interface JlcpartsStatus {
 export function Settings({ active }: { active: boolean }) {
   const [jlc, setJlc] = useState<JlcpartsStatus | null>(null)
   const [triggering, setTriggering] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   async function fetchStatus() {
     try {
       const resp = await fetch('/jlcparts/status')
-      if (resp.ok) setJlc(await resp.json())
-    } catch {
-      // ignore
+      if (!resp.ok) throw new Error(`status request failed: ${resp.status}`)
+      setJlc(await resp.json())
+      setLoadError(null)
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'status request failed')
     }
   }
 
@@ -38,9 +41,11 @@ export function Settings({ active }: { active: boolean }) {
     setTriggering(true)
     try {
       const resp = await fetch('/jlcparts/download', { method: 'POST' })
-      if (resp.ok) {
-        setJlc(prev => prev ? { ...prev, status: 'downloading' } : { status: 'downloading' })
-      }
+      if (!resp.ok) throw new Error(`download request failed: ${resp.status}`)
+      setJlc(prev => prev ? { ...prev, status: 'downloading' } : { status: 'downloading' })
+      setLoadError(null)
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'download request failed')
     } finally {
       setTriggering(false)
     }
@@ -66,6 +71,14 @@ export function Settings({ active }: { active: boolean }) {
           Local JLCPCB/LCSC parts catalog for offline spec lookup.
           The database is several hundred MB and is fetched from the jlcparts project.
         </p>
+        {!jlc && !loadError && (
+          <div className={styles.statusText}>Loading status…</div>
+        )}
+        {loadError && (
+          <div className={styles.errorText}>
+            Could not reach the JLC parts service: {loadError}
+          </div>
+        )}
         {jlc?.status === 'not_configured' && (
           <p className={styles.notConfigured}>
             Set <code>jlcparts.db_path</code> in <code>config.toml</code> to enable.

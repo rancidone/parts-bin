@@ -241,6 +241,38 @@ def _save_field_provenance_with_conn(
         )
 
 
+def _save_pending_review_with_conn(
+    conn: sqlite3.Connection,
+    part_id: int,
+    fields: dict,
+    provenance_records: list[dict],
+) -> None:
+    now = _now()
+    by_field = {record["field_name"]: record for record in provenance_records}
+    conn.execute("DELETE FROM part_pending_field_review WHERE part_id = ?", (part_id,))
+    for field_name, proposed_value in fields.items():
+        provenance = by_field.get(field_name, {
+            "field_name": field_name,
+            "field_value": proposed_value,
+        })
+        conn.execute(
+            """
+            INSERT INTO part_pending_field_review
+                (part_id, field_name, proposed_value, provenance_json, created_at, updated_at)
+            VALUES
+                (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                part_id,
+                field_name,
+                None if proposed_value is None else str(proposed_value),
+                json.dumps(provenance),
+                now,
+                now,
+            ),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Persistence layer public API
 # ---------------------------------------------------------------------------
@@ -287,7 +319,7 @@ def upsert(db_path: str | Path, part: dict) -> int:
             except sqlite3.IntegrityError:
                 # Duplicate — increment quantity.
                 qty = p.get("quantity", 1)
-                if p.get("profile") == "passive":
+                if p.get("part_number") is None:
                     conn.execute(
                         """
                         UPDATE parts SET quantity = quantity + ?, updated_at = ?
@@ -348,6 +380,62 @@ def update_fields_with_provenance(
     finally:
         conn.close()
     return part_id
+
+
+def save_pending_review(
+    db_path: str | Path,
+    part_id: int,
+    fields: dict,
+    provenance_records: list[dict],
+) -> int:
+    conn = _connect(db_path)
+    try:
+        with conn:
+            _save_pending_review_with_conn(conn, part_id, fields, provenance_records)
+    finally:
+        conn.close()
+    return part_id
+
+
+def list_pending_reviews(db_path: str | Path) -> dict[int, dict]:
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT part_id, field_name, proposed_value, provenance_json
+            FROM part_pending_field_review
+            ORDER BY part_id, field_name
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    reviews: dict[int, dict] = {}
+    for row in rows:
+        part_id = row["part_id"]
+        review = reviews.setdefault(part_id, {"fields": {}, "provenance": [], "outcome": "saved"})
+        review["fields"][row["field_name"]] = {
+            "accepted": True,
+            "value": row["proposed_value"] or "",
+        }
+        review["provenance"].append(json.loads(row["provenance_json"]))
+    return reviews
+
+
+def clear_pending_review(db_path: str | Path, part_id: int, field_names: list[str] | None = None) -> None:
+    conn = _connect(db_path)
+    try:
+        with conn:
+            if field_names:
+                placeholders = ", ".join("?" for _ in field_names)
+                conn.execute(
+                    f"DELETE FROM part_pending_field_review WHERE part_id = ? AND field_name IN ({placeholders})",
+                    (part_id, *field_names),
+                )
+            else:
+                conn.execute("DELETE FROM part_pending_field_review WHERE part_id = ?", (part_id,))
+    finally:
+        conn.close()
 
 
 def list_field_provenance(db_path: str | Path, part_id: int) -> list[dict]:

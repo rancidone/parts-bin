@@ -10,6 +10,27 @@ export interface Part {
   description: string | null
 }
 
+export interface FieldReview {
+  accepted: boolean
+  value: string
+}
+
+export interface PendingReview {
+  fields: Record<string, FieldReview>
+  provenance: unknown[]
+  outcome: string
+}
+
+export const DISPLAY_PART_FIELDS: { key: keyof Part; label: string }[] = [
+  { key: 'part_category', label: 'Category' },
+  { key: 'value', label: 'Value' },
+  { key: 'package', label: 'Package' },
+  { key: 'quantity', label: 'Qty' },
+  { key: 'part_number', label: 'Part #' },
+  { key: 'manufacturer', label: 'Manufacturer' },
+  { key: 'description', label: 'Description' },
+]
+
 export type MessageRole = 'user' | 'system'
 
 export interface UserMessage {

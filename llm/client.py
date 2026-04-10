@@ -101,6 +101,13 @@ _PART_FIELDS: dict[str, Any] = {
     "description":   {"type": ["string", "null"]},
 }
 
+_PART_ITEM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": _PART_FIELDS,
+    "required": list(_PART_FIELDS.keys()),
+    "additionalProperties": False,
+}
+
 CHAT_SCHEMA: dict[str, Any] = {
     "name": "chat_response",
     "strict": True,
@@ -113,9 +120,13 @@ CHAT_SCHEMA: dict[str, Any] = {
                 "properties": {
                     "type": {"type": "string", "enum": ["none", "upsert", "update", "lookup"]},
                     "id":   {"type": ["integer", "null"]},
+                    "items": {
+                        "type": ["array", "null"],
+                        "items": _PART_ITEM_SCHEMA,
+                    },
                     **_PART_FIELDS,
                 },
-                "required": ["type", "id", *_PART_FIELDS.keys()],
+                "required": ["type", "id", "items", *_PART_FIELDS.keys()],
                 "additionalProperties": False,
             },
         },
@@ -135,6 +146,8 @@ CHAT_SYSTEM_PROMPT = (
     "    'lookup'  — fetch or refresh specs from an external parts API for an existing part (set id and part_number); use this whenever the user asks to refresh, re-fetch, or fill in specs for a part\n"
     "    'none'    — just chatting, answering a question, or you need more info before acting\n"
     "  For 'update': set db_action.id to the inventory id of the part being changed.\n"
+    "  For multi-part adds, set 'db_action.type' to 'upsert' and populate 'db_action.items' with one part object per record to insert. Leave the top-level part fields null in that case.\n"
+    "  For single-record actions, set 'db_action.items' to null.\n"
     "  part fields in db_action: set to null when not applicable\n\n"
     "Use 'none' and ask naturally when you need more information. "
     "If inventory is provided below, use it to answer questions. "

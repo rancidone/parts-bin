@@ -1,30 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Part } from './types'
+import { FieldReviewEditor } from './FieldReviewEditor'
 import { downloadCSV } from './csv'
+import type { FieldReview, Part, PendingReview } from './types'
 import styles from './Inventory.module.css'
 
 type SortKey = 'part_category' | 'value' | 'package' | 'quantity'
-
-interface FieldReview {
-  accepted: boolean
-  value: string
-}
-
-interface PendingReview {
-  fields: Record<string, FieldReview>  // key → {accepted, editable value}
-  provenance: unknown[]
-  outcome: string
-}
-
-const DISPLAY_FIELDS: { key: keyof Part; label: string }[] = [
-  { key: 'part_category', label: 'Category' },
-  { key: 'value', label: 'Value' },
-  { key: 'package', label: 'Package' },
-  { key: 'quantity', label: 'Qty' },
-  { key: 'part_number', label: 'Part #' },
-  { key: 'manufacturer', label: 'Manufacturer' },
-  { key: 'description', label: 'Description' },
-]
 
 export function Inventory({ active }: { active: boolean }) {
   const [parts, setParts] = useState<Part[]>([])
@@ -41,9 +21,18 @@ export function Inventory({ active }: { active: boolean }) {
     setLoading(true)
     setError(null)
     try {
-      const resp = await fetch('/inventory')
-      if (!resp.ok) throw new Error(resp.statusText)
-      setParts(await resp.json())
+      const [partsResp, pendingResp] = await Promise.all([
+        fetch('/inventory'),
+        fetch('/inventory/pending'),
+      ])
+      if (!partsResp.ok) throw new Error(partsResp.statusText)
+      if (!pendingResp.ok) throw new Error(pendingResp.statusText)
+      setParts(await partsResp.json())
+      const pendingData = await pendingResp.json()
+      setPending(new Map(
+        Object.entries((pendingData.reviews ?? {}) as Record<string, PendingReview>)
+          .map(([id, review]) => [Number(id), review]),
+      ))
     } catch (e) {
       setError(String(e))
     } finally {
@@ -138,8 +127,12 @@ export function Inventory({ active }: { active: boolean }) {
     }
   }
 
-  function dismissReview(id: number) {
-    setPending(prev => { const next = new Map(prev); next.delete(id); return next })
+  async function dismissReview(id: number) {
+    try {
+      await fetch(`/inventory/${id}/dismiss`, { method: 'POST' })
+    } finally {
+      setPending(prev => { const next = new Map(prev); next.delete(id); return next })
+    }
   }
 
   function toggleSort(key: SortKey) {
@@ -221,7 +214,6 @@ export function Inventory({ active }: { active: boolean }) {
               {displayed.map((p, i) => {
                 const id = p.id!
                 const review = p.id != null ? pending.get(id) : undefined
-                const acceptedCount = review ? Object.values(review.fields).filter(f => f.accepted).length : 0
                 return (
                   <>
                     <tr key={p.id ?? i} className={`${styles.row} ${review ? styles.rowPending : ''}`}>
@@ -246,54 +238,17 @@ export function Inventory({ active }: { active: boolean }) {
                       </td>
                     </tr>
                     {review && p.id != null && (
-                      <tr key={`review-${id}`} className={styles.reviewRow}>
-                        <td colSpan={8} className={styles.reviewCell}>
-                          <table className={styles.reviewTable}>
-                            <tbody>
-                              {DISPLAY_FIELDS.filter(f => f.key in review.fields).map(f => {
-                                const field = review.fields[f.key]
-                                return (
-                                  <tr key={f.key} className={field.accepted ? styles.reviewFieldAccepted : styles.reviewFieldRejected}>
-                                    <td className={styles.rfCheck}>
-                                      <input
-                                        type="checkbox"
-                                        checked={field.accepted}
-                                        onChange={() => toggleField(id, f.key)}
-                                      />
-                                    </td>
-                                    <td className={styles.rfLabel}>{f.label}</td>
-                                    <td className={styles.rfOld}>{String(p[f.key] ?? '—')}</td>
-                                    <td className={styles.rfArrow}>→</td>
-                                    <td className={styles.rfNew}>
-                                      <input
-                                        className={styles.rfInput}
-                                        value={field.value}
-                                        disabled={!field.accepted}
-                                        onChange={e => editField(id, f.key, e.target.value)}
-                                      />
-                                    </td>
-                                  </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                          <div className={styles.reviewActions}>
-                            <button
-                              className={styles.acceptBtn}
-                              onClick={() => saveReview(id)}
-                              disabled={accepting.has(id) || acceptedCount === 0}
-                            >
-                              {accepting.has(id) ? '…' : `Save ${acceptedCount} field${acceptedCount !== 1 ? 's' : ''}`}
-                            </button>
-                            <button
-                              className={styles.dismissBtn}
-                              onClick={() => dismissReview(id)}
-                            >
-                              Dismiss
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                      <FieldReviewEditor
+                        key={`review-${id}`}
+                        part={p}
+                        review={review}
+                        colSpan={8}
+                        saving={accepting.has(id)}
+                        onToggleField={key => toggleField(id, key)}
+                        onEditField={(key, value) => editField(id, key, value)}
+                        onSave={() => saveReview(id)}
+                        onDismiss={() => dismissReview(id)}
+                      />
                     )}
                   </>
                 )

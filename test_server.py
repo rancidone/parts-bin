@@ -8,7 +8,7 @@ from PIL import Image
 from starlette.testclient import TestClient
 
 import server
-from db.persistence import init_db, list_field_provenance, upsert
+from db.persistence import init_db, list_field_provenance, list_pending_reviews, save_pending_review, upsert
 
 
 @pytest.fixture
@@ -34,6 +34,23 @@ class TestHealthEndpoint:
         assert resp.json() == {"status": "ok"}
 
 
+class TestJlcpartsEndpoints:
+    def test_status_reports_missing_configured_db(self, client, tmp_path):
+        c, _ = client
+        missing_db = tmp_path / "jlcparts.sqlite3"
+        with patch.object(server, "_JLCPARTS_DB_PATH", str(missing_db)):
+            resp = c.get("/jlcparts/status")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "missing", "path": str(missing_db)}
+
+    @pytest.mark.asyncio
+    async def test_run_jlcparts_download_awaits_download_coroutine(self):
+        with patch.object(server, "_JLCPARTS_DB_PATH", "jlcparts.sqlite3"):
+            with patch("ingestion.jlcparts_download.download_if_missing", AsyncMock()) as download:
+                await server._run_jlcparts_download()
+        download.assert_awaited_once()
+
+
 class TestInventoryEndpoint:
     def test_empty_inventory(self, client):
         c, _ = client
@@ -53,6 +70,33 @@ class TestInventoryEndpoint:
         parts = resp.json()
         assert len(parts) == 1
         assert parts[0]["part_category"] == "resistor"
+
+    def test_pending_reviews_endpoint_returns_saved_reviews(self, client):
+        c, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+        save_pending_review(db, part_id, {"manufacturer": "Texas Instruments"}, [{
+            "field_name": "manufacturer",
+            "field_value": "Texas Instruments",
+            "source_tier": "primary_api",
+            "source_kind": "api",
+            "source_locator": "https://digikey.example/TLV62565DBVR",
+            "extraction_method": "api",
+            "confidence_marker": "high",
+            "conflict_status": "clear",
+            "normalization_method": "direct_copy",
+            "competing_candidates": [],
+        }])
+
+        resp = c.get("/inventory/pending")
+
+        assert resp.status_code == 200
+        reviews = resp.json()["reviews"]
+        assert str(part_id) in reviews
+        assert reviews[str(part_id)]["fields"]["manufacturer"]["value"] == "Texas Instruments"
 
 
 class TestChatValidation:
@@ -89,29 +133,130 @@ class TestExecuteAction:
     @pytest.mark.asyncio
     async def test_upsert_requires_part_category_and_quantity(self, client):
         _, db = client
-        part_id, status = await server._execute_action("upsert", {
-            "part_category": "resistor", "profile": "passive",
-            "value": "10k", "package": "0402", "quantity": 5,
-            "part_number": None, "description": None,
-        })
+        with patch.object(server, "_track_background_task") as track_task:
+            part_id, status = await server._execute_action({
+                "type": "upsert",
+                "part_category": "resistor", "profile": "passive",
+                "value": "10k", "package": "0402", "quantity": 5,
+                "part_number": None, "description": None, "items": None,
+            })
         assert part_id is not None
         assert status == "saved"
+        track_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_background_upsert_enrichment_saves_pending_review(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": "TLV62565DBVR", "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+
+        with patch.object(server, "fetch_specs_detailed", AsyncMock(return_value={
+            "specs": {
+                "manufacturer": "Texas Instruments",
+                "description": "Buck regulator",
+            },
+            "chosen_updates": {
+                "manufacturer": "Texas Instruments",
+                "description": "Buck regulator",
+            },
+            "provider": "digikey",
+            "matched_part_number": "TLV62565DBVR",
+            "tried_providers": ["digikey"],
+            "status": "saved",
+            "outcome": "saved",
+            "conflicts": [],
+            "durable_provenance": [
+                {
+                    "field_name": "manufacturer",
+                    "field_value": "Texas Instruments",
+                    "source_tier": "primary_api",
+                    "source_kind": "api",
+                    "source_locator": "https://digikey.example/TLV62565DBVR",
+                    "extraction_method": "api",
+                    "confidence_marker": "high",
+                    "conflict_status": "clear",
+                    "normalization_method": "direct_copy",
+                    "competing_candidates": [],
+                },
+                {
+                    "field_name": "description",
+                    "field_value": "Buck regulator",
+                    "source_tier": "primary_api",
+                    "source_kind": "api",
+                    "source_locator": "https://digikey.example/TLV62565DBVR",
+                    "extraction_method": "api",
+                    "confidence_marker": "high",
+                    "conflict_status": "clear",
+                    "normalization_method": "direct_copy",
+                    "competing_candidates": [],
+                },
+            ],
+        })):
+            await server._enrich_upserted_part(part_id, "TLV62565DBVR")
+
+        pending = list_pending_reviews(db)
+        assert pending[part_id]["fields"]["manufacturer"]["value"] == "Texas Instruments"
+        assert pending[part_id]["fields"]["description"]["value"] == "Buck regulator"
 
     @pytest.mark.asyncio
     async def test_upsert_without_quantity_returns_none(self, client):
         _, db = client
-        part_id, status = await server._execute_action("upsert", {
+        part_id, status = await server._execute_action({
+            "type": "upsert",
             "part_category": "resistor", "profile": "passive",
             "value": "10k", "package": "0402", "quantity": None,
-            "part_number": None, "description": None,
+            "part_number": None, "description": None, "items": None,
         })
         assert part_id is None
         assert status == "invalid"
 
     @pytest.mark.asyncio
+    async def test_batch_upsert_saves_multiple_records(self, client):
+        _, db = client
+        with patch.object(server, "_track_background_task") as track_task:
+            part_id, status = await server._execute_action({
+                "type": "upsert",
+                "id": None,
+                "items": [
+                    {
+                        "part_category": "resistor",
+                        "profile": "passive",
+                        "value": "10k",
+                        "package": "0603",
+                        "part_number": None,
+                        "quantity": 20,
+                        "description": "0603 chip resistor 10k",
+                    },
+                    {
+                        "part_category": "resistor",
+                        "profile": "passive",
+                        "value": "100k",
+                        "package": "0603",
+                        "part_number": None,
+                        "quantity": 20,
+                        "description": "0603 chip resistor 100k",
+                    },
+                ],
+                "part_category": None,
+                "profile": None,
+                "value": None,
+                "package": None,
+                "part_number": None,
+                "quantity": None,
+                "description": None,
+            })
+        assert part_id is not None
+        assert status == "saved-batch"
+        assert len(server.list_all(db)) == 2
+        track_task.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_action_none_returns_none(self, client):
         _, db = client
-        assert await server._execute_action("none", {}) == (None, "noop")
+        assert await server._execute_action({"type": "none"}) == (None, "noop")
 
     @pytest.mark.asyncio
     async def test_lookup_without_specs_reports_no_specs(self, client):
@@ -132,7 +277,8 @@ class TestExecuteAction:
             "outcome": "no_match",
             "durable_provenance": [],
         })):
-            result = await server._execute_action("lookup", {
+            result = await server._execute_action({
+                "type": "lookup",
                 "id": part_id,
                 "part_number": "TLV62565DBVR",
             })
@@ -158,7 +304,8 @@ class TestExecuteAction:
             "status": "timeout",
             "durable_provenance": [],
         })):
-            result = await server._execute_action("lookup", {
+            result = await server._execute_action({
+                "type": "lookup",
                 "id": part_id,
                 "part_number": "TLV62565DBVR",
             })
@@ -185,7 +332,8 @@ class TestExecuteAction:
             "durable_provenance": [],
             "conflicts": [],
         })):
-            result = await server._execute_action("lookup", {
+            result = await server._execute_action({
+                "type": "lookup",
                 "id": part_id,
                 "part_number": "TLV62565DBVR",
             })
@@ -212,7 +360,8 @@ class TestExecuteAction:
             "durable_provenance": [],
             "conflicts": [],
         })):
-            result = await server._execute_action("lookup", {
+            result = await server._execute_action({
+                "type": "lookup",
                 "id": part_id,
                 "part_number": "TLV62565DBVR",
             })
