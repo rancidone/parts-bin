@@ -98,6 +98,169 @@ class TestInventoryEndpoint:
         assert str(part_id) in reviews
         assert reviews[str(part_id)]["fields"]["manufacturer"]["value"] == "Texas Instruments"
 
+    def test_part_provenance_endpoint_returns_saved_field_provenance(self, client):
+        c, db = client
+        part_id = upsert(db, {
+            "part_category": "discrete_ic", "profile": "discrete_ic",
+            "value": None, "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": None, "description": None,
+        })
+        server.update_fields_with_provenance(db, part_id, {"manufacturer": "Texas Instruments"}, [{
+            "field_name": "manufacturer",
+            "field_value": "Texas Instruments",
+            "source_tier": "primary_api",
+            "source_kind": "api",
+            "source_locator": "https://digikey.example/TLV62565DBVR",
+            "extraction_method": "api",
+            "confidence_marker": "high",
+            "conflict_status": "clear",
+            "normalization_method": "direct_copy",
+            "competing_candidates": [],
+            "evidence": "Manufacturer: Texas Instruments",
+        }])
+
+        resp = c.get(f"/inventory/{part_id}/provenance")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["part_id"] == part_id
+        assert len(payload["provenance"]) == 1
+        assert payload["provenance"][0]["field_name"] == "manufacturer"
+        assert payload["provenance"][0]["source_tier"] == "primary_api"
+
+    def test_patch_inventory_updates_part_fields(self, client):
+        c, db = client
+        part_id = upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": None,
+        })
+
+        resp = c.patch(f"/inventory/{part_id}", json={
+            "part": {
+                "part_category": "resistor",
+                "profile": "passive",
+                "value": "22k",
+                "package": "0603",
+                "quantity": 12,
+                "manufacturer": "Yageo",
+                "description": "updated",
+            }
+        })
+
+        assert resp.status_code == 200
+        part = resp.json()["part"]
+        assert part["value"] == "22k"
+        assert part["package"] == "0603"
+        assert part["quantity"] == 12
+        assert part["manufacturer"] == "Yageo"
+        assert part["description"] == "updated"
+
+    def test_patch_inventory_clears_stale_pending_review(self, client):
+        c, db = client
+        part_id = upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": None,
+        })
+        save_pending_review(db, part_id, {"manufacturer": "Yageo"}, [{
+            "field_name": "manufacturer",
+            "field_value": "Yageo",
+            "source_tier": "primary_api",
+            "source_kind": "api",
+            "source_locator": "https://example.com/part",
+            "extraction_method": "api",
+            "confidence_marker": "high",
+            "conflict_status": "clear",
+            "normalization_method": "direct_copy",
+            "competing_candidates": [],
+        }])
+
+        resp = c.patch(f"/inventory/{part_id}", json={
+            "part": {
+                "part_category": "resistor",
+                "profile": "passive",
+                "value": "22k",
+                "package": "0603",
+                "quantity": 12,
+            }
+        })
+
+        assert resp.status_code == 200
+        assert list_pending_reviews(db) == {}
+
+    def test_patch_inventory_repairs_passive_slot_mixup(self, client):
+        c, db = client
+        part_id = upsert(db, {
+            "part_category": "capacitor", "profile": "passive",
+            "value": "100n", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": None,
+        })
+
+        resp = c.patch(f"/inventory/{part_id}", json={
+            "part": {
+                "part_category": "capacitor",
+                "profile": "discrete_ic",
+                "value": "0603",
+                "package": "0603",
+                "part_number": "1uF",
+                "quantity": 20,
+            }
+        })
+
+        assert resp.status_code == 200
+        part = resp.json()["part"]
+        assert part["profile"] == "passive"
+        assert part["value"] == "1uF"
+        assert part["package"] == "0603"
+        assert part["part_number"] is None
+
+    def test_patch_inventory_returns_conflict_when_duplicate_identity(self, client):
+        c, db = client
+        first_id = upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": None,
+        })
+        upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "22k", "package": "0603", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": None,
+        })
+
+        resp = c.patch(f"/inventory/{first_id}", json={
+            "part": {
+                "part_category": "resistor",
+                "profile": "passive",
+                "value": "22k",
+                "package": "0603",
+                "quantity": 5,
+            }
+        })
+
+        assert resp.status_code == 409
+
+    def test_delete_inventory_removes_part(self, client):
+        c, db = client
+        part_id = upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": None,
+        })
+
+        resp = c.delete(f"/inventory/{part_id}")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+        assert server.get_by_id(db, part_id) is None
+
+    def test_delete_inventory_returns_404_for_missing_part(self, client):
+        c, _ = client
+
+        resp = c.delete("/inventory/9999")
+
+        assert resp.status_code == 404
+
 
 class TestChatValidation:
     def test_no_message_no_photo_returns_422(self, client):
@@ -252,6 +415,169 @@ class TestExecuteAction:
         assert status == "saved-batch"
         assert len(server.list_all(db)) == 2
         track_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_upsert_repairs_passive_fields_when_package_lands_in_value_slot(self, client):
+        _, db = client
+
+        part_id, status = await server._execute_action({
+            "type": "upsert",
+            "id": None,
+            "items": None,
+            "part_category": "capacitor",
+            "profile": "discrete_ic",
+            "value": "0603",
+            "package": "0603",
+            "part_number": "100nF",
+            "quantity": 20,
+            "description": "0603 chip capacitor, 100nF value",
+        })
+
+        saved = server.get_by_id(db, part_id)
+        assert status == "saved"
+        assert saved["profile"] == "passive"
+        assert saved["value"] == "100n"
+        assert saved["package"] == "0603"
+        assert saved["part_number"] is None
+
+    @pytest.mark.asyncio
+    async def test_batch_upsert_repairs_each_passive_item(self, client):
+        _, db = client
+
+        part_id, status = await server._execute_action({
+            "type": "upsert",
+            "id": None,
+            "items": [
+                {
+                    "part_category": "capacitor",
+                    "profile": "discrete_ic",
+                    "value": "0603",
+                    "package": "0603",
+                    "part_number": "10pF",
+                    "quantity": 20,
+                    "description": "0603 chip capacitor, 10pF value",
+                },
+                {
+                    "part_category": "capacitor",
+                    "profile": "discrete_ic",
+                    "value": "0603",
+                    "package": "0603",
+                    "part_number": "100nF",
+                    "quantity": 20,
+                    "description": "0603 chip capacitor, 100nF value",
+                },
+            ],
+            "part_category": None,
+            "profile": None,
+            "value": None,
+            "package": None,
+            "part_number": None,
+            "quantity": None,
+            "description": None,
+        })
+
+        rows = server.list_all(db)
+        assert status == "saved-batch"
+        assert part_id is not None
+        assert len(rows) == 2
+        assert {row["value"] for row in rows} == {"10p", "100n"}
+        assert all(row["profile"] == "passive" for row in rows)
+        assert all(row["part_number"] is None for row in rows)
+
+    @pytest.mark.asyncio
+    async def test_batch_update_updates_multiple_records(self, client):
+        _, db = client
+        first_id = upsert(db, {
+            "part_category": "capacitor", "profile": "discrete_ic",
+            "value": "0603", "package": "0603", "quantity": 20,
+            "part_number": "10PF", "manufacturer": None, "description": "0603 chip capacitor, 10PF value",
+        })
+        second_id = upsert(db, {
+            "part_category": "capacitor", "profile": "discrete_ic",
+            "value": "0603", "package": "0603", "quantity": 20,
+            "part_number": "100NF", "manufacturer": None, "description": "0603 chip capacitor, 100NF value",
+        })
+
+        part_id, status = await server._execute_action({
+            "type": "update",
+            "id": None,
+            "items": [
+                {
+                    "id": first_id,
+                    "part_category": "capacitor",
+                    "profile": "passive",
+                    "value": "10pF",
+                    "package": "0603",
+                    "part_number": None,
+                    "quantity": 20,
+                    "description": "0603 chip capacitor, 10PF value",
+                },
+                {
+                    "id": second_id,
+                    "part_category": "capacitor",
+                    "profile": "passive",
+                    "value": "100nF",
+                    "package": "0603",
+                    "part_number": None,
+                    "quantity": 20,
+                    "description": "0603 chip capacitor, 100NF value",
+                },
+            ],
+            "part_category": None,
+            "profile": None,
+            "value": None,
+            "package": None,
+            "part_number": None,
+            "quantity": None,
+            "description": None,
+        })
+
+        first = server.get_by_id(db, first_id)
+        second = server.get_by_id(db, second_id)
+        assert status == "saved-batch"
+        assert part_id == second_id
+        assert first["value"] == "10pF"
+        assert second["value"] == "100nF"
+        assert first["part_number"] is None
+        assert second["part_number"] is None
+
+    @pytest.mark.asyncio
+    async def test_update_clears_pending_review_for_edited_part(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": None,
+        })
+        save_pending_review(db, part_id, {"manufacturer": "Yageo"}, [{
+            "field_name": "manufacturer",
+            "field_value": "Yageo",
+            "source_tier": "primary_api",
+            "source_kind": "api",
+            "source_locator": "https://example.com/part",
+            "extraction_method": "api",
+            "confidence_marker": "high",
+            "conflict_status": "clear",
+            "normalization_method": "direct_copy",
+            "competing_candidates": [],
+        }])
+
+        saved_id, status = await server._execute_action({
+            "type": "update",
+            "id": part_id,
+            "items": None,
+            "part_category": "resistor",
+            "profile": "passive",
+            "value": "22k",
+            "package": "0603",
+            "part_number": None,
+            "quantity": None,
+            "description": "updated",
+        })
+
+        assert status == "saved"
+        assert saved_id == part_id
+        assert list_pending_reviews(db) == {}
 
     @pytest.mark.asyncio
     async def test_action_none_returns_none(self, client):

@@ -7,6 +7,31 @@
   border-bottom: 2px solid var(--accent);
 }
 
+.reviewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.reviewTitle {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.reviewOutcome {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.74rem;
+  color: var(--muted);
+  text-transform: lowercase;
+}
+
 .reviewTable {
   width: 100%;
   border-collapse: collapse;
@@ -71,6 +96,45 @@
   background: transparent;
   border-color: transparent;
   color: var(--muted);
+}
+
+.rfMeta {
+  display: grid;
+  gap: 3px;
+  margin-top: 5px;
+}
+
+.rfSourceLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.rfSourceLine span {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.rfLocator {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rfEvidence {
+  font-size: 0.75rem;
+  color: var(--fg);
+  line-height: 1.35;
+  background: var(--surface);
+  border-left: 2px solid var(--accent);
+  padding: 5px 8px;
+  border-radius: 0 6px 6px 0;
 }
 
 .reviewActions {

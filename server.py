@@ -9,6 +9,7 @@ Endpoints:
 
 import asyncio
 import json
+import re
 import tomllib
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -19,12 +20,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from db.persistence import (
     clear_pending_review,
+    delete_part,
     export_csv,
     get_by_id,
     init_db,
     list_all,
+    list_field_provenance,
     list_pending_reviews,
     query,
+    replace_part,
     save_pending_review,
     update_fields,
     update_fields_with_provenance,
@@ -63,6 +67,19 @@ _JLCPARTS_MAX_SQLITE_BYTES: int | None = _cfg.get("jlcparts", {}).get("max_sqlit
 _jlcparts_dl_status: str = "idle"  # idle | downloading | error
 _background_enrichment_tasks: set[asyncio.Task] = set()
 _PASSIVE_CATEGORIES = {"resistor", "capacitor", "inductor"}
+_PACKAGE_TOKEN_RE = re.compile(
+    r"^(?:\d{4}|\d{5}|"
+    r"SOT-?\d+(?:-\d+)?|SOIC-?\d+|TSSOP-?\d+|MSOP-?\d+|SSOP-?\d+|"
+    r"QFN-?\d+|DFN-?\d+|LQFP-?\d+|TQFP-?\d+|QFP-?\d+|DIP-?\d+|SOP-?\d+|TO-?\d+|"
+    r"LED-SMD|panel-mount|through-hole|\d+(?:\.\d+)?mm)$",
+    re.IGNORECASE,
+)
+_PASSIVE_VALUE_RE = re.compile(
+    r"^\s*\d+(?:\.\d+)?\s*(?:"
+    r"R|K|M|G|OHM|OHMS|PF|NF|UF|µF|MH|UH|µH|NH|F|H"
+    r")\s*$",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -150,7 +167,80 @@ def _should_enqueue_enrichment(part: dict) -> bool:
 def _coerce_part_payload(part: dict) -> dict:
     payload = dict(part)
     payload.setdefault("manufacturer", None)
-    return payload
+    return _repair_part_payload(payload)
+
+
+def _looks_like_package(value: str | None) -> bool:
+    if not isinstance(value, str):
+        return False
+    return bool(_PACKAGE_TOKEN_RE.match(value.strip()))
+
+
+def _looks_like_passive_value(value: str | None) -> bool:
+    if not isinstance(value, str):
+        return False
+    cleaned = value.strip()
+    if not cleaned:
+        return False
+    if _PASSIVE_VALUE_RE.match(cleaned):
+        return True
+    return bool(re.match(r"^\d+[RrKkMmGg]\d+$", cleaned) or re.match(r"^\d+[PpNnUu]\d+$", cleaned))
+
+
+def _repair_part_payload(part: dict) -> dict:
+    repaired = dict(part)
+    category = str(repaired.get("part_category") or "").lower()
+    value = repaired.get("value")
+    package = repaired.get("package")
+    part_number = repaired.get("part_number")
+
+    if category in _PASSIVE_CATEGORIES:
+        repaired["profile"] = "passive"
+
+        # Passive values belong in `value`; package tokens like 0402/0603 belong in `package`.
+        if _looks_like_package(value) and _looks_like_passive_value(part_number):
+            repaired["value"] = part_number
+            repaired["part_number"] = None
+        elif _looks_like_package(value) and not package:
+            repaired["package"] = value
+            repaired["value"] = None
+        elif _looks_like_package(value) and _looks_like_passive_value(package):
+            repaired["value"], repaired["package"] = package, value
+
+        # Passives should not use the electrical value as `part_number` unless an explicit MPN exists.
+        if _looks_like_passive_value(repaired.get("part_number")):
+            if not _looks_like_passive_value(repaired.get("value")):
+                repaired["value"] = repaired["part_number"]
+            repaired["part_number"] = None
+
+    return repaired
+
+
+def _repair_action(action: dict) -> dict:
+    repaired = dict(action)
+    items = repaired.get("items")
+    if isinstance(items, list):
+        repaired["items"] = [_repair_part_payload(item) for item in items]
+    elif repaired.get("type") == "upsert":
+        repaired = _repair_part_payload(repaired)
+    return repaired
+
+
+def _merge_existing_part_for_replace(part_id: int, fields: dict) -> dict | None:
+    existing = get_by_id(_DB_PATH, part_id)
+    if existing is None:
+        return None
+    merged = {
+        "part_category": fields.get("part_category", existing.get("part_category")),
+        "profile": fields.get("profile", existing.get("profile")),
+        "value": fields.get("value", existing.get("value")),
+        "package": fields.get("package", existing.get("package")),
+        "part_number": fields.get("part_number", existing.get("part_number")),
+        "quantity": existing.get("quantity"),
+        "manufacturer": fields.get("manufacturer", existing.get("manufacturer")),
+        "description": fields.get("description", existing.get("description")),
+    }
+    return _repair_part_payload(merged)
 
 
 def _execute_upsert_part(part: dict) -> int | None:
@@ -165,6 +255,7 @@ def _execute_upsert_part(part: dict) -> int | None:
 
 async def _execute_action(action: dict) -> tuple[int | None, str]:
     """Execute a db_action from the LLM. Returns (part_id, status)."""
+    action = _repair_action(action)
     action_type = action["type"]
     if action_type == "upsert":
         items = action.get("items") or None
@@ -183,10 +274,30 @@ async def _execute_action(action: dict) -> tuple[int | None, str]:
         return part_id, "saved"
 
     if action_type == "update":
+        items = action.get("items") or None
+        if items:
+            saved_ids: list[int] = []
+            for item in items:
+                item_id = item.get("id")
+                if not item_id:
+                    return None, "missing-target"
+                merged = _merge_existing_part_for_replace(item_id, item)
+                if merged is None:
+                    return None, "missing-target"
+                replace_part(_DB_PATH, item_id, merged)
+                clear_pending_review(_DB_PATH, item_id)
+                saved_ids.append(item_id)
+            return saved_ids[-1], "saved-batch"
+
         part_id = action.get("id")
         if not part_id:
             return None, "missing-target"
-        return update_fields(_DB_PATH, part_id, action), "saved"
+        merged = _merge_existing_part_for_replace(part_id, action)
+        if merged is None:
+            return None, "missing-target"
+        replace_part(_DB_PATH, part_id, merged)
+        clear_pending_review(_DB_PATH, part_id)
+        return part_id, "saved"
 
     if action_type == "lookup":
         part_id = action.get("id")
@@ -304,6 +415,81 @@ async def inventory() -> list[dict]:
 @app.get("/inventory/pending")
 async def inventory_pending() -> dict:
     return {"reviews": list_pending_reviews(_DB_PATH)}
+
+
+@app.get("/inventory/{part_id}/provenance")
+async def inventory_part_provenance(part_id: int) -> dict:
+    part = get_by_id(_DB_PATH, part_id)
+    if part is None:
+        raise HTTPException(status_code=404, detail="Part not found")
+    return {"part_id": part_id, "provenance": list_field_provenance(_DB_PATH, part_id)}
+
+
+@app.patch("/inventory/{part_id}")
+async def update_inventory_part(part_id: int, body: dict) -> dict:
+    part = get_by_id(_DB_PATH, part_id)
+    if part is None:
+        raise HTTPException(status_code=404, detail="Part not found")
+
+    fields = body.get("part")
+    if not isinstance(fields, dict):
+        raise HTTPException(status_code=422, detail="part object required")
+
+    editable_fields = {
+        "part_category", "profile", "value", "package", "part_number",
+        "quantity", "manufacturer", "description",
+    }
+    cleaned = {k: v for k, v in fields.items() if k in editable_fields}
+    if not cleaned:
+        raise HTTPException(status_code=422, detail="No editable fields provided")
+
+    merged = {
+        key: cleaned.get(key, part.get(key))
+        for key in editable_fields
+    }
+
+    for key in ("value", "package", "part_number", "manufacturer", "description"):
+        if isinstance(merged.get(key), str):
+            merged[key] = merged[key].strip() or None
+
+    if not isinstance(merged.get("part_category"), str) or not merged["part_category"].strip():
+        raise HTTPException(status_code=422, detail="part_category is required")
+    merged["part_category"] = merged["part_category"].strip()
+
+    if merged.get("profile") not in ("passive", "discrete_ic"):
+        raise HTTPException(status_code=422, detail="profile must be 'passive' or 'discrete_ic'")
+
+    if not isinstance(merged.get("quantity"), int) or merged["quantity"] < 0:
+        raise HTTPException(status_code=422, detail="quantity must be a non-negative integer")
+
+    merged = _repair_part_payload(merged)
+
+    try:
+        replace_part(_DB_PATH, part_id, merged)
+    except Exception as exc:
+        import sqlite3
+        if isinstance(exc, sqlite3.IntegrityError):
+            raise HTTPException(status_code=409, detail="Edit would conflict with an existing inventory record") from exc
+        raise
+
+    clear_pending_review(_DB_PATH, part_id)
+
+    _logger.info("inventory part updated", extra={
+        "part_id": part_id,
+        "fields": sorted(cleaned.keys()),
+    })
+    return {"part": get_by_id(_DB_PATH, part_id)}
+
+
+@app.delete("/inventory/{part_id}")
+async def delete_inventory_part(part_id: int) -> dict:
+    part = get_by_id(_DB_PATH, part_id)
+    if part is None:
+        raise HTTPException(status_code=404, detail="Part not found")
+
+    delete_part(_DB_PATH, part_id)
+    _logger.info("inventory part deleted", extra={"part_id": part_id})
+    return {"ok": True}
 
 
 @app.get("/inventory/export.csv")

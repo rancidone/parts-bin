@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from db.persistence import init_db, list_all, list_field_provenance
+from db.persistence import init_db, list_all, list_field_provenance, list_pending_reviews
 from ingestion.ingest import run_ingestion
 from llm.client import LLMClient
 
@@ -123,7 +123,8 @@ class TestRunIngestionDiscreteIc:
         }
         with patch("ingestion.ingest.fetch_specs_detailed", new=AsyncMock(return_value=mock_result)):
             events = await _collect(run_ingestion(db, llm, "add 5 2N7002"))
-        assert events[0]["part"]["manufacturer"] == "Vishay"
+        assert events[0]["part"]["manufacturer"] is None
+        assert events[0]["enrichment"]["proposed_updates"]["manufacturer"] == "Vishay"
 
     async def test_insertion_succeeds_when_spec_lookup_returns_nothing(self, db, llm):
         llm.extract.return_value = COMPLETE_DISCRETE
@@ -151,7 +152,7 @@ class TestRunIngestionDiscreteIc:
         mock_fetch.assert_not_called()
         assert events[0]["type"] == "clarification"
 
-    async def test_persists_provenance_for_lookup_updates(self, db, llm):
+    async def test_saves_pending_review_for_lookup_updates(self, db, llm):
         llm.extract.return_value = COMPLETE_DISCRETE
         with patch("ingestion.ingest.fetch_specs_detailed", new=AsyncMock(return_value={
             "chosen_updates": {"manufacturer": "Vishay"},
@@ -173,7 +174,9 @@ class TestRunIngestionDiscreteIc:
         })):
             events = await _collect(run_ingestion(db, llm, "add 5 2N7002"))
 
+        pending = list_pending_reviews(db)
+        assert events[0]["part"]["id"] in pending
+        assert pending[events[0]["part"]["id"]]["fields"]["manufacturer"]["value"] == "Vishay"
         provenance = list_field_provenance(db, events[0]["part"]["id"])
-        assert len(provenance) == 1
-        assert provenance[0]["field_name"] == "manufacturer"
+        assert provenance == []
         assert events[0]["enrichment"]["outcome"] == "saved"

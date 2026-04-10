@@ -1,0 +1,28 @@
+artifact_id: parts-bin-ingestion-enrichment-integration-design
+checkpoint_id: 87441e7953794f37bf0da5f2136def95
+created_at: '2026-04-10T00:44:18.392419+00:00'
+flush_reason: checkpoint
+is_current: true
+stage_metadata:
+  design_unit_id: parts-bin-ingestion-enrichment-integration-design
+  title: Ingestion Against The Enrichment Attempt Model
+  status: draft
+  readiness: high
+  readiness_rationale: 'The design now fixes the ingestion contract: write first,
+    enrich asynchronously when eligible, and persist source-backed updates as pending
+    review rather than silent mutation.'
+  scope_summary: Follow-on design for new-part ingestion and duplicate handling against
+    the structured enrichment attempt model, including asynchronous enrichment proposals
+    and pending review persistence.
+  parent: parts-bin-fallback-enrichment-design
+  depends_on:
+  - parts-bin-fallback-enrichment-design
+  - parts-bin-source-extraction-design
+  children: []
+  open_questions: []
+  assumptions:
+  - The current flat `parts` schema remains in place for this implementation slice.
+  - Background enrichment may run after both inserts and quantity-increment upserts
+    when the resolved row is eligible.
+  - User review is preferred over silent source-backed overwrites for post-write enrichment
+    proposals.
