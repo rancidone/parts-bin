@@ -469,11 +469,21 @@ async def _fetch_api_derived_pdf(
                     })
                     continue
                 extracted_candidates = extract_pdf_candidates(resp.content)
+                ambiguous_fields = sorted(
+                    field_name
+                    for field_name, candidate in extracted_candidates.items()
+                    if candidate.get("ambiguous")
+                )
                 filtered_candidates = {
                     field_name: candidate
                     for field_name, candidate in extracted_candidates.items()
-                    if field_name in missing_fields
+                    if field_name in missing_fields and not candidate.get("ambiguous")
                 }
+                warnings: list[str] = []
+                if ambiguous_fields:
+                    warnings.append(
+                        "ambiguous_pdf_candidates:" + ",".join(ambiguous_fields)
+                    )
                 if filtered_candidates:
                     return {
                         "provider": attempt["provider"],
@@ -492,7 +502,25 @@ async def _fetch_api_derived_pdf(
                             "content_type": resp.headers.get("content-type"),
                             "classification": classification,
                         },
-                        "warnings": [],
+                        "warnings": warnings,
+                        "error": None,
+                    }
+                if warnings:
+                    return {
+                        "provider": attempt["provider"],
+                        "authority_tier": "api_derived_pdf",
+                        "source_kind": "pdf_document",
+                        "status": "ok",
+                        "source_locator": str(resp.url),
+                        "fields": {},
+                        "field_metadata": {},
+                        "diagnostics": {
+                            "requested_url": url_to_try,
+                            "resolved_url": str(resp.url),
+                            "content_type": resp.headers.get("content-type"),
+                            "classification": classification,
+                        },
+                        "warnings": warnings,
                         "error": None,
                     }
                 _logger.debug("pdf no candidates", extra={

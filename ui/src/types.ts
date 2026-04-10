@@ -15,9 +15,26 @@ export interface FieldReview {
   value: string
 }
 
+export interface PendingReviewProvenance {
+  field_name: string
+  field_value?: string | null
+  source_tier?: string | null
+  source_kind?: string | null
+  source_locator?: string | null
+  extraction_method?: string | null
+  confidence_marker?: string | null
+  conflict_status?: string | null
+  normalization_method?: string | null
+  evidence?: string | null
+}
+
+export interface FieldProvenance extends PendingReviewProvenance {
+  competing_candidates?: string | null
+}
+
 export interface PendingReview {
   fields: Record<string, FieldReview>
-  provenance: unknown[]
+  provenance: PendingReviewProvenance[]
   outcome: string
 }
 

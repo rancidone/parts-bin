@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from db.persistence import init_db, upsert
+from db.persistence import init_db, save_pending_review, upsert
 from llm.client import ConversationHistory, LLMClient
 from query.search import _filters_to_attrs, run_query
 
@@ -106,3 +106,27 @@ class TestRunQuery:
         result = await run_query(db, llm, "show me everything", ConversationHistory())
         assert result["type"] == "results"
         assert len(result["parts"]) == 2
+
+    async def test_pending_review_does_not_change_query_matches(self, db, llm):
+        part_id = upsert(db, PASSIVE_RESISTOR)
+        save_pending_review(db, part_id, {"package": "0603"}, [{
+            "field_name": "package",
+            "field_value": "0603",
+            "source_tier": "primary_api",
+            "source_kind": "api",
+            "source_locator": "https://example.com/part",
+            "extraction_method": "api",
+            "confidence_marker": "high",
+            "conflict_status": "clear",
+            "normalization_method": "direct_copy",
+            "competing_candidates": [],
+        }])
+        llm.parse_query.return_value = _parsed([
+            {"field": "part_category", "op": "eq", "value": "resistor"},
+            {"field": "package", "op": "eq", "value": "0603"},
+        ])
+        llm.answer.return_value = "No committed 0603 resistors found."
+
+        result = await run_query(db, llm, "do I have any 0603 resistors?", ConversationHistory())
+
+        assert result["type"] == "not_found"

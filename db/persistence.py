@@ -365,6 +365,47 @@ def update_fields(db_path: str | Path, part_id: int, fields: dict) -> int:
     return part_id
 
 
+def replace_part(db_path: str | Path, part_id: int, fields: dict) -> int:
+    """
+    Replace editable part fields on an existing part, including quantity.
+
+    Writes only the supported inventory-edit fields and keeps created_at unchanged.
+    Raises sqlite3.IntegrityError on uniqueness conflicts.
+    """
+    allowed = {
+        "part_category", "profile", "value", "package", "part_number",
+        "quantity", "manufacturer", "description",
+    }
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return part_id
+
+    updates["updated_at"] = _now()
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+
+    conn = _connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                f"UPDATE parts SET {set_clause} WHERE id = :id",
+                {**updates, "id": part_id},
+            )
+    finally:
+        conn.close()
+    return part_id
+
+
+def delete_part(db_path: str | Path, part_id: int) -> bool:
+    """Delete a part by id. Returns True if a row was removed."""
+    conn = _connect(db_path)
+    try:
+        with conn:
+            cursor = conn.execute("DELETE FROM parts WHERE id = ?", (part_id,))
+            return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
 def update_fields_with_provenance(
     db_path: str | Path,
     part_id: int,

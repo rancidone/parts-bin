@@ -103,8 +103,11 @@ _PART_FIELDS: dict[str, Any] = {
 
 _PART_ITEM_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "properties": _PART_FIELDS,
-    "required": list(_PART_FIELDS.keys()),
+    "properties": {
+        "id": {"type": ["integer", "null"]},
+        **_PART_FIELDS,
+    },
+    "required": ["id", *_PART_FIELDS.keys()],
     "additionalProperties": False,
 }
 
@@ -147,9 +150,14 @@ CHAT_SYSTEM_PROMPT = (
     "    'none'    — just chatting, answering a question, or you need more info before acting\n"
     "  For 'update': set db_action.id to the inventory id of the part being changed.\n"
     "  For multi-part adds, set 'db_action.type' to 'upsert' and populate 'db_action.items' with one part object per record to insert. Leave the top-level part fields null in that case.\n"
+    "  If the user asks to add parts as separate records, use 'items' and include every record; do not collapse the add into one top-level part.\n"
+    "  For multi-record corrections to existing inventory, use 'update' with 'items' and include one item per target record, each with its own inventory id.\n"
     "  For single-record actions, set 'db_action.items' to null.\n"
     "  part fields in db_action: set to null when not applicable\n\n"
-    "Use 'none' and ask naturally when you need more information. "
+    "For resistors, capacitors, and inductors, use profile='passive'. Put the electrical value in 'value', the footprint/package in 'package', and leave 'part_number' null unless the user explicitly gives a manufacturer part number. Never put a package like 0402 or 0603 in 'value'.\n"
+    "If the user already asked to add, update, or look up a part earlier in the conversation, keep that intent active through follow-up clarification turns. Do not ask them to reconfirm the same operation.\n"
+    "If you return a non-'none' db_action, it executes immediately. Describe it as done now, not as a future action, and do not wait for an extra 'do it' or confirmation turn.\n\n"
+    "Use 'none' and ask naturally only when you still need missing information. "
     "If inventory is provided below, use it to answer questions. "
     "Always respond conversationally — never output raw data at the user. "
     "In 'response', never interpolate field values directly — describe changes in plain prose only."
@@ -449,7 +457,10 @@ class LLMClient:
         result = await self._extract_with_retry(messages, CHAT_SCHEMA)
 
         history.append("user", user_message)
-        history.append("assistant", result["response"])
+        history.append("assistant", json.dumps({
+            "response": result["response"],
+            "db_action": result["db_action"],
+        }))
         return result
 
     # ------------------------------------------------------------------

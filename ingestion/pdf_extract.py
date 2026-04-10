@@ -53,6 +53,11 @@ _LABEL_PATTERNS = {
     ),
 }
 
+_PART_NUMBER_SCAN_RE = re.compile(
+    r"(?:Manufacturer Part Number|Part Number|MPN)\s*[:\-]\s*([A-Za-z0-9._\/+\-]{2,80})",
+    re.IGNORECASE,
+)
+
 # Package patterns tried in priority order (first match with a value wins).
 _PACKAGE_PATTERNS: list[re.Pattern] = [
     # DigiKey/distributor labeled row: "Package / Case: SOT-23-5"
@@ -74,6 +79,28 @@ _PACKAGE_PATTERNS: list[re.Pattern] = [
 
 # Only scan the first N pages — product info is always near the front.
 _MAX_PAGES = 4
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        key = value.strip().casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result
+
+
+def _find_labeled_part_numbers(normalized_pages: list[str]) -> list[str]:
+    values: list[str] = []
+    for page in normalized_pages:
+        for match in _PART_NUMBER_SCAN_RE.finditer(page):
+            value = _clean_value(match.group(1))
+            if value:
+                values.append(value)
+    return _dedupe_preserve_order(values)
 
 
 def _extract_text_pages(pdf_bytes: bytes) -> list[str]:
@@ -117,9 +144,11 @@ def _match_package(normalized: str) -> tuple[str, str] | None:
 def extract_pdf_candidates(pdf_bytes: bytes) -> dict[str, dict]:
     pages = _extract_text_pages(pdf_bytes)
     multiple_pages = len(pages) > 1
+    normalized_pages = [_WS_RE.sub(" ", raw_page) for raw_page in pages]
+    labeled_part_numbers = _find_labeled_part_numbers(normalized_pages)
+    has_variant_ambiguity = len(labeled_part_numbers) > 1
     candidates: dict[str, dict] = {}
-    for page_idx, raw_page in enumerate(pages):
-        normalized = _WS_RE.sub(" ", raw_page)
+    for page_idx, normalized in enumerate(normalized_pages):
         for field_name, pattern in _LABEL_PATTERNS.items():
             if field_name in candidates:
                 continue
@@ -128,21 +157,25 @@ def extract_pdf_candidates(pdf_bytes: bytes) -> dict[str, dict]:
                 continue
             value = _clean_value(match.group(1))
             if value:
+                ambiguous = has_variant_ambiguity and field_name in {"part_number", "package", "description"}
                 candidates[field_name] = {
                     "value": value,
                     "evidence": _truncate_evidence(match.group(0)),
                     "method": "pdf-labeled-text",
                     "page_ref": page_idx + 1 if multiple_pages else None,
+                    "ambiguous": ambiguous,
                 }
         if "package" not in candidates:
             result = _match_package(normalized)
             if result:
                 value, evidence = result
+                ambiguous = has_variant_ambiguity
                 candidates["package"] = {
                     "value": value,
                     "evidence": evidence,
                     "method": "pdf-labeled-text",
                     "page_ref": page_idx + 1 if multiple_pages else None,
+                    "ambiguous": ambiguous,
                 }
     return candidates
 

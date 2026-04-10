@@ -2,7 +2,7 @@ artifact_id: parts-bin-source-extraction-design
 checkpoint_id: 0fd05bc92d654209b5226c70926c7bef
 created_at: '2026-04-09T02:56:30.295620+00:00'
 flush_reason: checkpoint
-is_current: true
+is_current: false
 stage_metadata:
   design_unit_id: parts-bin-source-extraction-design
   title: Source Retrieval And Extraction
