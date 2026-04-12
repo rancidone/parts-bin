@@ -111,6 +111,58 @@
   background: var(--surface);
 }
 
+/* Backend toggle */
+.backendRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backendToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.15s, border-color 0.15s;
+  color: var(--fg);
+}
+
+.backendToggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.backendLocal .backendDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4caf50;
+  display: inline-block;
+}
+
+.backendOpenAI {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.backendOpenAI .backendDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+}
+
+.backendWarn {
+  font-size: 0.75rem;
+  color: #c0392b;
+}
+
 /* Input bar */
 .inputBar {
   border-top: 1px solid var(--border);

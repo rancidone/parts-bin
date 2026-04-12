@@ -5,6 +5,10 @@ import { downloadCSV } from './csv'
 import type { Message } from './types'
 import styles from './Chat.module.css'
 
+const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+
+type Backend = 'llama' | 'openai-fallback' | 'none' | null
+
 export function Chat() {
   const { messages, send } = useChat()
   const [text, setText] = useState('')
@@ -13,6 +17,41 @@ export function Chat() {
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [backend, setBackend] = useState<Backend>(null)
+  const [forceFallback, setForceFallback] = useState(false)
+  const [hasFallback, setHasFallback] = useState(false)
+  const [toggling, setToggling] = useState(false)
+
+  useEffect(() => {
+    fetch(`${API}/health`)
+      .then(r => r.json())
+      .then(data => {
+        const llm = data.llm ?? {}
+        setBackend(llm.active_backend ?? null)
+        setForceFallback(llm.force_fallback ?? false)
+        setHasFallback(llm.fallback_configured ?? false)
+      })
+      .catch(() => {})
+  }, [])
+
+  async function toggleBackend() {
+    if (toggling) return
+    setToggling(true)
+    try {
+      const res = await fetch(`${API}/settings/llm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force_fallback: !forceFallback }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setBackend(data.active_backend ?? null)
+        setForceFallback(data.force_fallback ?? false)
+      }
+    } finally {
+      setToggling(false)
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -75,6 +114,23 @@ export function Chat() {
           <div className={styles.photoPreview}>
             <img src={photoPreview} alt="attachment" />
             <button type="button" className={styles.removePhoto} onClick={clearPhoto}>✕</button>
+          </div>
+        )}
+        {hasFallback && (
+          <div className={styles.backendRow}>
+            <button
+              type="button"
+              className={`${styles.backendToggle} ${forceFallback ? styles.backendOpenAI : styles.backendLocal}`}
+              onClick={toggleBackend}
+              disabled={toggling}
+              title={forceFallback ? 'Using OpenAI — click to switch to local' : 'Using local LLM — click to switch to OpenAI'}
+            >
+              <span className={styles.backendDot} />
+              {forceFallback ? 'OpenAI' : 'Local'}
+            </button>
+            {backend === 'none' && (
+              <span className={styles.backendWarn}>no backend available</span>
+            )}
           </div>
         )}
         <div className={styles.inputRow}>
