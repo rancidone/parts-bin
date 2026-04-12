@@ -16,9 +16,9 @@ Primary distributor APIs should be used first. If those are incomplete, the runt
 
 ## Source Authority
 
-1. Highest authority: LCSC and DigiKey API responses.
-2. If LCSC and DigiKey disagree: do not auto-update; prompt the user.
-3. Next authority: product page scraped from a URL returned by one of those APIs.
+1. Highest authority: JLC parts local catalog and DigiKey API responses.
+2. If JLC parts and DigiKey disagree: do not auto-update; prompt the user.
+3. Next authority: product page scraped from a URL returned by DigiKey API.
 4. Next authority: PDF linked from one of those API-derived sources.
 5. Last resort: open web search to find a datasheet PDF, with human confirmation before use.
 
@@ -32,7 +32,7 @@ Primary distributor APIs should be used first. If those are incomplete, the runt
 
 ## Assumptions
 
-- LCSC and DigiKey usually agree when they both resolve the same part correctly.
+- JLC parts and DigiKey usually agree when they both resolve the same part correctly.
 - API-linked product pages and PDFs are usually sufficient to recover missing metadata.
 - Disagreements between top-tier sources are rare enough to route to user confirmation.
 

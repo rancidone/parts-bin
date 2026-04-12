@@ -796,26 +796,3 @@ async def fetch_specs_detailed(
         "stage_timings_ms": stage_timings_ms,
         "status": outcome,
     }
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def merge_specs(record: dict, specs: dict) -> dict:
-    """
-    Merge fetched specs into the part record.
-
-    Rules:
-    - manufacturer and description: always written from specs (these come from lookup).
-    - package: only written if the record has package=None (don't overwrite user-provided).
-    """
-    merged = dict(record)
-    if specs.get("manufacturer"):
-        merged["manufacturer"] = specs["manufacturer"]
-    if specs.get("description"):
-        merged["description"] = specs["description"]
-    if specs.get("package"):
-        merged["package"] = specs["package"]
-    return merged
