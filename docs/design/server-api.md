@@ -1,3 +1,7 @@
+---
+status: draft
+last_updated: 2026-04-12
+---
 # Design Unit: Server / API
 
 ## Problem
