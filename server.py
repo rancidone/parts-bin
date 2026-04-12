@@ -97,7 +97,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_llm = LLMClient(base_url=_cfg["llama"]["base_url"])
+_openai_cfg = _cfg.get("openai", {})
+_openai_key = _openai_cfg.get("api_key", "")
+_llm = LLMClient(
+    base_url=_cfg["llama"]["base_url"],
+    fallback_url=_openai_cfg.get("base_url") if _openai_key else None,
+    fallback_api_key=_openai_key or None,
+    fallback_model=_openai_cfg.get("model") if _openai_key else None,
+)
 _history = ConversationHistory()
 _query_history = ConversationHistory()
 
