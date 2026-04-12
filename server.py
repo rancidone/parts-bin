@@ -274,8 +274,21 @@ async def _execute_action(action: dict) -> tuple[int | None, str, dict]:
     if action_type == "upsert":
         items = action.get("items") or None
         if items:
-            saved_ids: list[int] = []
+            # Collapse duplicate items before upserting — same identity key means
+            # same part, accumulate quantity instead of inserting separate records.
+            merged: dict[tuple, dict] = {}
             for item in items:
+                pn = item.get("part_number")
+                if pn:
+                    key: tuple = ("pn", pn)
+                else:
+                    key = ("passive", item.get("part_category"), item.get("value"), item.get("package"))
+                if key in merged:
+                    merged[key]["quantity"] = (merged[key].get("quantity") or 1) + (item.get("quantity") or 1)
+                else:
+                    merged[key] = dict(item)
+            saved_ids: list[int] = []
+            for item in merged.values():
                 part_id = _execute_upsert_part(item)
                 if part_id is None:
                     return None, "invalid", {}
