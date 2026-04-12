@@ -310,6 +310,7 @@ class LLMClient:
         self._fallback_api_key = fallback_api_key
         self._fallback_model = fallback_model
         self.force_fallback: bool = False
+        self.recorder: Any = None  # FineTuneRecorder | None
 
     @property
     def has_fallback(self) -> bool:
@@ -376,7 +377,17 @@ class LLMClient:
             *(history_messages or []),
             {"role": "user",   "content": content},
         ]
-        return await self._extract_with_retry(messages, INGESTION_SCHEMA)
+        result = await self._extract_with_retry(messages, INGESTION_SCHEMA)
+        if image_b64 is not None and self.recorder is not None:
+            try:
+                self.recorder.record(
+                    call_type="image_extract",
+                    messages=messages,
+                    response=json.dumps(result),
+                )
+            except Exception:
+                pass
+        return result
 
     async def _extract_with_retry(
         self,
@@ -605,13 +616,15 @@ class LLMClient:
     # Enrichment helpers
     # ------------------------------------------------------------------
 
-    async def merge_descriptions(self, descriptions: list[str]) -> str:
+    async def merge_descriptions(self, descriptions: list[str], part_id: int | None = None) -> str:
         """
         Merge multiple source descriptions into one canonical description.
 
         The LLM acts as a normalisation reducer over verified source text — it
         must not invent facts beyond what the sources contain.
         Returns the merged description string.
+
+        part_id: inventory part this merge is for — used to link feedback later.
         """
         sources_block = "\n".join(f"- {d}" for d in descriptions)
         messages = [
@@ -632,7 +645,18 @@ class LLMClient:
                 "content": f"Source descriptions:\n{sources_block}",
             },
         ]
-        return (await self._complete_text(messages)).strip()
+        merged = (await self._complete_text(messages)).strip()
+        if self.recorder is not None:
+            try:
+                self.recorder.record(
+                    call_type="description_merge",
+                    messages=messages,
+                    response=merged,
+                    part_id=part_id,
+                )
+            except Exception:
+                pass
+        return merged
 
     # ------------------------------------------------------------------
     # Streaming (kept for future use)

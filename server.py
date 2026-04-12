@@ -36,6 +36,7 @@ from db.persistence import (
     update_fields_with_provenance,
     upsert,
 )
+from db.fine_tune import FineTuneRecorder
 from ingestion.lookup import fetch_specs_detailed
 from llm.client import ConversationHistory, LLMClient
 from query.search import run_query
@@ -112,6 +113,9 @@ _query_history = ConversationHistory()
 # Initialise DB at startup.
 init_db(_DB_PATH)
 
+_recorder = FineTuneRecorder(_DB_PATH)
+_llm.recorder = _recorder
+
 # ---------------------------------------------------------------------------
 # SSE helpers
 # ---------------------------------------------------------------------------
@@ -133,6 +137,7 @@ async def _enrich_upserted_part(part_id: int, part_number: str) -> None:
             jlcparts_db_path=_JLCPARTS_DB_PATH,
             llm=_llm,
             search_config=_search_cfg,
+            part_id=part_id,
         )
         chosen_updates = lookup_result["chosen_updates"]
         if chosen_updates:
@@ -358,6 +363,8 @@ async def _execute_action(action: dict) -> tuple[int | None, str, dict]:
             return None, "missing-target", {}
         replace_part(_DB_PATH, part_id, merged)
         clear_pending_review(_DB_PATH, part_id)
+        if action.get("description") is not None:
+            _recorder.set_feedback_for_part(part_id, "description_merge", action["description"])
         return part_id, "saved", {}
 
     if action_type == "lookup":
@@ -672,6 +679,8 @@ async def accept_refresh(part_id: int, body: dict) -> dict:
         raise HTTPException(status_code=404, detail="Part not found")
     update_fields_with_provenance(_DB_PATH, part_id, updates, provenance)
     clear_pending_review(_DB_PATH, part_id, list(updates.keys()))
+    if "description" in updates:
+        _recorder.set_feedback_for_part(part_id, "description_merge", updates["description"])
     _logger.info("refresh accepted", extra={"part_id": part_id, "fields": sorted(updates.keys())})
     return {"part": get_by_id(_DB_PATH, part_id)}
 
@@ -684,6 +693,34 @@ async def dismiss_review(part_id: int) -> dict:
     clear_pending_review(_DB_PATH, part_id)
     _logger.info("review dismissed", extra={"part_id": part_id})
     return {"ok": True}
+
+
+@app.get("/fine-tune/export")
+async def fine_tune_export(
+    call_type: str | None = None,
+    has_feedback: bool | None = None,
+) -> StreamingResponse:
+    """
+    Export fine-tuning samples as JSONL (OpenAI format).
+
+    Query params:
+      call_type:   'image_extract' | 'description_merge' | omit for all
+      has_feedback: true | false | omit for all
+    """
+    jsonl = _recorder.export_jsonl(call_type=call_type, has_feedback=has_feedback)
+    filename = "fine_tune"
+    if call_type:
+        filename += f"_{call_type}"
+    if has_feedback is True:
+        filename += "_with_feedback"
+    elif has_feedback is False:
+        filename += "_no_feedback"
+    filename += ".jsonl"
+    return StreamingResponse(
+        iter([jsonl]),
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @app.get("/jlcparts/status")
