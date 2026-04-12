@@ -1,3 +1,7 @@
+---
+status: stable
+last_updated: 2026-04-12
+---
 # Part Enrichment Fallback Chain
 
 ## Problem Statement
