@@ -27,14 +27,14 @@ Each stage produces structured evidence. Inventory mutation happens only after r
 
 **PDF extraction** — if page extraction still leaves required fields unresolved and an API-derived source references a PDF, the runtime fetches that PDF and extracts candidate fields. Limited to the inventory-relevant field set.
 
-**Confirmed search escalation** — if all prior stages fail, the runtime may prepare a last-resort open-web datasheet search. This stage is never automatic; the user must confirm the candidate before it is used as a source.
+**Confirmed search escalation** — if all prior stages yield `no_match` or `incomplete`, the runtime performs an open-web datasheet search (Brave Search API) and fetches the first resolvable PDF result. Extraction runs immediately. The resulting field candidates are stored as `authority_tier=web_search` and surfaced as pending field review rather than auto-applied. The outcome is `needs_confirmation`. The user confirms or rejects through the existing pending-review flow (`/inventory/{id}/accept` or `/inventory/{id}/dismiss`). This stage requires a `[search]` config section with an `api_key`; if absent, the stage is skipped.
 
 **Field authority rules** — authority is applied per field:
 
 - JLC parts local catalog and DigiKey API fields are highest authority
 - API-derived page fields may fill gaps left by API responses
 - API-derived PDF fields may fill remaining gaps
-- Confirmed open-web PDF fields require explicit user confirmation
+- Web-search PDF fields are surfaced as pending review (`needs_confirmation`) and require user acceptance before being written
 - LLM-generated descriptions are never eligible for persistence as raw source facts
 
 If highest-authority sources disagree on a field, that field is not auto-updated. Lower-tier conflicts with higher-tier sources are logged but not persisted.
@@ -60,8 +60,7 @@ More runtime structure and provenance tracking than the current lookup helper in
 
 ## Readiness
 
-Partially implemented. One component is designed but not yet built:
+Fully implemented.
 
-- **Confirmed search escalation** — stage 5 (open-web datasheet search with human confirmation) is not implemented. The `needs_confirmation` outcome is handled in the server but never produced by the enrichment pipeline.
-
-Description merge is implemented: `fetch_specs_detailed` accepts an optional `llm` parameter; when two or more deduplicated description candidates exist and identity fields are not in conflict, `LLMClient.merge_descriptions()` reduces them into one canonical description. Provenance records the source descriptions and marks `normalization_method="llm_description_merge"`.
+- **Description merge** — `fetch_specs_detailed` accepts an optional `llm` parameter; when two or more deduplicated description candidates exist and identity fields are not in conflict, `LLMClient.merge_descriptions()` reduces them into one canonical description. Provenance records the source descriptions and marks `normalization_method="llm_description_merge"`.
+- **Confirmed search escalation** — `fetch_specs_detailed` accepts an optional `search_config` dict. When all prior stages yield `no_match` or `incomplete` and a Brave Search `api_key` is configured, the pipeline searches for a datasheet PDF, extracts it immediately as `authority_tier=web_search`, and returns `outcome=needs_confirmation` with the candidates stored as pending review. Skipped if `[search]` config is absent.

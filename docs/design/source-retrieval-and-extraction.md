@@ -53,8 +53,6 @@ A dedicated DigiKey extractor improves reliability for the primary web source bu
 
 ## Readiness
 
-Partially implemented. The retrieval boundary, parser strategy, extractor layering, and failure model are implemented for API-derived pages and PDFs. Not yet implemented:
-
-- **Confirmed search escalation** — open-web datasheet search with human confirmation is not yet built. This unit will need a new source class and retrieval path when that stage is added to the pipeline.
+Fully implemented. The retrieval boundary, parser strategy, extractor layering, and failure model are implemented for API-derived pages, API-derived PDFs, and web-search PDFs. Confirmed search escalation uses `ingestion/web_search.py` (Brave Search) to locate candidate PDFs and feeds them through the same PDF extraction path as API-derived PDFs, tagged `authority_tier=web_search`.
 
 Open question: what raw evidence should be stored durably versus referenced indirectly in provenance records?
