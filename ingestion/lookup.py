@@ -610,6 +610,7 @@ async def fetch_specs_detailed(
     part_number: str,
     digikey_credentials: dict | None = None,
     jlcparts_db_path: str | None = None,
+    llm=None,
 ) -> dict:
     """
     Fetch spec fields for a part number with provider-level outcome details.
@@ -718,6 +719,53 @@ async def fetch_specs_detailed(
             stage_timings_ms["api_derived_page_reconcile"] = 0.0
             stage_timings_ms["api_derived_pdf_fetch"] = 0.0
             stage_timings_ms["api_derived_pdf_reconcile"] = 0.0
+
+    if llm is not None and outcome != "conflict":
+        desc_candidates = field_candidates.get("description", [])
+        if len(desc_candidates) >= 2:
+            descriptions = _dedupe_preserve_order(
+                [c["candidate_value"] for c in desc_candidates]
+            )
+            if len(descriptions) >= 2:
+                merge_started = perf_counter()
+                try:
+                    merged = await llm.merge_descriptions(descriptions)
+                    stage_timings_ms["description_merge"] = _elapsed_ms(merge_started)
+                    if merged:
+                        chosen_updates["description"] = merged
+                        # Replace the chosen description candidate with a merge record.
+                        merged_candidate = desc_candidates[0].copy()
+                        merged_candidate["candidate_value"] = merged
+                        merged_candidate["extraction_method"] = "source-description-merge"
+                        merged_candidate["normalization_method"] = "llm_description_merge"
+                        merged_candidate["competing_candidates"] = [
+                            {
+                                "field_name": "description",
+                                "field_value": c["candidate_value"],
+                                "source_tier": c["source_tier"],
+                                "source_kind": c["source_kind"],
+                                "source_locator": c.get("source_locator"),
+                                "extraction_method": c["extraction_method"],
+                                "provider": c.get("provider"),
+                                "evidence": c.get("evidence"),
+                                "conflict_status": "merged",
+                            }
+                            for c in desc_candidates
+                        ]
+                        # Update chosen_candidates list.
+                        chosen_candidates = [
+                            merged_candidate if c.get("field_name") == "description" else c
+                            for c in chosen_candidates
+                        ]
+                        _logger.info("description merge ok", extra={
+                            "part_number": part_number,
+                            "source_count": len(descriptions),
+                        })
+                except Exception:
+                    stage_timings_ms["description_merge"] = _elapsed_ms(merge_started)
+                    _logger.warning("description merge failed, keeping longest", extra={
+                        "part_number": part_number,
+                    })
 
     for field_name, candidates in withheld_candidates.items():
         if not candidates:

@@ -548,6 +548,39 @@ class LLMClient:
         return result
 
     # ------------------------------------------------------------------
+    # Enrichment helpers
+    # ------------------------------------------------------------------
+
+    async def merge_descriptions(self, descriptions: list[str]) -> str:
+        """
+        Merge multiple source descriptions into one canonical description.
+
+        The LLM acts as a normalisation reducer over verified source text — it
+        must not invent facts beyond what the sources contain.
+        Returns the merged description string.
+        """
+        sources_block = "\n".join(f"- {d}" for d in descriptions)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a technical writing assistant for an electronics parts inventory. "
+                    "You will be given two or more descriptions of the same part taken from "
+                    "authoritative distributor sources. "
+                    "Produce a single concise canonical description that combines the most "
+                    "useful information from all sources without inventing any facts not present "
+                    "in the provided text. "
+                    "Return only the description string — no preamble, no quotes, no markdown."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Source descriptions:\n{sources_block}",
+            },
+        ]
+        return (await self._complete_text(messages)).strip()
+
+    # ------------------------------------------------------------------
     # Streaming (kept for future use)
     # ------------------------------------------------------------------
 
