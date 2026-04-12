@@ -130,6 +130,7 @@ async def _enrich_upserted_part(part_id: int, part_number: str) -> None:
             part_number,
             _DIGIKEY_CREDS,
             jlcparts_db_path=_JLCPARTS_DB_PATH,
+            llm=_llm,
         )
         chosen_updates = lookup_result["chosen_updates"]
         if chosen_updates:
@@ -349,7 +350,7 @@ async def _execute_action(action: dict) -> tuple[int | None, str, dict]:
         part_number = action.get("part_number")
         if not part_id or not part_number:
             return None, "missing-target", {}
-        lookup_result = await fetch_specs_detailed(part_number, _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH)
+        lookup_result = await fetch_specs_detailed(part_number, _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH, llm=_llm)
         chosen_updates = lookup_result["chosen_updates"]
         if chosen_updates:
             update_fields_with_provenance(
