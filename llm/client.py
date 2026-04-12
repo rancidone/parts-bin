@@ -302,12 +302,55 @@ class LLMClient:
         fallback_api_key: str | None = None,
         fallback_model: str | None = None,
     ) -> None:
+        self._base_url = base_url.rstrip("/")
         self._completions_url = _completions_url(base_url)
         self._model = model
         self._timeout = timeout
         self._fallback_url = _completions_url(fallback_url) if fallback_url else None
         self._fallback_api_key = fallback_api_key
         self._fallback_model = fallback_model
+        self.force_fallback: bool = False
+
+    @property
+    def has_fallback(self) -> bool:
+        return self._fallback_url is not None
+
+    async def health_check(self) -> dict:
+        """
+        Check reachability of the llama backend (and whether a fallback is configured).
+
+        Returns:
+          {
+            "llama": "ok" | "unreachable",
+            "fallback_configured": bool,
+            "force_fallback": bool,
+            "active_backend": "llama" | "openai-fallback" | "none",
+          }
+        """
+        llama_status = "unreachable"
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.get(f"{self._base_url}/health")
+                if resp.status_code < 500:
+                    llama_status = "ok"
+        except Exception:
+            pass
+
+        if self.force_fallback and self.has_fallback:
+            active = "openai-fallback"
+        elif llama_status == "ok":
+            active = "llama"
+        elif self.has_fallback:
+            active = "openai-fallback"
+        else:
+            active = "none"
+
+        return {
+            "llama": llama_status,
+            "fallback_configured": self.has_fallback,
+            "force_fallback": self.force_fallback,
+            "active_backend": active,
+        }
 
     # ------------------------------------------------------------------
     # Ingestion extraction — stateless, buffered, JSON schema output
@@ -375,26 +418,8 @@ class LLMClient:
             "stream": False,
         }
         t0 = time.monotonic()
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(self._completions_url, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-            backend = "llama"
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            if not self._fallback_url:
-                raise
-            _logger.warning(
-                "llama backend unavailable, falling back to openai",
-                extra={"error": str(exc)},
-            )
-            fallback_payload = {
-                "model": self._fallback_model,
-                "messages": messages,
-                "response_format": {"type": "json_schema", "json_schema": schema},
-                "stream": False,
-            }
+        if self.force_fallback and self._fallback_url:
+            fallback_payload = {**payload, "model": self._fallback_model}
             headers = {"Authorization": f"Bearer {self._fallback_api_key}"}
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(self._fallback_url, json=fallback_payload, headers=headers)
@@ -402,6 +427,29 @@ class LLMClient:
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
             backend = "openai-fallback"
+        else:
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(self._completions_url, json=payload)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                backend = "llama"
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                if not self._fallback_url:
+                    raise
+                _logger.warning(
+                    "llama backend unavailable, falling back to openai",
+                    extra={"error": str(exc)},
+                )
+                fallback_payload = {**payload, "model": self._fallback_model}
+                headers = {"Authorization": f"Bearer {self._fallback_api_key}"}
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(self._fallback_url, json=fallback_payload, headers=headers)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                backend = "openai-fallback"
         latency_ms = round((time.monotonic() - t0) * 1000)
         usage = data.get("usage", {})
         _logger.info(
@@ -468,25 +516,8 @@ class LLMClient:
             "stream": False,
         }
         t0 = time.monotonic()
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(self._completions_url, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-            backend = "llama"
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            if not self._fallback_url:
-                raise
-            _logger.warning(
-                "llama backend unavailable, falling back to openai",
-                extra={"error": str(exc)},
-            )
-            fallback_payload = {
-                "model": self._fallback_model,
-                "messages": messages,
-                "stream": False,
-            }
+        if self.force_fallback and self._fallback_url:
+            fallback_payload = {**payload, "model": self._fallback_model}
             headers = {"Authorization": f"Bearer {self._fallback_api_key}"}
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(self._fallback_url, json=fallback_payload, headers=headers)
@@ -494,6 +525,29 @@ class LLMClient:
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
             backend = "openai-fallback"
+        else:
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(self._completions_url, json=payload)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                backend = "llama"
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                if not self._fallback_url:
+                    raise
+                _logger.warning(
+                    "llama backend unavailable, falling back to openai",
+                    extra={"error": str(exc)},
+                )
+                fallback_payload = {**payload, "model": self._fallback_model}
+                headers = {"Authorization": f"Bearer {self._fallback_api_key}"}
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(self._fallback_url, json=fallback_payload, headers=headers)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                backend = "openai-fallback"
         latency_ms = round((time.monotonic() - t0) * 1000)
         usage = data.get("usage", {})
         _logger.info(
