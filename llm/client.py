@@ -271,14 +271,26 @@ class ConversationHistory:
 # LLM client
 # ---------------------------------------------------------------------------
 
+def _completions_url(base_url: str) -> str:
+    stripped = base_url.rstrip("/")
+    return (
+        f"{stripped}/chat/completions"
+        if stripped.endswith("/v1") or "/v1" in stripped.split("/")[-1:]
+        else f"{stripped}/v1/chat/completions"
+    )
+
+
 class LLMClient:
     """
     Async client for llama.cpp's OpenAI-compatible chat completions endpoint.
 
     Args:
-        base_url: llama.cpp server base URL (e.g. "http://localhost:8080").
-        model:    Model name passed to the API (llama.cpp ignores it but it's required).
-        timeout:  HTTP timeout in seconds for non-streaming calls.
+        base_url:         llama.cpp server base URL (e.g. "http://localhost:8080").
+        model:            Model name passed to the API.
+        timeout:          HTTP timeout in seconds for non-streaming calls.
+        fallback_url:     OpenAI-compatible base URL to use when the primary is unreachable.
+        fallback_api_key: Bearer token for the fallback API.
+        fallback_model:   Model name for the fallback API.
     """
 
     def __init__(
@@ -286,16 +298,16 @@ class LLMClient:
         base_url: str = "http://localhost:8080",
         model: str = "qwen",
         timeout: float = 60.0,
+        fallback_url: str | None = None,
+        fallback_api_key: str | None = None,
+        fallback_model: str | None = None,
     ) -> None:
-        # Accept base URLs with or without a trailing /v1 path segment.
-        stripped = base_url.rstrip("/")
-        self._completions_url = (
-            f"{stripped}/chat/completions"
-            if stripped.endswith("/v1") or "/v1" in stripped.split("/")[-1:]
-            else f"{stripped}/v1/chat/completions"
-        )
+        self._completions_url = _completions_url(base_url)
         self._model = model
         self._timeout = timeout
+        self._fallback_url = _completions_url(fallback_url) if fallback_url else None
+        self._fallback_api_key = fallback_api_key
+        self._fallback_model = fallback_model
 
     # ------------------------------------------------------------------
     # Ingestion extraction — stateless, buffered, JSON schema output
@@ -363,14 +375,33 @@ class LLMClient:
             "stream": False,
         }
         t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                self._completions_url,
-                json=payload,
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(self._completions_url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+            backend = "llama"
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            if not self._fallback_url:
+                raise
+            _logger.warning(
+                "llama backend unavailable, falling back to openai",
+                extra={"error": str(exc)},
             )
-            resp.raise_for_status()
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"]
+            fallback_payload = {
+                "model": self._fallback_model,
+                "messages": messages,
+                "response_format": {"type": "json_schema", "json_schema": schema},
+                "stream": False,
+            }
+            headers = {"Authorization": f"Bearer {self._fallback_api_key}"}
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(self._fallback_url, json=fallback_payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+            backend = "openai-fallback"
         latency_ms = round((time.monotonic() - t0) * 1000)
         usage = data.get("usage", {})
         _logger.info(
@@ -378,6 +409,7 @@ class LLMClient:
             extra={
                 "schema": schema["name"],
                 "retry": retry,
+                "backend": backend,
                 "latency_ms": latency_ms,
                 "prompt_tokens": usage.get("prompt_tokens"),
                 "completion_tokens": usage.get("completion_tokens"),
@@ -436,16 +468,38 @@ class LLMClient:
             "stream": False,
         }
         t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(self._completions_url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"]
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(self._completions_url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+            backend = "llama"
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            if not self._fallback_url:
+                raise
+            _logger.warning(
+                "llama backend unavailable, falling back to openai",
+                extra={"error": str(exc)},
+            )
+            fallback_payload = {
+                "model": self._fallback_model,
+                "messages": messages,
+                "stream": False,
+            }
+            headers = {"Authorization": f"Bearer {self._fallback_api_key}"}
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(self._fallback_url, json=fallback_payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+            backend = "openai-fallback"
         latency_ms = round((time.monotonic() - t0) * 1000)
         usage = data.get("usage", {})
         _logger.info(
             "llm answer",
             extra={
+                "backend": backend,
                 "latency_ms": latency_ms,
                 "prompt_tokens": usage.get("prompt_tokens"),
                 "completion_tokens": usage.get("completion_tokens"),
