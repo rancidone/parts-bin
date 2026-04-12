@@ -1,3 +1,7 @@
+---
+status: stable
+last_updated: 2026-04-12
+---
 # Parts Bin — Discovery Brief
 
 ## Problem Statement
@@ -24,6 +28,3 @@ A solo electronics hobbyist needs to track a personal parts inventory — primar
 - Part identification confidence threshold is undefined — needs a working heuristic for when to ask vs. commit
 - Duplicate detection: adding more of a part you already have should increment, not create a second entry
 - Query normalization: structured parsing must reliably normalize value representations (e.g. "10kohm" vs "10k") to match stored entries
-
-## Open Questions
-- None blocking framing
