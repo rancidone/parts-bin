@@ -794,14 +794,12 @@ async def fetch_specs_detailed(
     stage_timings_ms["web_search"] = 0.0
     stage_timings_ms["web_search_pdf_fetch"] = 0.0
     stage_timings_ms["web_search_pdf_reconcile"] = 0.0
-    if search_config and outcome in ("no_match", "incomplete"):
-        search_api_key = search_config.get("api_key", "")
-        if search_api_key:
-            search_started = perf_counter()
-            async with httpx.AsyncClient() as search_client:
-                pdf_urls = await search_datasheet_pdfs(
-                    part_number, search_api_key, search_client
-                )
+    if search_config is not None and outcome in ("no_match", "incomplete"):
+        search_started = perf_counter()
+        async with httpx.AsyncClient() as search_client:
+            pdf_urls = await search_datasheet_pdfs(
+                part_number, search_client
+            )
                 stage_timings_ms["web_search"] = _elapsed_ms(search_started)
                 if pdf_urls:
                     pdf_fetch_started = perf_counter()
