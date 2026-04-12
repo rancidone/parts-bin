@@ -99,7 +99,7 @@ app.add_middleware(
 
 _openai_cfg = _cfg.get("openai", {})
 _openai_key = _openai_cfg.get("api_key", "")
-_search_cfg = _cfg.get("search", {}) or None
+_search_cfg = _cfg.get("search")  # None if section absent; {} if present but empty
 _llm = LLMClient(
     base_url=_cfg["llama"]["base_url"],
     fallback_url=_openai_cfg.get("base_url") if _openai_key else None,

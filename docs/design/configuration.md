@@ -34,7 +34,8 @@ min_free_bytes = 4294967296           # disk space required before extraction
 max_sqlite_bytes = 21474836480        # reject extracted db above this size
 
 [search]
-api_key = ""                          # Brave Search API key; leave empty to disable search escalation
+# Presence of this section enables web search escalation (DuckDuckGo, no API key required).
+# Omit the section entirely to disable.
 ```
 
 ## Opt-In Subsystems
@@ -42,4 +43,4 @@ api_key = ""                          # Brave Search API key; leave empty to dis
 - **OpenAI fallback**: disabled when `openai.api_key` is empty.
 - **DigiKey enrichment**: disabled when `digikey.client_id` is empty.
 - **JLC parts catalog**: disabled when `jlcparts.db_path` is empty.
-- **Web search escalation**: disabled when `search.api_key` is empty. When enabled, used as last resort when all other enrichment stages fail.
+- **Web search escalation**: disabled when `[search]` section is absent. Uses DuckDuckGo HTML search — no API key required. Used as last resort when all other enrichment stages fail.
