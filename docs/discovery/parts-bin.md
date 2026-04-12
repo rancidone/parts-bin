@@ -17,7 +17,7 @@ A solo electronics hobbyist needs to track a personal parts inventory — primar
 - No location tracking needed
 - Decrement on use is a stretch goal, not in scope for initial design
 - Inventory queries must use deterministic lookup, not semantic/embedding search — the LLM parses query intent into structured attributes, then a deterministic database query executes against stored records
-- External part lookup (LCSC primary, Digikey fallback) applies to parts with resolvable part numbers: discretes (transistors, diodes) and ICs. Passives (resistors, caps, inductors) are stored by value + package only, no external lookup needed.
+- External part lookup (JLC parts local catalog primary, DigiKey API fallback) applies to parts with resolvable part numbers: discretes (transistors, diodes) and ICs. Passives (resistors, caps, inductors) are stored by value + package only, no external lookup needed.
 
 ## Assumptions
 - AliExpress labels are often ambiguous; photo + text clarification is the normal ingestion path for anything non-obvious

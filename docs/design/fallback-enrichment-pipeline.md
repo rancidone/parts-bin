@@ -1,5 +1,5 @@
 ---
-status: stable
+status: draft
 last_updated: 2026-04-12
 ---
 # Design Unit: Fallback Enrichment Pipeline
@@ -12,7 +12,7 @@ The current part-enrichment flow fails when primary distributor APIs are incompl
 
 The enrichment runtime produces a per-request attempt record that moves through ordered stages:
 
-1. Primary API resolution (LCSC and DigiKey)
+1. Primary source resolution (JLC parts local catalog and DigiKey API)
 2. API disagreement check
 3. API-derived product page fetch and extraction
 4. API-derived PDF fetch and extraction
@@ -21,7 +21,7 @@ The enrichment runtime produces a per-request attempt record that moves through 
 
 Each stage produces structured evidence. Inventory mutation happens only after reconciliation decides the resulting fields are trustworthy enough for automatic update.
 
-**Source resolution** — primary sources are LCSC and DigiKey API responses, each normalized into a source record with: source kind, authority tier, resolved identity fields, source URL, extracted candidate fields, fetch status, and diagnostic metadata. If both APIs resolve and disagree on core identifying fields (`part_number`, `package`, `manufacturer`, or categorization), the runtime stops automatic enrichment and surfaces a conflict outcome for user confirmation.
+**Source resolution** — primary sources are the JLC parts local catalog (authority tier: `local_db`) and the DigiKey API (authority tier: `primary_api`), each normalized into a source record with: source kind, authority tier, resolved identity fields, source URL, extracted candidate fields, fetch status, and diagnostic metadata. If both sources resolve and disagree on core identifying fields (`part_number`, `package`, `manufacturer`, or categorization), the runtime stops automatic enrichment and surfaces a conflict outcome for user confirmation.
 
 **Page extraction** — if API fields are missing but an API response includes a product page URL, the runtime fetches that page and extracts structured metadata from HTML. Bounded to API-derived URLs only.
 
@@ -31,7 +31,7 @@ Each stage produces structured evidence. Inventory mutation happens only after r
 
 **Field authority rules** — authority is applied per field:
 
-- LCSC and DigiKey API fields are highest authority
+- JLC parts local catalog and DigiKey API fields are highest authority
 - API-derived page fields may fill gaps left by API responses
 - API-derived PDF fields may fill remaining gaps
 - Confirmed open-web PDF fields require explicit user confirmation
@@ -60,4 +60,7 @@ More runtime structure and provenance tracking than the current lookup helper in
 
 ## Readiness
 
-High. The fallback chain, authority rules, conflict criteria, outcome model, writable field set, description-merge policy, and provenance requirement are concrete enough that implementation should not need to invent core behavior.
+Partially implemented. Two components are designed but not yet built:
+
+- **Confirmed search escalation** — stage 5 (open-web datasheet search with human confirmation) is not implemented. The `needs_confirmation` outcome is handled in the server but never produced by the enrichment pipeline.
+- **Description merge** — the LLM-based reducer over verified source descriptions is not implemented. The current code picks the longest description string instead.
