@@ -1,80 +1,51 @@
 ---
-status: draft
+status: stable
 last_updated: 2026-04-12
 ---
 # Design Unit: LLM Integration
 
 ## Problem
-The server calls Qwen 3.5 via llama.cpp for two distinct tasks: structured extraction during ingestion (extract part fields from text/photo) and structured parsing during query (parse a natural language search into filter criteria). Both require reliable structured output from a local model.
+The server needs reliable structured output from an LLM for all user interactions — ingestion, query, and chat. The primary model runs locally via llama.cpp; a cloud fallback is needed when the local server is unavailable.
 
 ## Interface
-Use llama.cpp's OpenAI-compatible `/v1/chat/completions` endpoint. The server calls it over localhost HTTP. No special llama.cpp SDK — standard `httpx` async client.
+OpenAI-compatible `/v1/chat/completions`. The client is a plain `httpx` async wrapper — no SDK. This works against both llama.cpp and the OpenAI API without code changes.
 
-## Structured Output
-Use `response_format: {"type": "json_schema", "json_schema": {...}}` (llama.cpp grammar-backed JSON schema enforcement). This gives deterministic field presence without fragile prompt-only approaches.
+**Primary**: llama.cpp at a configured base URL.
+**Fallback**: OpenAI API, activated on `ConnectError` or `TimeoutException` from the primary. Disabled when `api_key` is empty in config.
 
-If llama.cpp's JSON schema mode is unavailable at runtime, fall back to GBNF grammar via the `grammar` field.
+## Primary Call Mode — `chat()`
 
-### Ingestion Extraction Schema
-
-```json
-{
-  "part_category": "string | null",
-  "profile": "passive | discrete_ic | null",
-  "value": "string | null",
-  "package": "string | null",
-  "part_number": "string | null"
-  "quantity": "integer | null"
-}
-```
-
-`profile` is the fixed two-value enum that drives all downstream logic — the LLM must emit it alongside `part_category`. Fields are `null` when the model cannot resolve them; null signals incompleteness to the completeness check (see Ingestion unit). No `location` or `notes` fields — neither is tracked.
-
-### Query Parsing Schema
+All user interactions go through `chat()`. The LLM receives the full conversation history, current inventory, and the user message (plus optional image). It returns:
 
 ```json
 {
-  "filters": [{"field": "string", "op": "string", "value": "string"}],
-  "freetext": "string | null"
+  "response": "conversational reply to the user",
+  "db_action": {
+    "type": "upsert | update | lookup | delete | none",
+    "...part fields and targeting..."
+  }
 }
 ```
 
-Structured filter list plus remainder freetext for semantic matching.
+The server executes `db_action` deterministically; the LLM never writes to the database directly.
 
-## Prompt Templates
-Two separate system prompts — ingestion and query have different extraction goals and output schemas.
+Structured output is enforced via `response_format: {"type": "json_schema", "json_schema": {...}}`.
 
-**Ingestion system prompt** (summarized): "You are a parts inventory assistant. Extract part information from the user's message and/or photo. Classify the part as `passive` or `discrete_ic`. Return only valid JSON matching the schema. Set any field to null if it cannot be resolved."
+## Legacy Extraction Helpers
 
-**Query system prompt** (summarized): "You are a parts inventory search assistant. Parse the user's query into structured filter criteria. Return only valid JSON matching the schema."
-
-System prompt is set per-call based on path (ingest vs. query). No shared session context between the two paths.
+`parse_query()` and `answer()` are used by the `/query` endpoint. They use separate schemas and system prompts scoped to query parsing and freeform answer generation respectively. These paths are stateful via a separate `_query_history`.
 
 ## Conversation History
-- **Ingestion turns**: stateless per-call. Each ingestion is independent.
-- **Query/chat turns**: the server maintains an in-memory list of `{role, content}` messages for the active session. The full history is replayed each call. History is cleared on page reload / new session.
 
-## Context Window Management
-llama.cpp does not perform automatic context compaction. The server is responsible for keeping the message history within the model's `n_ctx` limit.
-
-**Strategy: hard turn cap with oldest-turn eviction.**
-
-- Keep a `MAX_HISTORY_TURNS = 20` cap on the in-memory history list.
-- When the list exceeds the cap, drop the oldest user+assistant turn pair (preserve the system prompt, which is prepended per-call and not stored in history).
-- No token counting, no summarization. The cap is coarse but sufficient for parts bin query sessions; can be tuned at implementation time.
-
-**Why not summarization?** A summarization step would require an additional LLM call, adding latency and complexity. Not worth it for this use case.
-
-## Streaming
-- **Chat/query path**: SSE tokens forwarded live from llama.cpp stream to client as they arrive.
-- **Ingestion path**: response buffered until complete, then parsed as JSON. No streaming to client — client receives a single structured result event.
+`ConversationHistory` maintains an in-memory list of `{role, content}` messages. Cap: 20 user+assistant turn pairs. Oldest pair is evicted when the cap is exceeded. The system prompt is prepended per-call and not stored in history. No token counting or summarization.
 
 ## Failure Handling
-1. JSON parse fails after buffering → retry once with an appended user message: "Your previous response was not valid JSON. Return only the JSON object."
-2. Second failure → return an error event to the client with the raw model output for debugging.
-3. HTTP errors from llama.cpp → surface as server error to client immediately.
+
+1. JSON parse fails after buffering → retry once with a correction nudge appended to the message list.
+2. Second failure → raise `ValueError` with the raw output.
+3. HTTP errors from the primary backend → fall back to OpenAI if configured, otherwise propagate.
 
 ## What This Unit Does Not Cover
-- Image preprocessing and base64 encoding (see Photo Pipeline)
-- SSE event envelope format and HTTP routing (see Server/API)
-- Database writes after extraction (see Ingestion unit)
+- Image preprocessing (see `photo-pipeline.md`)
+- SSE event format and HTTP routing (see `server-api.md`)
+- Ingestion and query business logic (see their respective design docs)
