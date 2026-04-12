@@ -489,7 +489,26 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    llm_status = await _llm.health_check()
+    return {"status": "ok", "llm": llm_status}
+
+
+@app.post("/settings/llm")
+async def set_llm_backend(body: dict) -> dict:
+    """
+    Toggle the active LLM backend at runtime.
+
+    Body: {"force_fallback": true | false}
+    Returns the updated LLM health status.
+    """
+    force = body.get("force_fallback")
+    if not isinstance(force, bool):
+        raise HTTPException(status_code=422, detail="force_fallback must be a boolean")
+    if force and not _llm.has_fallback:
+        raise HTTPException(status_code=422, detail="No fallback backend configured")
+    _llm.force_fallback = force
+    _logger.info("llm backend toggled", extra={"force_fallback": force})
+    return await _llm.health_check()
 
 
 @app.post("/query")
