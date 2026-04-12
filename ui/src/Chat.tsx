@@ -200,8 +200,8 @@ function MessageBubble({ msg }: { msg: Message }) {
         {m.batchSummary && (
           <div className={styles.batchSummary}>
             Updated {m.batchSummary.count} part{m.batchSummary.count !== 1 ? 's' : ''}
-            {m.batchSummary.fields.length > 0 && (
-              <> — {m.batchSummary.fields.join(', ')}</>
+            {(m.batchSummary.fields?.length ?? 0) > 0 && (
+              <> — {m.batchSummary.fields!.join(', ')}</>
             )}
           </div>
         )}
