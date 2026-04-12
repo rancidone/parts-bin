@@ -1,63 +1,33 @@
 ---
-status: draft
+status: stable
 last_updated: 2026-04-12
 ---
 # Design Unit: Server / API
 
 ## Problem
-The web app needs a backend that receives chat messages and photo uploads, routes them to ingestion or query logic, calls the LLM, and returns results to the frontend with streaming support for perceived responsiveness on a local model.
+The web app needs a backend that receives chat messages and photo uploads, routes them to ingestion or query logic, calls the LLM, and returns results to the frontend. It also needs a REST surface for direct inventory management and enrichment review.
 
 ## Framework
-**FastAPI** (Python). Rationale: async-native, first-class multipart and SSE support, same ecosystem as Pillow and the LLM client. Single file (`server.py`) to start — no over-structuring for a single-user local app.
-
-## Configuration
-
-All runtime configuration lives in **`config.toml`** in the project root. The server reads it at startup and fails fast if required keys are missing.
-
-```toml
-[llama]
-base_url = "http://localhost:8080"  # llama.cpp server endpoint
-n_ctx = 4096                        # must match llama.cpp startup -c value
-
-[db]
-path = "parts.db"                   # SQLite file path, relative to project root
-
-[digikey]
-client_id = ""
-client_secret = ""                  # leave empty to disable Digikey fallback
-```
-
-`digikey.client_id` / `client_secret` being empty disables the Digikey fallback cleanly — LCSC-only mode is the default.
+**FastAPI** (Python). Async-native, first-class multipart and SSE support, same ecosystem as Pillow and the LLM client.
 
 ## Endpoints
 
-### `POST /chat`
-The single interaction endpoint. Accepts multipart form data:
-- `message: str` — user's text input (required)
-- `photo: UploadFile` — optional photo attachment
+### Chat
 
-**Routing logic** (server-side, not exposed to client):
-- If a photo is attached → ingestion path
-- Else if message looks like an inventory command ("add", "remove", "I have", "remove 3 of") → ingestion path
-- Else → query/chat path
+**`POST /chat`** — multipart form (`message: str`, `photo: UploadFile?`). Returns SSE stream.
 
-Returns: `text/event-stream` (SSE) regardless of path.
+The LLM receives the full message and current inventory, returns a conversational response plus a `db_action`. The server executes the action deterministically. No keyword routing — the LLM decides intent via `db_action.type`.
 
-### `GET /inventory`
-Returns full inventory as JSON array. Used by the UI to render the parts list. No pagination — single-user local app, inventory is small.
+Action types: `upsert`, `update`, `lookup`, `delete`, `none`.
 
-### `GET /health`
-Returns `{"status": "ok"}`. Used for startup readiness check.
-
-## SSE Event Envelope
-All `/chat` responses are SSE streams. Event types:
+SSE events:
 
 ```
-event: token
-data: {"text": "..."}
+event: result
+data: {"type": "chat", "response": "...", "action": "...", "part": {...}, "batch_summary": {...}}
 
 event: result
-data: {"type": "ingest", "part": {...}}   # or {"type": "query", "matches": [...]}
+data: {"type": "query", "response": "...", "matches": [...]}
 
 event: error
 data: {"message": "...", "detail": "..."}
@@ -66,27 +36,41 @@ event: done
 data: {}
 ```
 
-- **token**: streamed LLM output tokens (query/chat path only)
-- **result**: final structured payload after extraction or query resolution
-- **error**: LLM or server failure
-- **done**: stream end sentinel
+`/chat` does not stream tokens — the full response is buffered and emitted as a single `result` event.
 
-Ingestion path emits: `result` then `done` (no tokens — buffered).
-Query path emits: `token`* then `result` then `done`.
+**`POST /query`** — JSON body (`{"message": str}`). Non-streaming. Runs the query path directly (LLM parse → deterministic lookup → LLM answer). Returns `{"response": str, "matches": [...]}`.
 
-## Photo Upload
-Multipart form. Server reads `photo` bytes into memory, passes to photo pipeline preprocessing. No temp file written to disk.
+### Inventory
 
-## Error Contract
-- 400: malformed request (missing `message`, unsupported file type)
-- 500: LLM unreachable or unrecoverable extraction failure (also surfaced as SSE `error` event mid-stream if the stream has already started)
-- Unrecoverable LLM failures mid-stream: emit `error` event, then `done`.
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/inventory` | Full inventory list |
+| `PATCH` | `/inventory/{id}` | Update editable fields on a part |
+| `DELETE` | `/inventory/{id}` | Delete a part |
+| `GET` | `/inventory/export.csv` | CSV export of committed inventory |
+| `GET` | `/inventory/pending` | All parts with pending review proposals |
+| `GET` | `/inventory/{id}/provenance` | Accepted field provenance for a part |
+| `POST` | `/inventory/{id}/refresh` | Fetch proposed spec updates from enrichment (returns proposals, does not commit) |
+| `POST` | `/inventory/{id}/accept` | Commit user-accepted proposals from a prior refresh |
+| `POST` | `/inventory/{id}/dismiss` | Clear pending review without committing |
+
+### JLC Parts Catalog
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/jlcparts/status` | Catalog status: `not_configured`, `missing`, `downloading`, `ready`, `error` |
+| `POST` | `/jlcparts/download` | Trigger background catalog download |
+
+### Health
+
+`GET /health` — returns `{"status": "ok"}`.
 
 ## CORS
-`*` — single-user local app, frontend and backend on the same host. Not a security concern.
+
+`*` — single-user local app, frontend and backend on the same host.
 
 ## What This Unit Does Not Cover
-- LLM call mechanics (see LLM Integration)
-- Image preprocessing (see Photo Pipeline)
-- Ingestion business logic and DB writes (see Ingestion unit)
-- Query resolution logic (see Query unit)
+- LLM call mechanics and fallback (see `llm-integration.md`)
+- Image preprocessing (see `photo-pipeline.md`)
+- Ingestion and enrichment logic (see `ingestion-enrichment-integration.md`, `fallback-enrichment-pipeline.md`)
+- Query resolution logic (see `query-runtime-alignment.md`)

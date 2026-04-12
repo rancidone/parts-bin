@@ -1,5 +1,5 @@
 ---
-status: draft
+status: stable
 last_updated: 2026-04-12
 ---
 # Design Unit: Photo Pipeline
