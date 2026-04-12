@@ -1,5 +1,5 @@
 ---
-status: stable
+status: draft
 last_updated: 2026-04-12
 ---
 # Design Unit: Source Retrieval And Extraction
@@ -19,19 +19,19 @@ The source-extraction subsystem splits into four stages:
 
 The output is not a direct inventory update — it is a set of candidate fields plus extraction provenance that the enrichment reconciler evaluates.
 
-**Retrieval boundaries** — automatic retrieval is allowed only for product page URLs returned by LCSC or DigiKey APIs, and PDF URLs returned by those APIs or discovered from their API-derived pages. Each retrieval captures: requested URL, final resolved URL, content type, HTTP status, timing, redirect chain, and failure classification. If retrieval would leave the trusted-source boundary, the attempt fails closed unless the broader search flow has already been user-confirmed.
+**Retrieval boundaries** — automatic retrieval is allowed only for product page URLs returned by the DigiKey API, and PDF URLs returned by that API or discovered from its API-derived pages. JLC parts is a local catalog lookup, not a web source — it has no product page retrieval path. Each retrieval captures: requested URL, final resolved URL, content type, HTTP status, timing, redirect chain, and failure classification. If retrieval would leave the trusted-source boundary, the attempt fails closed unless the broader search flow has already been user-confirmed.
 
 **Content classification** — fetched artifacts are classified as: structured HTML product page, PDF document, unsupported content, or retrieval failure. Classification is based on response headers plus lightweight content inspection, not URL suffix alone.
 
 **Extractor selection** — layered:
 
-1. Dedicated provider extractors for DigiKey and LCSC
+1. Dedicated provider extractor for DigiKey
 2. Generic structured-data extraction for HTML (JSON-LD, table structures, stable labeled sections)
 3. Generic PDF text extraction for source-backed datasheets
 
 The system prefers a narrower provider extractor over a broader generic one whenever both are available.
 
-**Provider extractor strategy** — dedicated DigiKey and LCSC extractors use a layered parsing strategy: (1) known structured fields and embedded metadata, (2) stable labeled sections or tables, (3) bounded fuzzy field matching over nearby labels and values. The fuzzy layer absorbs minor DOM and wording drift but stays limited to the known target field set and known page regions — it does not infer new fields from unrelated free text.
+**Provider extractor strategy** — the dedicated DigiKey extractor uses a layered parsing strategy: (1) known structured fields and embedded metadata, (2) stable labeled sections or tables, (3) bounded fuzzy field matching over nearby labels and values. The fuzzy layer absorbs minor DOM and wording drift but stays limited to the known target field set and known page regions — it does not infer new fields from unrelated free text.
 
 **HTML extraction order** — embedded structured data → stable labeled product detail sections → provider-specific parsers → bounded fuzzy label-to-field matching → generic structured fallback. For each extracted value, the extractor emits both the candidate value and the local page evidence used to derive it.
 
@@ -49,10 +49,12 @@ The system prefers a narrower provider extractor over a broader generic one when
 
 ## Tradeoffs
 
-Dedicated DigiKey and LCSC extractors improve reliability for the most important sources but create source-specific maintenance work. Layering structured parsing with bounded fuzzy matching reduces brittleness versus exact-selector scraping, but requires explicit confidence handling so weak matches do not silently become stored metadata. PDF extraction can recover fields absent from product pages but introduces more ambiguity and weaker structure than HTML extraction.
+A dedicated DigiKey extractor improves reliability for the primary web source but creates source-specific maintenance work. Layering structured parsing with bounded fuzzy matching reduces brittleness versus exact-selector scraping, but requires explicit confidence handling so weak matches do not silently become stored metadata. PDF extraction can recover fields absent from product pages but introduces more ambiguity and weaker structure than HTML extraction.
 
 ## Readiness
 
-High. The retrieval boundary, parser strategy, extractor layering, and failure model are concrete enough for implementation.
+Partially implemented. The retrieval boundary, parser strategy, extractor layering, and failure model are implemented for API-derived pages and PDFs. Not yet implemented:
+
+- **Confirmed search escalation** — open-web datasheet search with human confirmation is not yet built. This unit will need a new source class and retrieval path when that stage is added to the pipeline.
 
 Open question: what raw evidence should be stored durably versus referenced indirectly in provenance records?
