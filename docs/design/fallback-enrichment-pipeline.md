@@ -60,7 +60,8 @@ More runtime structure and provenance tracking than the current lookup helper in
 
 ## Readiness
 
-Partially implemented. Two components are designed but not yet built:
+Partially implemented. One component is designed but not yet built:
 
 - **Confirmed search escalation** — stage 5 (open-web datasheet search with human confirmation) is not implemented. The `needs_confirmation` outcome is handled in the server but never produced by the enrichment pipeline.
-- **Description merge** — the LLM-based reducer over verified source descriptions is not implemented. The current code picks the longest description string instead.
+
+Description merge is implemented: `fetch_specs_detailed` accepts an optional `llm` parameter; when two or more deduplicated description candidates exist and identity fields are not in conflict, `LLMClient.merge_descriptions()` reduces them into one canonical description. Provenance records the source descriptions and marks `normalization_method="llm_description_merge"`.
