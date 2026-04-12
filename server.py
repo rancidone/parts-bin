@@ -99,6 +99,7 @@ app.add_middleware(
 
 _openai_cfg = _cfg.get("openai", {})
 _openai_key = _openai_cfg.get("api_key", "")
+_search_cfg = _cfg.get("search", {}) or None
 _llm = LLMClient(
     base_url=_cfg["llama"]["base_url"],
     fallback_url=_openai_cfg.get("base_url") if _openai_key else None,
@@ -131,6 +132,7 @@ async def _enrich_upserted_part(part_id: int, part_number: str) -> None:
             _DIGIKEY_CREDS,
             jlcparts_db_path=_JLCPARTS_DB_PATH,
             llm=_llm,
+            search_config=_search_cfg,
         )
         chosen_updates = lookup_result["chosen_updates"]
         if chosen_updates:
@@ -350,7 +352,7 @@ async def _execute_action(action: dict) -> tuple[int | None, str, dict]:
         part_number = action.get("part_number")
         if not part_id or not part_number:
             return None, "missing-target", {}
-        lookup_result = await fetch_specs_detailed(part_number, _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH, llm=_llm)
+        lookup_result = await fetch_specs_detailed(part_number, _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH, llm=_llm, search_config=_search_cfg)
         chosen_updates = lookup_result["chosen_updates"]
         if chosen_updates:
             update_fields_with_provenance(

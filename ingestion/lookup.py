@@ -16,6 +16,7 @@ import log
 from ingestion.jlcparts_lookup import lookup_by_mpn as _jlcparts_lookup_by_mpn
 from ingestion.pdf_extract import extract_pdf_candidates
 from ingestion.source_extract import classify_content, extract_html_candidates
+from ingestion.web_search import search_datasheet_pdfs
 
 _logger = log.get_logger("parts_bin.lookup")
 _FALLBACK_FIELD_SCOPE = ("manufacturer", "part_number", "package", "description")
@@ -606,11 +607,77 @@ async def _fetch_api_derived_pdf(
     return None
 
 
+async def _fetch_web_search_pdf(
+    part_number: str,
+    pdf_urls: list[str],
+    client: httpx.AsyncClient,
+) -> dict | None:
+    """
+    Fetch and extract the first resolvable PDF from a web-search candidate list.
+
+    Returns a source_attempt dict with authority_tier='web_search', or None if
+    no URL yields extractable candidates.
+    """
+    for url in pdf_urls:
+        try:
+            resp = await client.get(url, timeout=10.0, follow_redirects=True)
+            resp.raise_for_status()
+            classification = classify_content(
+                resp.headers.get("content-type"),
+                resp.content.decode("latin-1", errors="ignore"),
+            )
+            if classification != "pdf_document":
+                continue
+            extracted_candidates = extract_pdf_candidates(resp.content)
+            ambiguous_fields = sorted(
+                field_name
+                for field_name, candidate in extracted_candidates.items()
+                if candidate.get("ambiguous")
+            )
+            all_filtered_candidates = _filter_fallback_candidates(extracted_candidates)
+            warnings: list[str] = ["web_search_source"]
+            if ambiguous_fields:
+                warnings.append("ambiguous_pdf_candidates:" + ",".join(ambiguous_fields))
+            if all_filtered_candidates:
+                _logger.info("web search pdf extracted", extra={
+                    "part_number": part_number,
+                    "url": str(resp.url),
+                    "fields": sorted(all_filtered_candidates.keys()),
+                })
+                return {
+                    "provider": "web_search",
+                    "authority_tier": "web_search",
+                    "source_kind": "pdf_document",
+                    "status": "ok",
+                    "source_locator": str(resp.url),
+                    "fields": {
+                        field_name: candidate["value"]
+                        for field_name, candidate in all_filtered_candidates.items()
+                        if not candidate.get("ambiguous")
+                    },
+                    "field_metadata": all_filtered_candidates,
+                    "diagnostics": {
+                        "requested_url": url,
+                        "resolved_url": str(resp.url),
+                        "content_type": resp.headers.get("content-type"),
+                        "classification": classification,
+                    },
+                    "warnings": warnings,
+                    "error": None,
+                }
+        except httpx.ReadTimeout:
+            _logger.debug("web search pdf timeout", extra={"url": url})
+        except Exception:
+            _logger.debug("web search pdf failed", extra={"url": url})
+    return None
+
+
 async def fetch_specs_detailed(
     part_number: str,
     digikey_credentials: dict | None = None,
     jlcparts_db_path: str | None = None,
     llm=None,
+    search_config: dict | None = None,
 ) -> dict:
     """
     Fetch spec fields for a part number with provider-level outcome details.
@@ -719,6 +786,42 @@ async def fetch_specs_detailed(
             stage_timings_ms["api_derived_page_reconcile"] = 0.0
             stage_timings_ms["api_derived_pdf_fetch"] = 0.0
             stage_timings_ms["api_derived_pdf_reconcile"] = 0.0
+
+    # Confirmed search escalation — last resort when all prior stages failed to
+    # produce a complete match.  Requires explicit search_config.  The resulting
+    # candidates are stored as `web_search` authority and surfaced as pending
+    # review rather than auto-applied.
+    stage_timings_ms["web_search"] = 0.0
+    stage_timings_ms["web_search_pdf_fetch"] = 0.0
+    stage_timings_ms["web_search_pdf_reconcile"] = 0.0
+    if search_config and outcome in ("no_match", "incomplete"):
+        search_api_key = search_config.get("api_key", "")
+        if search_api_key:
+            search_started = perf_counter()
+            async with httpx.AsyncClient() as search_client:
+                pdf_urls = await search_datasheet_pdfs(
+                    part_number, search_api_key, search_client
+                )
+                stage_timings_ms["web_search"] = _elapsed_ms(search_started)
+                if pdf_urls:
+                    pdf_fetch_started = perf_counter()
+                    web_pdf_attempt = await _fetch_web_search_pdf(
+                        part_number, pdf_urls, search_client
+                    )
+                    stage_timings_ms["web_search_pdf_fetch"] = _elapsed_ms(pdf_fetch_started)
+                    if web_pdf_attempt is not None:
+                        source_attempts.append(web_pdf_attempt)
+                        web_reconcile_started = perf_counter()
+                        field_candidates = _build_field_candidates(source_attempts)
+                        withheld_candidates = _collect_withheld_candidates(source_attempts)
+                        chosen_updates, chosen_candidates, conflicts, outcome = _reconcile_candidates(
+                            part_number,
+                            field_candidates,
+                            source_attempts,
+                        )
+                        stage_timings_ms["web_search_pdf_reconcile"] = _elapsed_ms(web_reconcile_started)
+                        if outcome in ("saved", "incomplete"):
+                            outcome = "needs_confirmation"
 
     if llm is not None and outcome != "conflict":
         desc_candidates = field_candidates.get("description", [])
@@ -833,7 +936,7 @@ async def fetch_specs_detailed(
         "withheld_candidates": withheld_candidates,
         "chosen_updates": chosen_updates,
         "outcome": outcome,
-        "requires_confirmation": outcome == "conflict",
+        "requires_confirmation": outcome in ("conflict", "needs_confirmation"),
         "status_message": None,
         "durable_provenance": provenance,
         "conflicts": conflicts,
