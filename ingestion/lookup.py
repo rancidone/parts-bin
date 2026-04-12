@@ -800,26 +800,26 @@ async def fetch_specs_detailed(
             pdf_urls = await search_datasheet_pdfs(
                 part_number, search_client
             )
-                stage_timings_ms["web_search"] = _elapsed_ms(search_started)
-                if pdf_urls:
-                    pdf_fetch_started = perf_counter()
-                    web_pdf_attempt = await _fetch_web_search_pdf(
-                        part_number, pdf_urls, search_client
+            stage_timings_ms["web_search"] = _elapsed_ms(search_started)
+            if pdf_urls:
+                pdf_fetch_started = perf_counter()
+                web_pdf_attempt = await _fetch_web_search_pdf(
+                    part_number, pdf_urls, search_client
+                )
+                stage_timings_ms["web_search_pdf_fetch"] = _elapsed_ms(pdf_fetch_started)
+                if web_pdf_attempt is not None:
+                    source_attempts.append(web_pdf_attempt)
+                    web_reconcile_started = perf_counter()
+                    field_candidates = _build_field_candidates(source_attempts)
+                    withheld_candidates = _collect_withheld_candidates(source_attempts)
+                    chosen_updates, chosen_candidates, conflicts, outcome = _reconcile_candidates(
+                        part_number,
+                        field_candidates,
+                        source_attempts,
                     )
-                    stage_timings_ms["web_search_pdf_fetch"] = _elapsed_ms(pdf_fetch_started)
-                    if web_pdf_attempt is not None:
-                        source_attempts.append(web_pdf_attempt)
-                        web_reconcile_started = perf_counter()
-                        field_candidates = _build_field_candidates(source_attempts)
-                        withheld_candidates = _collect_withheld_candidates(source_attempts)
-                        chosen_updates, chosen_candidates, conflicts, outcome = _reconcile_candidates(
-                            part_number,
-                            field_candidates,
-                            source_attempts,
-                        )
-                        stage_timings_ms["web_search_pdf_reconcile"] = _elapsed_ms(web_reconcile_started)
-                        if outcome in ("saved", "incomplete"):
-                            outcome = "needs_confirmation"
+                    stage_timings_ms["web_search_pdf_reconcile"] = _elapsed_ms(web_reconcile_started)
+                    if outcome in ("saved", "incomplete"):
+                        outcome = "needs_confirmation"
 
     if llm is not None and outcome != "conflict":
         desc_candidates = field_candidates.get("description", [])
