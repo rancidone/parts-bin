@@ -55,3 +55,14 @@ CREATE TABLE IF NOT EXISTS part_pending_field_review (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_part_pending_field_review
     ON part_pending_field_review (part_id, field_name);
+
+CREATE TABLE IF NOT EXISTS fine_tune_samples (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    call_type         TEXT    NOT NULL,  -- 'image_extract' | 'description_merge'
+    messages_json     TEXT    NOT NULL,  -- JSON array of {role, content} messages sent to LLM
+    response          TEXT    NOT NULL,  -- raw LLM response string
+    part_id           INTEGER REFERENCES parts(id) ON DELETE SET NULL,
+    feedback_response TEXT,              -- user-corrected response (preference signal)
+    created_at        TEXT    NOT NULL,
+    feedback_at       TEXT
+);

@@ -678,6 +678,7 @@ async def fetch_specs_detailed(
     jlcparts_db_path: str | None = None,
     llm=None,
     search_config: dict | None = None,
+    part_id: int | None = None,
 ) -> dict:
     """
     Fetch spec fields for a part number with provider-level outcome details.
@@ -830,7 +831,7 @@ async def fetch_specs_detailed(
             if len(descriptions) >= 2:
                 merge_started = perf_counter()
                 try:
-                    merged = await llm.merge_descriptions(descriptions)
+                    merged = await llm.merge_descriptions(descriptions, part_id=part_id)
                     stage_timings_ms["description_merge"] = _elapsed_ms(merge_started)
                     if merged:
                         chosen_updates["description"] = merged
