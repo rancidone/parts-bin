@@ -20,3 +20,6 @@ client_secret = ""
 db_path = "data/jlcparts.sqlite3"
 min_free_bytes = 4294967296
 max_sqlite_bytes = 21474836480
+
+[mcp]
+api_key = ""  # required Authorization: Bearer <token> for /mcp; leave empty to disable

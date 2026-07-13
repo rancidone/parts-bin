@@ -12,14 +12,15 @@ import json
 import re
 import tomllib
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
 
 import log
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from db.persistence import (
     clear_pending_review,
@@ -41,6 +42,7 @@ from db.persistence import (
 from db.fine_tune import FineTuneRecorder
 from ingestion.lookup import fetch_specs_detailed
 from llm.client import ConversationHistory, LLMClient
+from mcp_server import build_mcp_server
 from query.search import run_query
 
 # ---------------------------------------------------------------------------
@@ -93,7 +95,33 @@ _PASSIVE_VALUE_RE = re.compile(
 # App setup
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="Parts Bin")
+_MCP_API_KEY: str | None = _cfg.get("mcp", {}).get("api_key") or None
+_mcp = build_mcp_server(lambda: _DB_PATH, _DIGIKEY_CREDS, _JLCPARTS_DB_PATH)
+
+# StreamableHTTPSessionManager.run() may only be entered once per instance,
+# but tests spin up many short-lived app lifespans (fresh TestClient per
+# test). Start it once for the life of the process and keep it running
+# across lifespan cycles instead of tying it to any single one.
+_mcp_task: asyncio.Task | None = None
+_mcp_ready = asyncio.Event()
+
+
+async def _run_mcp_session_manager() -> None:
+    async with _mcp.session_manager.run():
+        _mcp_ready.set()
+        await asyncio.Event().wait()  # run until this task is cancelled
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    global _mcp_task
+    if _mcp_task is None:
+        _mcp_task = asyncio.create_task(_run_mcp_session_manager())
+        await _mcp_ready.wait()
+    yield
+
+
+app = FastAPI(title="Parts Bin", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -101,6 +129,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _mcp_auth(request: Request, call_next):
+    if request.url.path.startswith("/mcp"):
+        auth = request.headers.get("authorization", "")
+        token = auth.removeprefix("Bearer ").strip() if auth.startswith("Bearer ") else None
+        if not _MCP_API_KEY or token != _MCP_API_KEY:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return await call_next(request)
+
+
+@app.api_route("/mcp", methods=["GET", "POST", "DELETE"], include_in_schema=False)
+async def _mcp_redirect():
+    # Mount("/mcp", ...) only matches "/mcp/*"; redirect the bare path so
+    # clients that omit the trailing slash still connect. 307 preserves
+    # method and body, and MCP's http client follows redirects by default.
+    return RedirectResponse(url="/mcp/", status_code=307)
+
+
+app.mount("/mcp", _mcp.streamable_http_app())
 
 _openai_cfg = _cfg.get("openai", {})
 _openai_key = _openai_cfg.get("api_key", "")
@@ -308,35 +357,48 @@ def _upsert_duplicate_match(part: dict) -> dict | None:
     return None
 
 
-def _detect_duplicate_upsert(action: dict) -> tuple[dict, dict] | None:
+def _detect_duplicate_upsert(action: dict) -> list[tuple[dict, dict]] | None:
     if action.get("type") != "upsert":
         return None
 
     items = action.get("items") or None
-    if items:
-        if len(items) != 1:
-            return None
-        candidate = items[0]
-    else:
-        candidate = action
+    candidates = items if items else [action]
 
-    duplicate = _upsert_duplicate_match(candidate)
-    if duplicate is None:
-        return None
-    return candidate, duplicate
+    matches: list[tuple[dict, dict]] = []
+    for candidate in candidates:
+        duplicate = _upsert_duplicate_match(candidate)
+        if duplicate is not None:
+            matches.append((candidate, duplicate))
+    return matches or None
 
 
-def _duplicate_confirmation_message(candidate: dict, duplicate: dict) -> str:
-    label = (
+def _duplicate_label(candidate: dict) -> str:
+    return (
         candidate.get("part_number")
         or " ".join(str(part) for part in (candidate.get("value"), candidate.get("package"), candidate.get("part_category")) if part)
         or "that part"
     )
-    existing_qty = duplicate.get("quantity")
-    new_qty = candidate.get("quantity")
+
+
+def _duplicate_confirmation_message(matches: list[tuple[dict, dict]]) -> str:
+    if len(matches) == 1:
+        candidate, duplicate = matches[0]
+        label = _duplicate_label(candidate)
+        existing_qty = duplicate.get("quantity")
+        new_qty = candidate.get("quantity")
+        return (
+            f"I found an exact existing match for {label} (current quantity: {existing_qty}). "
+            f"Reply `add` to increase it by {new_qty}, or `cancel` to skip this bag."
+        )
+
+    lines = [
+        f"- {_duplicate_label(candidate)}: current quantity {duplicate.get('quantity')}, adding {candidate.get('quantity')}"
+        for candidate, duplicate in matches
+    ]
     return (
-        f"I found an exact existing match for {label} (current quantity: {existing_qty}). "
-        f"Reply `add` to increase it by {new_qty}, or `cancel` to skip this bag."
+        f"I found {len(matches)} exact existing matches in this batch:\n"
+        + "\n".join(lines)
+        + "\n\nReply `add` to increase all of them, or `cancel` to skip this batch."
     )
 
 
@@ -516,21 +578,28 @@ async def _chat_stream(
         resolution = _duplicate_confirmation_response(message, image_b64)
         if resolution == "confirm":
             action = pending_duplicate["action"]
-            duplicate = pending_duplicate["duplicate"]
+            duplicates = pending_duplicate["duplicates"]
             _pending_duplicate_confirmation.pop(thread_key, None)
             part_id, action_status, action_extras = await _execute_action(action)
             saved_part = get_by_id(_DB_PATH, part_id) if part_id and action_status == "saved" else None
-            response_text = (
-                f"I added it to the existing entry for {duplicate.get('part_number') or duplicate.get('part_category')} "
-                f"and increased the quantity."
-            )
-            yield _sse("result", {
+            if len(duplicates) == 1:
+                response_text = (
+                    f"I added it to the existing entry for "
+                    f"{duplicates[0].get('part_number') or duplicates[0].get('part_category')} "
+                    f"and increased the quantity."
+                )
+            else:
+                response_text = f"I updated {len(duplicates)} existing entries and increased their quantities."
+            result_payload: dict = {
                 "type": "chat",
                 "thread_id": thread_key,
                 "response": response_text,
                 "action": "upsert",
                 "part": saved_part,
-            })
+            }
+            if action_status == "saved-batch" and action_extras:
+                result_payload["batch_summary"] = action_extras
+            yield _sse("result", result_payload)
             yield _sse("done", {})
             return
         if resolution == "cancel":
@@ -573,18 +642,18 @@ async def _chat_stream(
     action_type = action["type"]
     duplicate_match = _detect_duplicate_upsert(action)
     if duplicate_match is not None:
-        _, duplicate = duplicate_match
-        confirmation_message = _duplicate_confirmation_message(duplicate_match[0], duplicate)
+        duplicates = [duplicate for _, duplicate in duplicate_match]
+        confirmation_message = _duplicate_confirmation_message(duplicate_match)
         _pending_duplicate_confirmation[thread_key] = {
             "action": action,
-            "duplicate": duplicate,
+            "duplicates": duplicates,
             "message": confirmation_message,
         }
         log.emit_telemetry(
             "duplicate_confirmation_requested",
             request_id=request_id,
             thread_id=thread_key,
-            duplicate_part_id=duplicate.get("id"),
+            duplicate_part_ids=[duplicate.get("id") for duplicate in duplicates],
             has_image=image_b64 is not None,
         )
         yield _sse("result", {
@@ -641,6 +710,14 @@ async def _chat_stream(
                 qf_attrs["value"] = normalize_value(qf_attrs["value"], cat)
             query_parts = query(_DB_PATH, qf_attrs)
             _logger.info("chat query filter", extra={"attrs": qf_attrs, "match_count": len(query_parts)})
+
+    grounded_turn: dict = {"response": response_text, "action": action_type, "action_status": action_status}
+    if query_parts is not None:
+        grounded_turn["query_results"] = [
+            {k: part.get(k) for k in ("id", "part_number", "part_category", "value", "package", "quantity", "description")}
+            for part in query_parts
+        ]
+    history.replace_last_assistant(json.dumps(grounded_turn))
 
     _logger.info("chat", extra={"action": action_type, "action_status": action_status, "part_id": part_id,
                                 "response": response_text})
@@ -993,6 +1070,7 @@ async def chat(
         ocr_signal_count = ocr_result.signal_count
         ocr_text_chars = len(ocr_result.text)
         ocr_confidence = ocr_result.average_confidence
+        _logger.debug("ocr text extracted", extra={"ocr_text": ocr_result.text})
         if ocr_result.should_use_text_only and ocr_result.text:
             ocr_route = "text_only"
             message = f"{message}\n\nOCR label text:\n{ocr_result.text}"

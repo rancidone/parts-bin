@@ -925,7 +925,52 @@ class TestChatStream:
         payload = _parse_sse_data(events[0])
         assert payload["thread_id"] == server._MAIN_CHAT_THREAD_ID
         assert payload["clarification_kind"] == "duplicate_upsert"
-        assert server._pending_duplicate_confirmation[server._MAIN_CHAT_THREAD_ID]["duplicate"]["quantity"] == 5
+        assert server._pending_duplicate_confirmation[server._MAIN_CHAT_THREAD_ID]["duplicates"][0]["quantity"] == 5
+
+    @pytest.mark.asyncio
+    async def test_duplicate_batch_upsert_prompts_for_confirmation(self, client):
+        """A re-uploaded multi-item batch (e.g. the same kit photo sent twice)
+        must not silently double quantities — every item is duplicate-checked,
+        not just single-item upserts."""
+        _, db = client
+        existing_id = upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": "existing",
+        })
+
+        with patch.object(server, "_llm") as llm:
+            llm.chat = AsyncMock(return_value={
+                "response": "I added them.",
+                "db_action": {
+                    "type": "upsert",
+                    "id": None,
+                    "items": [
+                        {
+                            "part_category": "resistor", "profile": "passive",
+                            "value": "10k", "package": "0402", "part_number": None,
+                            "quantity": 20, "manufacturer": None, "description": "existing",
+                        },
+                        {
+                            "part_category": "capacitor", "profile": "passive",
+                            "value": "100nF", "package": "0603", "part_number": None,
+                            "quantity": 10, "manufacturer": None, "description": "new part",
+                        },
+                    ],
+                    "part_category": None, "profile": None, "value": None, "package": None,
+                    "part_number": None, "quantity": None, "manufacturer": None, "description": None,
+                },
+            })
+            events = [event async for event in server._chat_stream("add these parts", None)]
+
+        payload = _parse_sse_data(events[0])
+        assert payload["clarification_kind"] == "duplicate_upsert"
+        assert "exact existing match for 10k 0402 resistor" in payload["message"]
+        pending = server._pending_duplicate_confirmation[server._MAIN_CHAT_THREAD_ID]
+        assert len(pending["duplicates"]) == 1
+        assert pending["duplicates"][0]["id"] == existing_id
+        # Nothing was written yet — confirmation is still pending.
+        assert server.get_by_id(db, existing_id)["quantity"] == 5
 
     @pytest.mark.asyncio
     async def test_duplicate_upsert_confirm_adds_quantity(self, client):
@@ -950,7 +995,7 @@ class TestChatStream:
                     "manufacturer": None,
                     "description": "existing",
                 },
-                "duplicate": server.get_by_id(db, part_id),
+                "duplicates": [server.get_by_id(db, part_id)],
                 "message": "duplicate prompt",
             }
         }
@@ -987,7 +1032,7 @@ class TestChatStream:
                     "manufacturer": None,
                     "description": "existing",
                 },
-                "duplicate": server.get_by_id(db, part_id),
+                "duplicates": [server.get_by_id(db, part_id)],
                 "message": "duplicate prompt",
             }
         }
@@ -1029,7 +1074,7 @@ class TestChatStream:
                     "manufacturer": None,
                     "description": "first",
                 },
-                "duplicate": server.get_by_id(db, first_id),
+                "duplicates": [server.get_by_id(db, first_id)],
                 "message": "duplicate prompt a",
             },
             "thread-b": {
@@ -1046,7 +1091,7 @@ class TestChatStream:
                     "manufacturer": None,
                     "description": "second",
                 },
-                "duplicate": server.get_by_id(db, second_id),
+                "duplicates": [server.get_by_id(db, second_id)],
                 "message": "duplicate prompt b",
             },
         }
@@ -1085,7 +1130,7 @@ class TestChatStream:
                     "manufacturer": None,
                     "description": "existing",
                 },
-                "duplicate": server.list_all(db)[0],
+                "duplicates": [server.list_all(db)[0]],
                 "message": "duplicate prompt a",
             }
         }
