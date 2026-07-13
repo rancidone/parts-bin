@@ -63,6 +63,8 @@ export interface BatchSummary {
 
 export interface SystemMessage {
   role: 'system'
+  threadId?: string
+  clarificationKind?: 'duplicate_upsert'
   kind:
     | 'chat'
     | 'text'

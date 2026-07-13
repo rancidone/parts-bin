@@ -1,6 +1,7 @@
 """Tests for server HTTP endpoints."""
 
 import io
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -9,6 +10,7 @@ from starlette.testclient import TestClient
 
 import server
 from db.persistence import init_db, list_field_provenance, list_pending_reviews, save_pending_review, upsert
+from photo.ocr import OCRResult
 
 
 @pytest.fixture
@@ -16,8 +18,18 @@ def client(tmp_path):
     db_path = tmp_path / "test.db"
     init_db(db_path)
     with patch.object(server, "_DB_PATH", db_path):
+        original_pending = server._pending_duplicate_confirmation
+        original_histories = server._histories
+        server._pending_duplicate_confirmation = {}
+        server._histories = {server._MAIN_CHAT_THREAD_ID: server.ConversationHistory()}
         with TestClient(server.app, raise_server_exceptions=True) as c:
             yield c, db_path
+        server._pending_duplicate_confirmation = original_pending
+        server._histories = original_histories
+
+
+def _parse_sse_data(event: str) -> dict:
+    return json.loads(event.split("data: ", 1)[1].split("\n\n", 1)[0])
 
 
 def _jpeg_bytes(w=100, h=100) -> bytes:
@@ -31,7 +43,28 @@ class TestHealthEndpoint:
         c, _ = client
         resp = c.get("/health")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        payload = resp.json()
+        assert payload["status"] == "ok"
+        assert "llm" in payload
+
+
+class TestLlmSettingsEndpoint:
+    def test_toggles_secondary_backend_preference(self, client):
+        c, _ = client
+        original = server._llm.force_fallback
+        try:
+            with patch.object(server._llm, "_secondary_backend_configured", return_value=True):
+                resp = c.post("/settings/llm", json={"use_secondary": True})
+            assert resp.status_code == 200
+            assert resp.json()["force_fallback"] is True
+        finally:
+            server._llm.force_fallback = original
+
+    def test_rejects_invalid_payload(self, client):
+        c, _ = client
+        resp = c.post("/settings/llm", json={"force_fallback": True})
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "use_secondary must be a boolean"
 
 
 class TestJlcpartsEndpoints:
@@ -282,6 +315,66 @@ class TestChatValidation:
             )
         assert resp.status_code == 200
 
+    def test_photo_uses_ocr_text_only_when_signals_are_strong(self, client):
+        c, _ = client
+        captured: dict[str, object] = {}
+
+        async def fake_chat_stream(message, image_b64, request_id=None, thread_id=None):
+            captured["message"] = message
+            captured["image_b64"] = image_b64
+            yield 'event: result\ndata: {"type":"chat","response":"ok","action":"none","part":null}\n\n'
+            yield 'event: done\ndata: {}\n\n'
+
+        with patch("photo.pipeline.preprocess", return_value="abc123"), \
+             patch("photo.ocr.extract_local_ocr", return_value=OCRResult(
+                 engine="tesseract",
+                 status="ok",
+                 text="RC0402FR-0710KL\n10k 0402 qty 20",
+                 average_confidence=82.5,
+                 signal_count=4,
+                 should_use_text_only=True,
+             )), \
+             patch.object(server, "_chat_stream", side_effect=fake_chat_stream):
+            resp = c.post(
+                "/chat",
+                files={"photo": ("part.jpg", _jpeg_bytes(), "image/jpeg")},
+            )
+
+        assert resp.status_code == 200
+        assert captured["image_b64"] is None
+        assert "OCR label text:" in str(captured["message"])
+        assert "RC0402FR-0710KL" in str(captured["message"])
+
+    def test_photo_falls_back_to_vision_when_ocr_is_weak(self, client):
+        c, _ = client
+        captured: dict[str, object] = {}
+
+        async def fake_chat_stream(message, image_b64, request_id=None, thread_id=None):
+            captured["message"] = message
+            captured["image_b64"] = image_b64
+            yield 'event: result\ndata: {"type":"chat","response":"ok","action":"none","part":null}\n\n'
+            yield 'event: done\ndata: {}\n\n'
+
+        with patch("photo.pipeline.preprocess", return_value="abc123"), \
+             patch("photo.ocr.extract_local_ocr", return_value=OCRResult(
+                 engine="tesseract",
+                 status="ok",
+                 text="bad read",
+                 average_confidence=31.0,
+                 signal_count=0,
+                 should_use_text_only=False,
+             )), \
+             patch.object(server, "_chat_stream", side_effect=fake_chat_stream):
+            resp = c.post(
+                "/chat",
+                data={"message": "add this"},
+                files={"photo": ("part.jpg", _jpeg_bytes(), "image/jpeg")},
+            )
+
+        assert resp.status_code == 200
+        assert captured["image_b64"] == "abc123"
+        assert captured["message"] == "add this"
+
     def test_unsupported_image_type_returns_400(self, client):
         c, _ = client
         resp = c.post(
@@ -297,7 +390,7 @@ class TestExecuteAction:
     async def test_upsert_requires_part_category_and_quantity(self, client):
         _, db = client
         with patch.object(server, "_track_background_task") as track_task:
-            part_id, status = await server._execute_action({
+            part_id, status, extras = await server._execute_action({
                 "type": "upsert",
                 "part_category": "resistor", "profile": "passive",
                 "value": "10k", "package": "0402", "quantity": 5,
@@ -305,6 +398,7 @@ class TestExecuteAction:
             })
         assert part_id is not None
         assert status == "saved"
+        assert extras == {}
         track_task.assert_not_called()
 
     @pytest.mark.asyncio
@@ -367,7 +461,7 @@ class TestExecuteAction:
     @pytest.mark.asyncio
     async def test_upsert_without_quantity_returns_none(self, client):
         _, db = client
-        part_id, status = await server._execute_action({
+        part_id, status, extras = await server._execute_action({
             "type": "upsert",
             "part_category": "resistor", "profile": "passive",
             "value": "10k", "package": "0402", "quantity": None,
@@ -375,12 +469,13 @@ class TestExecuteAction:
         })
         assert part_id is None
         assert status == "invalid"
+        assert extras == {}
 
     @pytest.mark.asyncio
     async def test_batch_upsert_saves_multiple_records(self, client):
         _, db = client
         with patch.object(server, "_track_background_task") as track_task:
-            part_id, status = await server._execute_action({
+            part_id, status, extras = await server._execute_action({
                 "type": "upsert",
                 "id": None,
                 "items": [
@@ -413,6 +508,7 @@ class TestExecuteAction:
             })
         assert part_id is not None
         assert status == "saved-batch"
+        assert extras == {"count": 2}
         assert len(server.list_all(db)) == 2
         track_task.assert_not_called()
 
@@ -420,7 +516,7 @@ class TestExecuteAction:
     async def test_upsert_repairs_passive_fields_when_package_lands_in_value_slot(self, client):
         _, db = client
 
-        part_id, status = await server._execute_action({
+        part_id, status, extras = await server._execute_action({
             "type": "upsert",
             "id": None,
             "items": None,
@@ -435,6 +531,7 @@ class TestExecuteAction:
 
         saved = server.get_by_id(db, part_id)
         assert status == "saved"
+        assert extras == {}
         assert saved["profile"] == "passive"
         assert saved["value"] == "100n"
         assert saved["package"] == "0603"
@@ -444,7 +541,7 @@ class TestExecuteAction:
     async def test_batch_upsert_repairs_each_passive_item(self, client):
         _, db = client
 
-        part_id, status = await server._execute_action({
+        part_id, status, extras = await server._execute_action({
             "type": "upsert",
             "id": None,
             "items": [
@@ -478,6 +575,7 @@ class TestExecuteAction:
 
         rows = server.list_all(db)
         assert status == "saved-batch"
+        assert extras == {"count": 2}
         assert part_id is not None
         assert len(rows) == 2
         assert {row["value"] for row in rows} == {"10p", "100n"}
@@ -498,7 +596,7 @@ class TestExecuteAction:
             "part_number": "100NF", "manufacturer": None, "description": "0603 chip capacitor, 100NF value",
         })
 
-        part_id, status = await server._execute_action({
+        part_id, status, extras = await server._execute_action({
             "type": "update",
             "id": None,
             "items": [
@@ -535,6 +633,10 @@ class TestExecuteAction:
         first = server.get_by_id(db, first_id)
         second = server.get_by_id(db, second_id)
         assert status == "saved-batch"
+        assert extras == {
+            "count": 2,
+            "fields": ["description", "package", "part_category", "profile", "quantity", "value"],
+        }
         assert part_id == second_id
         assert first["value"] == "10pF"
         assert second["value"] == "100nF"
@@ -555,7 +657,7 @@ class TestExecuteAction:
             "part_number": None, "manufacturer": None, "description": "0603 chip capacitor, 100nF value",
         })
 
-        part_id, status = await server._execute_action({
+        part_id, status, extras = await server._execute_action({
             "type": "update",
             "id": None,
             "items": [
@@ -592,6 +694,10 @@ class TestExecuteAction:
         first = server.get_by_id(db, first_id)
         second = server.get_by_id(db, second_id)
         assert status == "saved-batch"
+        assert extras == {
+            "count": 2,
+            "fields": ["description", "package", "part_category", "profile", "quantity", "value"],
+        }
         assert part_id == second_id
         assert first["quantity"] == 20
         assert second["quantity"] == 20
@@ -617,7 +723,7 @@ class TestExecuteAction:
             "competing_candidates": [],
         }])
 
-        saved_id, status = await server._execute_action({
+        saved_id, status, extras = await server._execute_action({
             "type": "update",
             "id": part_id,
             "items": None,
@@ -632,12 +738,48 @@ class TestExecuteAction:
 
         assert status == "saved"
         assert saved_id == part_id
+        assert extras == {}
         assert list_pending_reviews(db) == {}
+
+    @pytest.mark.asyncio
+    async def test_update_preserves_existing_non_nullable_fields_when_action_has_nulls(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "buck_converter", "profile": "discrete_ic",
+            "value": None, "package": "SOT-23-5", "quantity": 10,
+            "part_number": "TLV62565DBVR", "manufacturer": "Texas Instruments",
+            "description": "existing description",
+        })
+
+        saved_id, status, extras = await server._execute_action({
+            "type": "update",
+            "id": part_id,
+            "items": None,
+            "part_category": None,
+            "profile": None,
+            "value": None,
+            "package": None,
+            "part_number": None,
+            "quantity": None,
+            "manufacturer": None,
+            "description": "updated description",
+        })
+
+        assert saved_id == part_id
+        assert status == "saved"
+        assert extras == {}
+        part = server.get_by_id(db, part_id)
+        assert part["part_category"] == "buck_converter"
+        assert part["profile"] == "discrete_ic"
+        assert part["package"] == "SOT-23-5"
+        assert part["part_number"] == "TLV62565DBVR"
+        assert part["manufacturer"] == "Texas Instruments"
+        assert part["description"] == "updated description"
 
     @pytest.mark.asyncio
     async def test_action_none_returns_none(self, client):
         _, db = client
-        assert await server._execute_action({"type": "none"}) == (None, "noop")
+        assert await server._execute_action({"type": "none"}) == (None, "noop", {})
 
     @pytest.mark.asyncio
     async def test_lookup_without_specs_reports_no_specs(self, client):
@@ -664,7 +806,7 @@ class TestExecuteAction:
                 "part_number": "TLV62565DBVR",
             })
 
-        assert result == (part_id, "no-specs")
+        assert result == (part_id, "no-specs", {})
 
     @pytest.mark.asyncio
     async def test_lookup_timeout_reports_timeout_status(self, client):
@@ -691,7 +833,7 @@ class TestExecuteAction:
                 "part_number": "TLV62565DBVR",
             })
 
-        assert result == (part_id, "lookup-timeout")
+        assert result == (part_id, "lookup-timeout", {})
 
     @pytest.mark.asyncio
     async def test_lookup_incomplete_reports_incomplete_status(self, client):
@@ -719,7 +861,7 @@ class TestExecuteAction:
                 "part_number": "TLV62565DBVR",
             })
 
-        assert result == (part_id, "lookup-incomplete")
+        assert result == (part_id, "lookup-incomplete", {})
 
     @pytest.mark.asyncio
     async def test_lookup_failed_reports_failed_status(self, client):
@@ -747,10 +889,220 @@ class TestExecuteAction:
                 "part_number": "TLV62565DBVR",
             })
 
-        assert result == (part_id, "lookup-failed")
+        assert result == (part_id, "lookup-failed", {})
 
 
 class TestChatStream:
+    @pytest.mark.asyncio
+    async def test_duplicate_upsert_prompts_for_confirmation(self, client):
+        _, db = client
+        upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": "existing",
+        })
+
+        with patch.object(server, "_llm") as llm:
+            llm.chat = AsyncMock(return_value={
+                "response": "I added it.",
+                "db_action": {
+                    "type": "upsert",
+                    "id": None,
+                    "items": None,
+                    "part_category": "resistor",
+                    "profile": "passive",
+                    "value": "10k",
+                    "package": "0402",
+                    "part_number": None,
+                    "quantity": 20,
+                    "manufacturer": None,
+                    "description": "existing",
+                },
+            })
+            events = [event async for event in server._chat_stream("add 20 10k 0402 resistors", None)]
+
+        assert "Reply `add` to increase it by 20, or `cancel`" in events[0]
+        payload = _parse_sse_data(events[0])
+        assert payload["thread_id"] == server._MAIN_CHAT_THREAD_ID
+        assert payload["clarification_kind"] == "duplicate_upsert"
+        assert server._pending_duplicate_confirmation[server._MAIN_CHAT_THREAD_ID]["duplicate"]["quantity"] == 5
+
+    @pytest.mark.asyncio
+    async def test_duplicate_upsert_confirm_adds_quantity(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": "existing",
+        })
+        server._pending_duplicate_confirmation = {
+            server._MAIN_CHAT_THREAD_ID: {
+                "action": {
+                    "type": "upsert",
+                    "id": None,
+                    "items": None,
+                    "part_category": "resistor",
+                    "profile": "passive",
+                    "value": "10k",
+                    "package": "0402",
+                    "part_number": None,
+                    "quantity": 20,
+                    "manufacturer": None,
+                    "description": "existing",
+                },
+                "duplicate": server.get_by_id(db, part_id),
+                "message": "duplicate prompt",
+            }
+        }
+
+        events = [event async for event in server._chat_stream("add", None)]
+
+        updated = server.get_by_id(db, part_id)
+        payload = _parse_sse_data(events[0])
+        assert payload["type"] == "chat"
+        assert payload["thread_id"] == server._MAIN_CHAT_THREAD_ID
+        assert updated["quantity"] == 25
+        assert server._pending_duplicate_confirmation == {}
+
+    @pytest.mark.asyncio
+    async def test_duplicate_upsert_cancel_skips_add(self, client):
+        _, db = client
+        part_id = upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": "existing",
+        })
+        server._pending_duplicate_confirmation = {
+            server._MAIN_CHAT_THREAD_ID: {
+                "action": {
+                    "type": "upsert",
+                    "id": None,
+                    "items": None,
+                    "part_category": "resistor",
+                    "profile": "passive",
+                    "value": "10k",
+                    "package": "0402",
+                    "part_number": None,
+                    "quantity": 20,
+                    "manufacturer": None,
+                    "description": "existing",
+                },
+                "duplicate": server.get_by_id(db, part_id),
+                "message": "duplicate prompt",
+            }
+        }
+
+        events = [event async for event in server._chat_stream("cancel", None)]
+
+        updated = server.get_by_id(db, part_id)
+        payload = _parse_sse_data(events[0])
+        assert "canceled that duplicate add" in payload["message"]
+        assert payload["thread_id"] == server._MAIN_CHAT_THREAD_ID
+        assert updated["quantity"] == 5
+        assert server._pending_duplicate_confirmation == {}
+
+    @pytest.mark.asyncio
+    async def test_duplicate_confirmations_are_isolated_per_thread(self, client):
+        _, db = client
+        first_id = upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": "first",
+        })
+        second_id = upsert(db, {
+            "part_category": "capacitor", "profile": "passive",
+            "value": "100nF", "package": "0603", "quantity": 7,
+            "part_number": None, "manufacturer": None, "description": "second",
+        })
+        server._pending_duplicate_confirmation = {
+            "thread-a": {
+                "action": {
+                    "type": "upsert",
+                    "id": None,
+                    "items": None,
+                    "part_category": "resistor",
+                    "profile": "passive",
+                    "value": "10k",
+                    "package": "0402",
+                    "part_number": None,
+                    "quantity": 20,
+                    "manufacturer": None,
+                    "description": "first",
+                },
+                "duplicate": server.get_by_id(db, first_id),
+                "message": "duplicate prompt a",
+            },
+            "thread-b": {
+                "action": {
+                    "type": "upsert",
+                    "id": None,
+                    "items": None,
+                    "part_category": "capacitor",
+                    "profile": "passive",
+                    "value": "100nF",
+                    "package": "0603",
+                    "part_number": None,
+                    "quantity": 3,
+                    "manufacturer": None,
+                    "description": "second",
+                },
+                "duplicate": server.get_by_id(db, second_id),
+                "message": "duplicate prompt b",
+            },
+        }
+
+        events = [event async for event in server._chat_stream("add", None, thread_id="thread-b")]
+
+        first = server.get_by_id(db, first_id)
+        second = server.get_by_id(db, second_id)
+        payload = _parse_sse_data(events[0])
+        assert payload["thread_id"] == "thread-b"
+        assert first["quantity"] == 5
+        assert second["quantity"] == 10
+        assert "thread-a" in server._pending_duplicate_confirmation
+        assert "thread-b" not in server._pending_duplicate_confirmation
+
+    @pytest.mark.asyncio
+    async def test_duplicate_followup_without_matching_thread_uses_llm(self, client):
+        _, db = client
+        upsert(db, {
+            "part_category": "resistor", "profile": "passive",
+            "value": "10k", "package": "0402", "quantity": 5,
+            "part_number": None, "manufacturer": None, "description": "existing",
+        })
+        server._pending_duplicate_confirmation = {
+            "thread-a": {
+                "action": {
+                    "type": "upsert",
+                    "id": None,
+                    "items": None,
+                    "part_category": "resistor",
+                    "profile": "passive",
+                    "value": "10k",
+                    "package": "0402",
+                    "part_number": None,
+                    "quantity": 20,
+                    "manufacturer": None,
+                    "description": "existing",
+                },
+                "duplicate": server.list_all(db)[0],
+                "message": "duplicate prompt a",
+            }
+        }
+
+        with patch.object(server, "_llm") as llm:
+            llm.chat = AsyncMock(return_value={
+                "response": "No pending duplicate in this thread.",
+                "db_action": {"type": "none", "query_filter": None},
+            })
+            events = [event async for event in server._chat_stream("add", None, thread_id="thread-b")]
+
+        payload = _parse_sse_data(events[0])
+        assert payload["type"] == "chat"
+        assert payload["thread_id"] == "thread-b"
+        assert payload["response"] == "No pending duplicate in this thread."
+        assert "thread-a" in server._pending_duplicate_confirmation
+
     @pytest.mark.asyncio
     async def test_lookup_no_specs_overrides_misleading_model_text(self, client):
         _, db = client

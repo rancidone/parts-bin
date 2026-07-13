@@ -82,6 +82,25 @@
   color: #8e2d23;
 }
 
+.clarificationActions {
+  display: flex;
+  gap: 8px;
+}
+
+.inlineActionBtn {
+  font-size: 0.8rem;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.inlineActionBtn:hover {
+  background: var(--surface-raised, rgba(255,255,255,0.05));
+}
+
 .queryAnswer {
   margin-bottom: 8px;
   font-size: 0.9rem;

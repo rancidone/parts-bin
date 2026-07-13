@@ -7,19 +7,19 @@ import styles from './Chat.module.css'
 
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
-type Backend = 'llama' | 'openai-fallback' | 'none' | null
+type Backend = 'llama' | 'openai' | 'none' | null
 
 export function Chat() {
-  const { messages, send } = useChat()
+  const { messages, pendingCount, send } = useChat()
   const [text, setText] = useState('')
   const [photo, setPhoto] = useState<File | undefined>()
   const [photoPreview, setPhotoPreview] = useState<string | undefined>()
-  const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [backend, setBackend] = useState<Backend>(null)
-  const [forceFallback, setForceFallback] = useState(false)
+  const [useSecondary, setUseSecondary] = useState(false)
   const [hasFallback, setHasFallback] = useState(false)
+  const [primaryBackend, setPrimaryBackend] = useState<Exclude<Backend, 'none' | null>>('llama')
   const [toggling, setToggling] = useState(false)
 
   useEffect(() => {
@@ -28,8 +28,9 @@ export function Chat() {
       .then(data => {
         const llm = data.llm ?? {}
         setBackend(llm.active_backend ?? null)
-        setForceFallback(llm.force_fallback ?? false)
+        setUseSecondary(llm.force_fallback ?? false)
         setHasFallback(llm.fallback_configured ?? false)
+        setPrimaryBackend(llm.primary_backend ?? 'llama')
       })
       .catch(() => {})
   }, [])
@@ -41,12 +42,12 @@ export function Chat() {
       const res = await fetch(`${API}/settings/llm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force_fallback: !forceFallback }),
+        body: JSON.stringify({ use_secondary: !useSecondary }),
       })
       if (res.ok) {
         const data = await res.json()
         setBackend(data.active_backend ?? null)
-        setForceFallback(data.force_fallback ?? false)
+        setUseSecondary(data.force_fallback ?? false)
       }
     } finally {
       setToggling(false)
@@ -74,11 +75,9 @@ export function Chat() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!text.trim() && !photo) return
-    setSending(true)
-    await send(text.trim(), photo)
+    void send(text.trim(), photo)
     setText('')
     clearPhoto()
-    setSending(false)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -87,6 +86,11 @@ export function Chat() {
       handleSubmit(e as unknown as React.FormEvent)
     }
   }
+
+  const secondaryBackend = primaryBackend === 'openai' ? 'llama' : 'openai'
+  const selectedBackend = useSecondary ? secondaryBackend : primaryBackend
+  const selectedLabel = selectedBackend === 'openai' ? 'OpenAI' : 'Local'
+  const alternateLabel = selectedBackend === 'openai' ? 'local' : 'OpenAI'
 
   return (
     <div className={styles.container}>
@@ -97,9 +101,9 @@ export function Chat() {
           </div>
         )}
         {messages.map((msg, i) => (
-          <MessageBubble key={i} msg={msg} />
+          <MessageBubble key={i} msg={msg} onDuplicateAction={(threadId, action) => void send(action, undefined, { threadId, hideUserEcho: true })} />
         ))}
-        {sending && (
+        {pendingCount > 0 && (
           <div className={styles.thinkingBubble}>
             <span className={styles.dot} />
             <span className={styles.dot} />
@@ -120,13 +124,13 @@ export function Chat() {
           <div className={styles.backendRow}>
             <button
               type="button"
-              className={`${styles.backendToggle} ${forceFallback ? styles.backendOpenAI : styles.backendLocal}`}
+              className={`${styles.backendToggle} ${selectedBackend === 'openai' ? styles.backendOpenAI : styles.backendLocal}`}
               onClick={toggleBackend}
               disabled={toggling}
-              title={forceFallback ? 'Using OpenAI — click to switch to local' : 'Using local LLM — click to switch to OpenAI'}
+              title={`Using ${selectedLabel} — click to switch to ${alternateLabel}`}
             >
               <span className={styles.backendDot} />
-              {forceFallback ? 'OpenAI' : 'Local'}
+              {selectedLabel}
             </button>
             {backend === 'none' && (
               <span className={styles.backendWarn}>no backend available</span>
@@ -161,7 +165,7 @@ export function Chat() {
           <button
             type="submit"
             className={styles.sendBtn}
-            disabled={sending || (!text.trim() && !photo)}
+            disabled={!text.trim() && !photo}
           >
             ▶
           </button>
@@ -171,7 +175,7 @@ export function Chat() {
   )
 }
 
-function MessageBubble({ msg }: { msg: Message }) {
+function MessageBubble({ msg, onDuplicateAction }: { msg: Message; onDuplicateAction: (threadId: string, action: 'add' | 'cancel') => void }) {
   if (msg.role === 'user') {
     return (
       <div className={styles.userBubble}>
@@ -214,6 +218,16 @@ function MessageBubble({ msg }: { msg: Message }) {
     return (
       <div className={`${styles.assistantBubble} ${m.kind === 'error' ? styles.errorBubble : ''}`}>
         {m.text}
+        {m.kind === 'clarification' && m.clarificationKind === 'duplicate_upsert' && m.threadId && (
+          <div className={styles.clarificationActions}>
+            <button className={styles.inlineActionBtn} onClick={() => onDuplicateAction(m.threadId!, 'add')}>
+              Add
+            </button>
+            <button className={styles.inlineActionBtn} onClick={() => onDuplicateAction(m.threadId!, 'cancel')}>
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
     )
   }
