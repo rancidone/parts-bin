@@ -1,0 +1,22 @@
+[llm]
+primary_backend = "openai"
+
+[llama]
+base_url = "http://localhost:8080"
+
+[openai]
+api_key = ""
+base_url = "https://api.openai.com/v1"
+model = "gpt-5.6-luna"
+
+[db]
+path = "parts.db"
+
+[digikey]
+client_id = ""
+client_secret = ""
+
+[jlcparts]
+db_path = ""
+min_free_bytes = 4294967296
+max_sqlite_bytes = 21474836480

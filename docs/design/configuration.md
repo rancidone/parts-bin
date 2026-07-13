@@ -13,13 +13,16 @@ Multiple subsystems — the LLM client, enrichment pipeline, database, and exter
 ## Schema
 
 ```toml
+[llm]
+primary_backend = "openai"           # "openai" or "llama"; if omitted, auto-picks openai when configured
+
 [llama]
 base_url = "http://localhost:8080"    # llama.cpp server endpoint
 
 [openai]
-api_key = ""                          # leave empty to disable LLM fallback
+api_key = ""                          # leave empty to disable OpenAI backend
 base_url = "https://api.openai.com/v1"
-model = "gpt-4o-mini"
+model = "gpt-5.6-luna"
 
 [db]
 path = "parts.db"                     # SQLite file path, relative to project root
@@ -40,7 +43,8 @@ max_sqlite_bytes = 21474836480        # reject extracted db above this size
 
 ## Opt-In Subsystems
 
-- **OpenAI fallback**: disabled when `openai.api_key` is empty.
+- **OpenAI backend**: disabled when `openai.api_key` is empty.
+- **Local llama.cpp backend**: disabled when `llama.base_url` is empty or omitted.
 - **DigiKey enrichment**: disabled when `digikey.client_id` is empty.
 - **JLC parts catalog**: disabled when `jlcparts.db_path` is empty.
 - **Web search escalation**: disabled when `[search]` section is absent. Uses DuckDuckGo HTML search — no API key required. Used as last resort when all other enrichment stages fail.

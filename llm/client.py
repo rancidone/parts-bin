@@ -1,5 +1,5 @@
 """
-LLM client — Qwen 3.5 via llama.cpp OpenAI-compatible API.
+LLM client for Parts Bin.
 
 Primary call mode:
   chat()     — unified conversational path; returns response + optional DB action.
@@ -222,6 +222,69 @@ def _build_content(text: str, image_b64: str | None) -> list[dict] | str:
     ]
 
 
+def _content_metrics(content: Any) -> dict[str, int | bool]:
+    if isinstance(content, str):
+        return {
+            "text_chars": len(content),
+            "image_count": 0,
+            "image_base64_chars": 0,
+            "has_image": False,
+        }
+
+    text_chars = 0
+    image_count = 0
+    image_base64_chars = 0
+    for item in content if isinstance(content, list) else []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "text":
+            text_chars += len(item.get("text") or "")
+        elif item.get("type") == "image_url":
+            image_count += 1
+            image_base64_chars += len(((item.get("image_url") or {}).get("url")) or "")
+
+    return {
+        "text_chars": text_chars,
+        "image_count": image_count,
+        "image_base64_chars": image_base64_chars,
+        "has_image": image_count > 0,
+    }
+
+
+def _message_metrics(messages: list[dict]) -> dict[str, int | bool]:
+    system_count = 0
+    user_count = 0
+    assistant_count = 0
+    text_chars = 0
+    image_count = 0
+    image_base64_chars = 0
+
+    for message in messages:
+        role = message.get("role")
+        if role == "system":
+            system_count += 1
+        elif role == "user":
+            user_count += 1
+        elif role == "assistant":
+            assistant_count += 1
+
+        content_metrics = _content_metrics(message.get("content"))
+        text_chars += int(content_metrics["text_chars"])
+        image_count += int(content_metrics["image_count"])
+        image_base64_chars += int(content_metrics["image_base64_chars"])
+
+    return {
+        "message_count": len(messages),
+        "system_message_count": system_count,
+        "user_message_count": user_count,
+        "assistant_message_count": assistant_count,
+        "text_chars": text_chars,
+        "image_count": image_count,
+        "image_base64_chars": image_base64_chars,
+        "has_image": image_count > 0,
+    }
+
+
 MAX_HISTORY_TURNS = 20  # user+assistant pairs
 
 
@@ -282,74 +345,130 @@ def _completions_url(base_url: str) -> str:
 
 class LLMClient:
     """
-    Async client for llama.cpp's OpenAI-compatible chat completions endpoint.
+    Async client for Parts Bin chat completions.
 
     Args:
-        base_url:         llama.cpp server base URL (e.g. "http://localhost:8080").
-        model:            Model name passed to the API.
+        base_url:         Local OpenAI-compatible server base URL.
+        model:            Model name for the local backend.
         timeout:          HTTP timeout in seconds for non-streaming calls.
-        fallback_url:     OpenAI-compatible base URL to use when the primary is unreachable.
-        fallback_api_key: Bearer token for the fallback API.
-        fallback_model:   Model name for the fallback API.
+        fallback_url:     OpenAI-compatible cloud base URL.
+        fallback_api_key: Bearer token for the cloud backend.
+        fallback_model:   Model name for the cloud backend.
+        primary_backend:  Preferred backend, either "llama" or "openai".
     """
 
     def __init__(
         self,
-        base_url: str = "http://localhost:8080",
+        base_url: str | None = "http://localhost:8080",
         model: str = "qwen",
         timeout: float = 60.0,
         fallback_url: str | None = None,
         fallback_api_key: str | None = None,
         fallback_model: str | None = None,
+        primary_backend: str = "llama",
     ) -> None:
-        self._base_url = base_url.rstrip("/")
-        self._completions_url = _completions_url(base_url)
+        self._base_url = base_url.rstrip("/") if base_url else None
+        self._completions_url = _completions_url(base_url) if base_url else None
         self._model = model
         self._timeout = timeout
         self._fallback_url = _completions_url(fallback_url) if fallback_url else None
         self._fallback_api_key = fallback_api_key
         self._fallback_model = fallback_model
+        self._primary_backend = "openai" if primary_backend == "openai" else "llama"
         self.force_fallback: bool = False
         self.recorder: Any = None  # FineTuneRecorder | None
 
     @property
     def has_fallback(self) -> bool:
-        return self._fallback_url is not None
+        return self._secondary_backend_configured()
 
-    async def health_check(self) -> dict:
-        """
-        Check reachability of the llama backend (and whether a fallback is configured).
+    @property
+    def primary_backend(self) -> str:
+        return self._primary_backend
 
-        Returns:
-          {
-            "llama": "ok" | "unreachable",
-            "fallback_configured": bool,
-            "force_fallback": bool,
-            "active_backend": "llama" | "openai-fallback" | "none",
-          }
-        """
-        llama_status = "unreachable"
+    def _backend_configured(self, backend: str) -> bool:
+        if backend == "llama":
+            return self._completions_url is not None
+        return self._fallback_url is not None and bool(self._fallback_api_key) and bool(self._fallback_model)
+
+    def _secondary_backend_configured(self) -> bool:
+        return self._backend_configured(self._secondary_backend_name())
+
+    def _secondary_backend_name(self) -> str:
+        return "openai" if self._primary_backend == "llama" else "llama"
+
+    def _backend_sequence(self) -> list[str]:
+        preferred = self._secondary_backend_name() if self.force_fallback else self._primary_backend
+        other = self._primary_backend if preferred != self._primary_backend else self._secondary_backend_name()
+        ordered = [preferred]
+        if other != preferred:
+            ordered.append(other)
+        return [backend for backend in ordered if self._backend_configured(backend)]
+
+    async def _llama_status(self) -> str:
+        if not self._base_url:
+            return "not_configured"
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
                 resp = await client.get(f"{self._base_url}/health")
                 if resp.status_code < 500:
-                    llama_status = "ok"
+                    return "ok"
         except Exception:
             pass
+        return "unreachable"
 
-        if self.force_fallback and self.has_fallback:
-            active = "openai-fallback"
-        elif llama_status == "ok":
-            active = "llama"
-        elif self.has_fallback:
-            active = "openai-fallback"
+    async def _request_backend(self, backend: str, payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        headers: dict[str, str] | None = None
+        if backend == "llama":
+            if self._completions_url is None:
+                raise httpx.ConnectError("llama backend is not configured")
+            url = self._completions_url
         else:
-            active = "none"
+            if self._fallback_url is None or not self._fallback_api_key or not self._fallback_model:
+                raise httpx.ConnectError("openai backend is not configured")
+            url = self._fallback_url
+            payload = {**payload, "model": self._fallback_model}
+            headers = {"Authorization": f"Bearer {self._fallback_api_key}"}
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+        return content, data
+
+    async def health_check(self) -> dict:
+        """
+        Check configured backends and which one would currently be used.
+
+        Returns:
+          {
+            "llama": "ok" | "unreachable" | "not_configured",
+            "openai": "configured" | "not_configured",
+            "fallback_configured": bool,
+            "force_fallback": bool,
+            "primary_backend": "llama" | "openai",
+            "active_backend": "llama" | "openai" | "none",
+          }
+        """
+        llama_status = await self._llama_status()
+        openai_status = "configured" if self._backend_configured("openai") else "not_configured"
+
+        active = "none"
+        for backend in self._backend_sequence():
+            if backend == "openai":
+                active = "openai"
+                break
+            if backend == "llama" and llama_status == "ok":
+                active = "llama"
+                break
 
         return {
             "llama": llama_status,
+            "openai": openai_status,
             "fallback_configured": self.has_fallback,
             "force_fallback": self.force_fallback,
+            "primary_backend": self._primary_backend,
             "active_backend": active,
         }
 
@@ -362,6 +481,7 @@ class LLMClient:
         user_message: str,
         image_b64: str | None = None,
         history_messages: list[dict] | None = None,
+        request_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Extract structured part data from a text message and optional image.
@@ -377,7 +497,13 @@ class LLMClient:
             *(history_messages or []),
             {"role": "user",   "content": content},
         ]
-        result = await self._extract_with_retry(messages, INGESTION_SCHEMA)
+        result = await self._extract_with_retry(messages, INGESTION_SCHEMA, telemetry={
+            "operation": "ingest_extract",
+            "request_id": request_id,
+            "user_message_chars": len(user_message),
+            "history_message_count": len(history_messages or []),
+            "inventory_count": 0,
+        })
         if image_b64 is not None and self.recorder is not None:
             try:
                 self.recorder.record(
@@ -393,8 +519,9 @@ class LLMClient:
         self,
         messages: list[dict],
         schema: dict[str, Any],
+        telemetry: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        raw = await self._complete(messages, schema)
+        raw = await self._complete(messages, schema, telemetry=telemetry)
         try:
             result = json.loads(raw)
             _logger.debug("llm extract ok", extra={"schema": schema["name"], "result": result})
@@ -409,7 +536,7 @@ class LLMClient:
                     "content": "Your previous response was not valid JSON. Return only the JSON object.",
                 },
             ]
-            raw2 = await self._complete(messages, schema, retry=True)
+            raw2 = await self._complete(messages, schema, retry=True, telemetry=telemetry)
             try:
                 result2 = json.loads(raw2)
                 _logger.debug("llm extract retry ok", extra={"schema": schema["name"], "result": result2})
@@ -420,7 +547,13 @@ class LLMClient:
                     f"LLM returned invalid JSON after retry. Raw output: {raw2!r}"
                 ) from exc
 
-    async def _complete(self, messages: list[dict], schema: dict[str, Any], retry: bool = False) -> str:
+    async def _complete(
+        self,
+        messages: list[dict],
+        schema: dict[str, Any],
+        retry: bool = False,
+        telemetry: dict[str, Any] | None = None,
+    ) -> str:
         """Send a non-streaming chat completion request; return the content string."""
         payload = {
             "model": self._model,
@@ -429,60 +562,69 @@ class LLMClient:
             "stream": False,
         }
         t0 = time.monotonic()
-        if self.force_fallback and self._fallback_url:
-            fallback_payload = {**payload, "model": self._fallback_model}
-            headers = {"Authorization": f"Bearer {self._fallback_api_key}"}
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(self._fallback_url, json=fallback_payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-            backend = "openai-fallback"
-        else:
+        last_error: Exception | None = None
+        for backend in self._backend_sequence():
             try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    resp = await client.post(self._completions_url, json=payload)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    content = data["choices"][0]["message"]["content"]
-                backend = "llama"
+                content, data = await self._request_backend(backend, payload)
+                break
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
-                if not self._fallback_url:
-                    raise
-                _logger.warning(
-                    "llama backend unavailable, falling back to openai",
-                    extra={"error": str(exc)},
-                )
-                fallback_payload = {**payload, "model": self._fallback_model}
-                headers = {"Authorization": f"Bearer {self._fallback_api_key}"}
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    resp = await client.post(self._fallback_url, json=fallback_payload, headers=headers)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    content = data["choices"][0]["message"]["content"]
-                backend = "openai-fallback"
+                last_error = exc
+                if backend == "llama":
+                    _logger.warning(
+                        "llama backend unavailable, trying next backend",
+                        extra={"error": str(exc)},
+                    )
+                else:
+                    _logger.warning(
+                        "openai backend unavailable, trying next backend",
+                        extra={"error": str(exc)},
+                    )
+        else:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("No LLM backend configured")
         latency_ms = round((time.monotonic() - t0) * 1000)
         usage = data.get("usage", {})
+        message_metrics = _message_metrics(messages)
+        actual_model = self._fallback_model if backend == "openai" else self._model
         _logger.info(
             "llm complete",
             extra={
                 "schema": schema["name"],
                 "retry": retry,
                 "backend": backend,
+                "model": actual_model,
                 "latency_ms": latency_ms,
                 "prompt_tokens": usage.get("prompt_tokens"),
                 "completion_tokens": usage.get("completion_tokens"),
-                "messages": messages,
-                "response": content,
+                "message_count": message_metrics["message_count"],
+                "image_count": message_metrics["image_count"],
+                "text_chars": message_metrics["text_chars"],
+                "response_chars": len(content),
             },
         )
+        telemetry_fields = {
+            **message_metrics,
+            **(telemetry or {}),
+            "call_kind": "structured",
+            "schema": schema["name"],
+            "retry": retry,
+            "backend": backend,
+            "model": actual_model,
+            "latency_ms": latency_ms,
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "total_tokens": usage.get("total_tokens"),
+            "response_chars": len(content),
+        }
+        log.emit_telemetry("llm_call", **telemetry_fields)
         return content
 
     # ------------------------------------------------------------------
     # Query path — parse intent + conversational answer
     # ------------------------------------------------------------------
 
-    async def parse_query(self, user_message: str) -> dict[str, Any]:
+    async def parse_query(self, user_message: str, request_id: str | None = None) -> dict[str, Any]:
         """
         Parse a natural language query into structured filter criteria.
 
@@ -493,13 +635,20 @@ class LLMClient:
             {"role": "system", "content": QUERY_SYSTEM_PROMPT},
             {"role": "user",   "content": user_message},
         ]
-        return await self._extract_with_retry(messages, QUERY_SCHEMA)
+        return await self._extract_with_retry(messages, QUERY_SCHEMA, telemetry={
+            "operation": "query_parse",
+            "request_id": request_id,
+            "user_message_chars": len(user_message),
+            "history_message_count": 0,
+            "inventory_count": 0,
+        })
 
     async def answer(
         self,
         user_message: str,
         parts: list[dict],
         history: ConversationHistory,
+        request_id: str | None = None,
     ) -> str:
         """
         Generate a conversational answer to the user's question given matching parts.
@@ -515,11 +664,17 @@ class LLMClient:
             *history.messages()[:-1],  # history without the just-appended user turn
             {"role": "user", "content": user_turn},
         ]
-        reply = await self._complete_text(messages)
+        reply = await self._complete_text(messages, telemetry={
+            "operation": "query_answer",
+            "request_id": request_id,
+            "user_message_chars": len(user_message),
+            "history_message_count": len(history.messages()) - 1,
+            "inventory_count": len(parts),
+        })
         history.append("assistant", reply)
         return reply
 
-    async def _complete_text(self, messages: list[dict]) -> str:
+    async def _complete_text(self, messages: list[dict], telemetry: dict[str, Any] | None = None) -> str:
         """Send a non-streaming chat completion request with free-form text output."""
         payload = {
             "model": self._model,
@@ -527,51 +682,60 @@ class LLMClient:
             "stream": False,
         }
         t0 = time.monotonic()
-        if self.force_fallback and self._fallback_url:
-            fallback_payload = {**payload, "model": self._fallback_model}
-            headers = {"Authorization": f"Bearer {self._fallback_api_key}"}
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(self._fallback_url, json=fallback_payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-            backend = "openai-fallback"
-        else:
+        last_error: Exception | None = None
+        for backend in self._backend_sequence():
             try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    resp = await client.post(self._completions_url, json=payload)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    content = data["choices"][0]["message"]["content"]
-                backend = "llama"
+                content, data = await self._request_backend(backend, payload)
+                break
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
-                if not self._fallback_url:
-                    raise
-                _logger.warning(
-                    "llama backend unavailable, falling back to openai",
-                    extra={"error": str(exc)},
-                )
-                fallback_payload = {**payload, "model": self._fallback_model}
-                headers = {"Authorization": f"Bearer {self._fallback_api_key}"}
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    resp = await client.post(self._fallback_url, json=fallback_payload, headers=headers)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    content = data["choices"][0]["message"]["content"]
-                backend = "openai-fallback"
+                last_error = exc
+                if backend == "llama":
+                    _logger.warning(
+                        "llama backend unavailable, trying next backend",
+                        extra={"error": str(exc)},
+                    )
+                else:
+                    _logger.warning(
+                        "openai backend unavailable, trying next backend",
+                        extra={"error": str(exc)},
+                    )
+        else:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("No LLM backend configured")
         latency_ms = round((time.monotonic() - t0) * 1000)
         usage = data.get("usage", {})
+        message_metrics = _message_metrics(messages)
+        actual_model = self._fallback_model if backend == "openai" else self._model
         _logger.info(
             "llm answer",
             extra={
                 "backend": backend,
+                "model": actual_model,
                 "latency_ms": latency_ms,
                 "prompt_tokens": usage.get("prompt_tokens"),
                 "completion_tokens": usage.get("completion_tokens"),
-                "messages": messages,
-                "response": content,
+                "message_count": message_metrics["message_count"],
+                "image_count": message_metrics["image_count"],
+                "text_chars": message_metrics["text_chars"],
+                "response_chars": len(content),
             },
         )
+        telemetry_fields = {
+            **message_metrics,
+            **(telemetry or {}),
+            "call_kind": "text",
+            "schema": None,
+            "retry": False,
+            "backend": backend,
+            "model": actual_model,
+            "latency_ms": latency_ms,
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "total_tokens": usage.get("total_tokens"),
+            "response_chars": len(content),
+        }
+        log.emit_telemetry("llm_call", **telemetry_fields)
         return content
 
     # ------------------------------------------------------------------
@@ -584,6 +748,7 @@ class LLMClient:
         image_b64: str | None,
         history: ConversationHistory,
         inventory: list[dict],
+        request_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Primary entry point for all user interactions.
@@ -603,7 +768,13 @@ class LLMClient:
             {"role": "user", "content": content},
         ]
 
-        result = await self._extract_with_retry(messages, CHAT_SCHEMA)
+        result = await self._extract_with_retry(messages, CHAT_SCHEMA, telemetry={
+            "operation": "chat",
+            "request_id": request_id,
+            "user_message_chars": len(user_message),
+            "history_message_count": len(history.messages()),
+            "inventory_count": len(inventory),
+        })
 
         history.append("user", user_message)
         history.append("assistant", json.dumps({
@@ -645,7 +816,13 @@ class LLMClient:
                 "content": f"Source descriptions:\n{sources_block}",
             },
         ]
-        merged = (await self._complete_text(messages)).strip()
+        merged = (await self._complete_text(messages, telemetry={
+            "operation": "description_merge",
+            "request_id": None,
+            "user_message_chars": sum(len(d) for d in descriptions),
+            "history_message_count": 0,
+            "inventory_count": 0,
+        })).strip()
         if self.recorder is not None:
             try:
                 self.recorder.record(

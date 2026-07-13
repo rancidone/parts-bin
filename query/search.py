@@ -46,6 +46,7 @@ async def run_query(
     llm: LLMClient,
     user_message: str,
     history: ConversationHistory,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Parse a natural language query and execute a DB lookup.
@@ -53,7 +54,7 @@ async def run_query(
     Returns a single result dict. History is updated by the LLM client.
     """
     try:
-        parsed = await llm.parse_query(user_message)
+        parsed = await llm.parse_query(user_message, request_id=request_id)
     except ValueError as exc:
         _logger.error("query parse failed", extra={"error": str(exc)})
         return {"type": "error", "message": str(exc)}
@@ -65,7 +66,7 @@ async def run_query(
     parts = query(db_path, attrs)
     _logger.info("query result", extra={"match_count": len(parts), "attrs": attrs})
 
-    answer = await llm.answer(user_message, parts, history)
+    answer = await llm.answer(user_message, parts, history, request_id=request_id)
     _logger.info("query answer", extra={"answer": answer})
 
     if parts:
