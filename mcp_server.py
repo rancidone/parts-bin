@@ -9,20 +9,41 @@ from collections.abc import Callable
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from db.persistence import delete_part as _delete_part
 from db.persistence import get_by_id, list_all, query, replace_part, upsert
 from ingestion.lookup import fetch_specs_detailed
+
+_DEFAULT_ALLOWED_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+_DEFAULT_ALLOWED_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
 
 
 def build_mcp_server(
     get_db_path: Callable[[], str | Path],
     digikey_creds: dict | None,
     jlcparts_db_path: str | None,
+    allowed_host: str | None = None,
 ) -> FastMCP:
+    # The mcp SDK's DNS-rebinding protection only allows localhost by default;
+    # add the real deployment hostname so clients connecting via it (e.g.
+    # Traefik-routed requests carrying that Host header) aren't rejected.
+    allowed_hosts = list(_DEFAULT_ALLOWED_HOSTS)
+    allowed_origins = list(_DEFAULT_ALLOWED_ORIGINS)
+    if allowed_host:
+        allowed_hosts += [allowed_host, f"{allowed_host}:*"]
+        allowed_origins += [f"https://{allowed_host}", f"https://{allowed_host}:*"]
+
     # Mounted at /mcp on the parent app (see server.py) — serve at "/" here so the
     # combined path is /mcp, not /mcp/mcp.
-    mcp = FastMCP("parts-bin", streamable_http_path="/")
+    mcp = FastMCP(
+        "parts-bin",
+        streamable_http_path="/",
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=allowed_hosts,
+            allowed_origins=allowed_origins,
+        ),
+    )
 
     @mcp.tool()
     def search_parts(
