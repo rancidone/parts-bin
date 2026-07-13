@@ -31,16 +31,16 @@ COPY . ./
 COPY --from=ui-builder /app/ui/dist ./ui/dist
 
 RUN useradd --create-home --shell /bin/bash appuser \
-    && mkdir -p /data \
-    && chown -R appuser:appuser /app /data
+    && mkdir -p /app/data \
+    && chown -R appuser:appuser /app
 
 USER appuser
 
 EXPOSE 8000
 
 ENV LOG_LEVEL=INFO \
-    TELEMETRY_LOG_FILE=/data/telemetry.jsonl
+    TELEMETRY_LOG_FILE=/app/data/telemetry.jsonl
 
-VOLUME ["/data"]
+VOLUME ["/app/data"]
 
 CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]

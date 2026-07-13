@@ -10,13 +10,13 @@ base_url = "https://api.openai.com/v1"
 model = "gpt-5.6-luna"
 
 [db]
-path = "parts.db"
+path = "data/parts.db"
 
 [digikey]
 client_id = ""
 client_secret = ""
 
 [jlcparts]
-db_path = ""
+db_path = "data/jlcparts.sqlite3"
 min_free_bytes = 4294967296
 max_sqlite_bytes = 21474836480
