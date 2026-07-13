@@ -927,6 +927,16 @@ async def fetch_specs_detailed(
         "tried_providers": tried_providers,
         "outcome": outcome,
     })
+    log.emit_telemetry(
+        "lookup_finished",
+        part_number=part_number,
+        latency_ms=total_latency_ms,
+        outcome=outcome,
+        provider=provider,
+        tried_providers=tried_providers,
+        stage_timings_ms=stage_timings_ms,
+        source_attempt_count=len(source_attempts),
+    )
 
     return {
         "request": {"part_number": part_number, "inventory_id": None},

@@ -5,6 +5,7 @@ clauderfall.db
 config.toml
 parts.db
 *.log
+*.jsonl
 jlcparts.sqlite3
 
 # macos
