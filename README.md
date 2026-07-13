@@ -65,14 +65,14 @@ The repo now includes:
 - `Dockerfile` — multi-stage build that compiles the Vite UI and serves it from FastAPI
 - `compose.yaml` — simple app deployment with a mounted config file and persistent data directory
 
-For container use, set your config paths to `/data` so the SQLite files survive restarts:
+For both host development and container use, keep the SQLite files under the repo `data/` directory:
 
 ```toml
 [db]
-path = "/data/parts.db"
+path = "data/parts.db"
 
 [jlcparts]
-db_path = "/data/jlcparts.sqlite3"
+db_path = "data/jlcparts.sqlite3"
 ```
 
 Then start it with:
