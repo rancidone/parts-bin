@@ -15,18 +15,10 @@ export function useChat() {
     setMessages(prev => [...prev, msg])
   }
 
-  function chooseThreadId(text: string, photo?: File, explicitThreadId?: string) {
-    if (explicitThreadId) return explicitThreadId
-    if (photo || /^\s*add\b/i.test(text)) {
-      return globalThis.crypto?.randomUUID?.() ?? `thread-${Date.now()}-${Math.random().toString(16).slice(2)}`
-    }
-    return mainThreadIdRef.current
-  }
-
   async function send(text: string, photo?: File, options: SendOptions = {}) {
     // Add user message immediately.
     const photoUrl = photo ? URL.createObjectURL(photo) : undefined
-    const threadId = chooseThreadId(text, photo, options.threadId)
+    const threadId = options.threadId ?? mainThreadIdRef.current
     if (!options.hideUserEcho) {
       addMessage({ role: 'user', text, photoUrl })
     }

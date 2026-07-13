@@ -190,7 +190,12 @@ CHAT_SYSTEM_PROMPT = (
     "Use 'none' and ask naturally only when you still need missing information. "
     "If inventory is provided below, use it to answer questions. "
     "Always respond conversationally — never output raw data at the user. "
-    "In 'response', never interpolate field values directly — describe changes in plain prose only."
+    "In 'response', never interpolate field values directly — describe changes in plain prose only.\n\n"
+    "Earlier assistant turns in this conversation are logged as the actual outcome, not your "
+    "original proposal — they carry 'action_status' (what really happened, e.g. 'saved', "
+    "'no-specs', 'lookup-failed') and, for inventory questions, 'query_results' (the real matches "
+    "found, if any). Treat those as ground truth when answering follow-ups like 'did you find it?' "
+    "or 'is that saved?' — do not say you lack an earlier request if one of these turns shows one."
 )
 
 ANSWER_SYSTEM_PROMPT = (
@@ -300,6 +305,17 @@ class ConversationHistory:
     def append(self, role: str, content: str) -> None:
         self._messages.append({"role": role, "content": content})
         self._evict()
+
+    def replace_last_assistant(self, content: str) -> None:
+        """Overwrite the most recent assistant turn with ground-truth outcome.
+
+        The model proposes db_action/response before the server executes it and
+        resolves any query_filter, so the turn logged during .chat() can go stale
+        (e.g. a future-tense "I'll check..." with no results). Callers patch it
+        in afterward so later turns are grounded in what actually happened.
+        """
+        if self._messages and self._messages[-1]["role"] == "assistant":
+            self._messages[-1]["content"] = content
 
     def messages(self) -> list[dict[str, str]]:
         return list(self._messages)
@@ -756,14 +772,13 @@ class LLMClient:
         Returns {"response": str, "db_action": {"type": str, <part fields>}}.
         Updates history with the exchange.
         """
-        content = _build_content(user_message, image_b64)
-
-        system = CHAT_SYSTEM_PROMPT
+        turn_text = user_message
         if inventory:
-            system += f"\n\nCurrent inventory:\n{json.dumps(inventory, indent=2)}"
+            turn_text = f"{user_message}\n\nCurrent inventory:\n{json.dumps(inventory, indent=2)}"
+        content = _build_content(turn_text, image_b64)
 
         messages = [
-            {"role": "system", "content": system},
+            {"role": "system", "content": CHAT_SYSTEM_PROMPT},
             *history.messages(),
             {"role": "user", "content": content},
         ]

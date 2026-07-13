@@ -146,6 +146,19 @@ async def _digikey_lookup_detailed(
                 **_http_error_details(exc),
             }
             _logger.warning("digikey lookup timeout", extra=last_error)
+        except httpx.HTTPStatusError as exc:
+            last_error = {
+                "part_number": part_number,
+                "attempt": attempt + 1,
+                "latency_ms": round((perf_counter() - attempt_started) * 1000, 1),
+                "total_latency_ms": round((perf_counter() - lookup_started) * 1000, 1),
+                **_http_error_details(exc),
+            }
+            if exc.response.status_code == 404:
+                _logger.info("digikey lookup no match", extra=last_error)
+                return {"specs": None, "debug": None, "status": "no_match", "error": last_error}
+            _logger.warning("digikey lookup failed", extra=last_error)
+            return {"specs": None, "debug": None, "status": "failed", "error": last_error}
         except Exception as exc:
             last_error = {
                 "part_number": part_number,
