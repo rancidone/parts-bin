@@ -6,10 +6,10 @@ services:
       - "8000:8000"
     volumes:
       - ./config.toml:/app/config.toml:ro
-      - ./data:/data
+      - ./data:/app/data
     environment:
       LOG_LEVEL: INFO
-      TELEMETRY_LOG_FILE: /data/telemetry.jsonl
+      TELEMETRY_LOG_FILE: /app/data/telemetry.jsonl
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.parts-bin.rule=Host(`parts.brownfamily.house`)"

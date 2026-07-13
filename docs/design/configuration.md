@@ -25,14 +25,14 @@ base_url = "https://api.openai.com/v1"
 model = "gpt-5.6-luna"
 
 [db]
-path = "parts.db"                     # SQLite file path, relative to project root
+path = "data/parts.db"                # SQLite file path, relative to project root
 
 [digikey]
 client_id = ""
 client_secret = ""                    # leave empty to disable DigiKey enrichment
 
 [jlcparts]
-db_path = ""                          # leave empty to disable local catalog
+db_path = "data/jlcparts.sqlite3"     # leave empty to disable local catalog
 min_free_bytes = 4294967296           # disk space required before extraction
 max_sqlite_bytes = 21474836480        # reject extracted db above this size
 
