@@ -1,8 +1,7 @@
-# clauderfall
-clauderfall.db
-
 # parts-bin
 config.toml
+.env
+compose.override.yaml
 parts.db
 *.log
 *.jsonl

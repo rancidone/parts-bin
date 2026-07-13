@@ -1,23 +1,14 @@
 services:
   parts-bin:
     build: .
-    container_name: parts-bin
     ports:
       - "8000:8000"
     volumes:
       - ./config.toml:/app/config.toml:ro
       - ./data:/app/data
     environment:
-      LOG_LEVEL: INFO
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: json
+      LOG_FILE: /app/data/parts_bin.log
       TELEMETRY_LOG_FILE: /app/data/telemetry.jsonl
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.parts-bin.rule=Host(`parts.example.com`)"
-      - "traefik.http.routers.parts-bin.entrypoints=https"
-      - "traefik.http.services.parts-bin.loadbalancer.server.port=8000"
     restart: unless-stopped
-
-networks:
-  default:
-    name: proxy
-    external: true
