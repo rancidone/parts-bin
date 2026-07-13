@@ -4,8 +4,10 @@ Tests for LLM client — pure logic only (no HTTP calls).
 
 import json
 
+import httpx
 import pytest
 
+import llm.client as llm_client_module
 from llm.client import CHAT_SCHEMA, ConversationHistory, LLMClient, _build_content
 
 
@@ -102,7 +104,7 @@ class TestChatHistory:
             },
         }
 
-        async def fake_extract(messages, schema):
+        async def fake_extract(messages, schema, telemetry=None):
             assert schema == CHAT_SCHEMA
             return result
 
@@ -115,3 +117,89 @@ class TestChatHistory:
         assert messages[0] == {"role": "user", "content": "add 20 10k 0402 resistors"}
         assert messages[1]["role"] == "assistant"
         assert json.loads(messages[1]["content"]) == result
+
+
+@pytest.mark.asyncio
+class TestBackendSelection:
+    async def test_health_prefers_openai_when_configured_as_primary(self, monkeypatch):
+        client = LLMClient(
+            base_url=None,
+            fallback_url="https://api.openai.com/v1",
+            fallback_api_key="test-key",
+            fallback_model="gpt-4o-mini",
+            primary_backend="openai",
+        )
+
+        status = await client.health_check()
+
+        assert status["llama"] == "not_configured"
+        assert status["openai"] == "configured"
+        assert status["primary_backend"] == "openai"
+        assert status["active_backend"] == "openai"
+
+    async def test_complete_falls_back_from_openai_to_llama(self, monkeypatch):
+        client = LLMClient(
+            base_url="http://localhost:8080",
+            fallback_url="https://api.openai.com/v1",
+            fallback_api_key="test-key",
+            fallback_model="gpt-4o-mini",
+            primary_backend="openai",
+        )
+
+        async def fake_request(backend, payload):
+            if backend == "openai":
+                raise httpx.ConnectError("unreachable")
+            return '{"ok": true}', {"choices": [{"message": {"content": '{"ok": true}'}}], "usage": {}}
+
+        monkeypatch.setattr(client, "_request_backend", fake_request)
+
+        result = await client._complete(
+            [{"role": "user", "content": "hi"}],
+            {"name": "test_schema", "schema": {"type": "object"}},
+        )
+
+        assert result == '{"ok": true}'
+
+    async def test_complete_emits_compact_telemetry(self, monkeypatch):
+        client = LLMClient(
+            base_url="http://localhost:8080",
+            fallback_url="https://api.openai.com/v1",
+            fallback_api_key="test-key",
+            fallback_model="gpt-5.6-luna",
+            primary_backend="openai",
+        )
+        captured: dict[str, object] = {}
+
+        async def fake_request(backend, payload):
+            return '{"ok": true}', {
+                "choices": [{"message": {"content": '{"ok": true}'}}],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
+            }
+
+        def fake_emit(event, **fields):
+            captured["event"] = event
+            captured["fields"] = fields
+
+        monkeypatch.setattr(client, "_request_backend", fake_request)
+        monkeypatch.setattr(llm_client_module.log, "emit_telemetry", fake_emit)
+
+        await client._complete(
+            [{"role": "user", "content": [{"type": "text", "text": "label"}, {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,abc123"}}]}],
+            {"name": "test_schema", "schema": {"type": "object"}},
+            telemetry={"operation": "chat", "request_id": "req_123", "inventory_count": 7, "history_message_count": 2, "user_message_chars": 5},
+        )
+
+        assert captured["event"] == "llm_call"
+        fields = captured["fields"]
+        assert fields["operation"] == "chat"
+        assert fields["request_id"] == "req_123"
+        assert fields["backend"] == "openai"
+        assert fields["model"] == "gpt-5.6-luna"
+        assert fields["prompt_tokens"] == 12
+        assert fields["completion_tokens"] == 4
+        assert fields["total_tokens"] == 16
+        assert fields["image_count"] == 1
+        assert fields["message_count"] == 1
+        assert fields["inventory_count"] == 7
+        assert "messages" not in fields
+        assert "response" not in fields

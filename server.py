@@ -14,11 +14,13 @@ import tomllib
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from time import perf_counter
+from uuid import uuid4
 
 import log
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from db.persistence import (
     clear_pending_review,
     delete_part,
@@ -46,6 +48,7 @@ from query.search import run_query
 # ---------------------------------------------------------------------------
 
 _CONFIG_PATH = Path(__file__).parent / "config.toml"
+_UI_DIST_PATH = Path(__file__).parent / "ui" / "dist"
 
 
 def _load_config() -> dict:
@@ -70,6 +73,7 @@ _JLCPARTS_MIN_FREE_BYTES: int = int(_cfg.get("jlcparts", {}).get("min_free_bytes
 _JLCPARTS_MAX_SQLITE_BYTES: int | None = _cfg.get("jlcparts", {}).get("max_sqlite_bytes")
 _jlcparts_dl_status: str = "idle"  # idle | downloading | error
 _background_enrichment_tasks: set[asyncio.Task] = set()
+_pending_duplicate_confirmation: dict[str, dict] = {}
 _PASSIVE_CATEGORIES = {"resistor", "capacitor", "inductor"}
 _PACKAGE_TOKEN_RE = re.compile(
     r"^(?:\d{4}|\d{5}|"
@@ -100,14 +104,20 @@ app.add_middleware(
 
 _openai_cfg = _cfg.get("openai", {})
 _openai_key = _openai_cfg.get("api_key", "")
+_llm_cfg = _cfg.get("llm", {})
 _search_cfg = _cfg.get("search")  # None if section absent; {} if present but empty
+_primary_backend = _llm_cfg.get("primary_backend")
+if _primary_backend not in {"llama", "openai"}:
+    _primary_backend = "openai" if _openai_key else "llama"
 _llm = LLMClient(
-    base_url=_cfg["llama"]["base_url"],
+    base_url=_cfg.get("llama", {}).get("base_url"),
     fallback_url=_openai_cfg.get("base_url") if _openai_key else None,
     fallback_api_key=_openai_key or None,
     fallback_model=_openai_cfg.get("model") if _openai_key else None,
+    primary_backend=_primary_backend,
 )
-_history = ConversationHistory()
+_MAIN_CHAT_THREAD_ID = "main"
+_histories: dict[str, ConversationHistory] = {_MAIN_CHAT_THREAD_ID: ConversationHistory()}
 _query_history = ConversationHistory()
 
 # Initialise DB at startup.
@@ -249,15 +259,20 @@ def _merge_existing_part_for_replace(part_id: int, fields: dict) -> dict | None:
     existing = get_by_id(_DB_PATH, part_id)
     if existing is None:
         return None
+
+    def pick(field_name: str) -> object:
+        value = fields.get(field_name)
+        return existing.get(field_name) if value is None else value
+
     merged = {
-        "part_category": fields.get("part_category", existing.get("part_category")),
-        "profile": fields.get("profile", existing.get("profile")),
-        "value": fields.get("value", existing.get("value")),
-        "package": fields.get("package", existing.get("package")),
-        "part_number": fields.get("part_number", existing.get("part_number")),
+        "part_category": pick("part_category"),
+        "profile": pick("profile"),
+        "value": pick("value"),
+        "package": pick("package"),
+        "part_number": pick("part_number"),
         "quantity": existing.get("quantity") if fields.get("quantity") is None else fields.get("quantity"),
-        "manufacturer": fields.get("manufacturer", existing.get("manufacturer")),
-        "description": fields.get("description", existing.get("description")),
+        "manufacturer": pick("manufacturer"),
+        "description": pick("description"),
     }
     return _repair_part_payload(merged)
 
@@ -270,6 +285,70 @@ def _execute_upsert_part(part: dict) -> int | None:
     if _should_enqueue_enrichment(payload):
         _track_background_task(asyncio.create_task(_enrich_upserted_part(part_id, payload["part_number"])))
     return part_id
+
+
+def _upsert_duplicate_match(part: dict) -> dict | None:
+    payload = _coerce_part_payload(part)
+    if payload.get("part_number"):
+        matches = query(_DB_PATH, {"part_number": payload["part_number"]})
+        return matches[0] if matches else None
+
+    if not (payload.get("part_category") and payload.get("value") and payload.get("package")):
+        return None
+
+    attrs = {
+        "part_category": payload["part_category"],
+        "value": normalize_value(payload["value"], payload["part_category"]),
+        "package": payload["package"],
+    }
+    matches = query(_DB_PATH, attrs)
+    for match in matches:
+        if match.get("part_number") is None:
+            return match
+    return None
+
+
+def _detect_duplicate_upsert(action: dict) -> tuple[dict, dict] | None:
+    if action.get("type") != "upsert":
+        return None
+
+    items = action.get("items") or None
+    if items:
+        if len(items) != 1:
+            return None
+        candidate = items[0]
+    else:
+        candidate = action
+
+    duplicate = _upsert_duplicate_match(candidate)
+    if duplicate is None:
+        return None
+    return candidate, duplicate
+
+
+def _duplicate_confirmation_message(candidate: dict, duplicate: dict) -> str:
+    label = (
+        candidate.get("part_number")
+        or " ".join(str(part) for part in (candidate.get("value"), candidate.get("package"), candidate.get("part_category")) if part)
+        or "that part"
+    )
+    existing_qty = duplicate.get("quantity")
+    new_qty = candidate.get("quantity")
+    return (
+        f"I found an exact existing match for {label} (current quantity: {existing_qty}). "
+        f"Reply `add` to increase it by {new_qty}, or `cancel` to skip this bag."
+    )
+
+
+def _duplicate_confirmation_response(message: str, image_b64: str | None) -> str:
+    if image_b64 is not None:
+        return "unresolved"
+    normalized = message.strip().lower()
+    if normalized in {"add", "yes", "confirm", "ok", "okay", "do it"}:
+        return "confirm"
+    if normalized in {"cancel", "no", "skip", "stop", "never mind", "nevermind"}:
+        return "cancel"
+    return "unresolved"
 
 
 async def _execute_action(action: dict) -> tuple[int | None, str, dict]:
@@ -423,18 +502,100 @@ async def _execute_action(action: dict) -> tuple[int | None, str, dict]:
     return None, "noop", {}
 
 
-async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[str, None]:
+async def _chat_stream(
+    message: str,
+    image_b64: str | None,
+    request_id: str | None = None,
+    thread_id: str | None = None,
+) -> AsyncGenerator[str, None]:
+    request_id = request_id or uuid4().hex
+    thread_key = thread_id or _MAIN_CHAT_THREAD_ID
     inventory = list_all(_DB_PATH)
+    pending_duplicate = _pending_duplicate_confirmation.get(thread_key)
+    if pending_duplicate is not None:
+        resolution = _duplicate_confirmation_response(message, image_b64)
+        if resolution == "confirm":
+            action = pending_duplicate["action"]
+            duplicate = pending_duplicate["duplicate"]
+            _pending_duplicate_confirmation.pop(thread_key, None)
+            part_id, action_status, action_extras = await _execute_action(action)
+            saved_part = get_by_id(_DB_PATH, part_id) if part_id and action_status == "saved" else None
+            response_text = (
+                f"I added it to the existing entry for {duplicate.get('part_number') or duplicate.get('part_category')} "
+                f"and increased the quantity."
+            )
+            yield _sse("result", {
+                "type": "chat",
+                "thread_id": thread_key,
+                "response": response_text,
+                "action": "upsert",
+                "part": saved_part,
+            })
+            yield _sse("done", {})
+            return
+        if resolution == "cancel":
+            _pending_duplicate_confirmation.pop(thread_key, None)
+            yield _sse("result", {
+                "type": "clarification",
+                "thread_id": thread_key,
+                "message": "Okay, I canceled that duplicate add.",
+            })
+            yield _sse("done", {})
+            return
+        yield _sse("result", {
+            "type": "clarification",
+            "thread_id": thread_key,
+            "clarification_kind": "duplicate_upsert",
+            "message": pending_duplicate["message"],
+        })
+        yield _sse("done", {})
+        return
+
+    history = _histories.setdefault(thread_key, ConversationHistory())
     try:
-        result = await _llm.chat(message, image_b64, _history, inventory)
+        result = await _llm.chat(message, image_b64, history, inventory, request_id=request_id)
     except Exception as exc:
         _logger.error("chat failed", extra={"error": str(exc)})
+        log.emit_telemetry(
+            "chat_result",
+            request_id=request_id,
+            thread_id=thread_key,
+            status="error",
+            error=str(exc),
+            has_image=image_b64 is not None,
+            inventory_count=len(inventory),
+        )
         yield _sse("error", {"message": str(exc), "detail": ""})
         yield _sse("done", {})
         return
 
     action = result["db_action"]
     action_type = action["type"]
+    duplicate_match = _detect_duplicate_upsert(action)
+    if duplicate_match is not None:
+        _, duplicate = duplicate_match
+        confirmation_message = _duplicate_confirmation_message(duplicate_match[0], duplicate)
+        _pending_duplicate_confirmation[thread_key] = {
+            "action": action,
+            "duplicate": duplicate,
+            "message": confirmation_message,
+        }
+        log.emit_telemetry(
+            "duplicate_confirmation_requested",
+            request_id=request_id,
+            thread_id=thread_key,
+            duplicate_part_id=duplicate.get("id"),
+            has_image=image_b64 is not None,
+        )
+        yield _sse("result", {
+            "type": "clarification",
+            "thread_id": thread_key,
+            "clarification_kind": "duplicate_upsert",
+            "message": confirmation_message,
+        })
+        yield _sse("done", {})
+        return
+
     part_id, action_status, action_extras = await _execute_action(action)
     saved_part = get_by_id(_DB_PATH, part_id) if part_id and action_status == "saved" else None
 
@@ -483,16 +644,30 @@ async def _chat_stream(message: str, image_b64: str | None) -> AsyncGenerator[st
 
     _logger.info("chat", extra={"action": action_type, "action_status": action_status, "part_id": part_id,
                                 "response": response_text})
+    log.emit_telemetry(
+        "chat_result",
+        request_id=request_id,
+        thread_id=thread_key,
+        action=action_type,
+        action_status=action_status,
+        part_id=part_id,
+        has_image=image_b64 is not None,
+        inventory_count=len(inventory),
+        response_chars=len(response_text),
+        batch_count=(action_extras or {}).get("count"),
+    )
 
     if query_parts is not None:
         yield _sse("result", {
             "type": "query",
+            "thread_id": thread_key,
             "response": response_text,
             "matches": query_parts,
         })
     else:
         payload: dict = {
             "type": "chat",
+            "thread_id": thread_key,
             "response": response_text,
             "action": action_type,
             "part": saved_part,
@@ -516,18 +691,18 @@ async def health() -> dict:
 @app.post("/settings/llm")
 async def set_llm_backend(body: dict) -> dict:
     """
-    Toggle the active LLM backend at runtime.
+    Toggle whether the preferred backend or the secondary backend is tried first.
 
-    Body: {"force_fallback": true | false}
+    Body: {"use_secondary": true | false}
     Returns the updated LLM health status.
     """
-    force = body.get("force_fallback")
+    force = body.get("use_secondary")
     if not isinstance(force, bool):
-        raise HTTPException(status_code=422, detail="force_fallback must be a boolean")
+        raise HTTPException(status_code=422, detail="use_secondary must be a boolean")
     if force and not _llm.has_fallback:
-        raise HTTPException(status_code=422, detail="No fallback backend configured")
+        raise HTTPException(status_code=422, detail="No secondary backend configured")
     _llm.force_fallback = force
-    _logger.info("llm backend toggled", extra={"force_fallback": force})
+    _logger.info("llm backend toggled", extra={"use_secondary": force})
     return await _llm.health_check()
 
 
@@ -536,8 +711,21 @@ async def query_inventory(body: dict) -> dict:
     message = body.get("message", "").strip()
     if not message:
         raise HTTPException(status_code=422, detail="message required")
-    _logger.info("query request", extra={"user_message": message})
-    result = await run_query(_DB_PATH, _llm, message, _query_history)
+    request_id = uuid4().hex
+    _logger.info("query request", extra={"request_id": request_id, "user_message": message})
+    log.emit_telemetry(
+        "query_request",
+        request_id=request_id,
+        user_message_chars=len(message),
+    )
+    result = await run_query(_DB_PATH, _llm, message, _query_history, request_id=request_id)
+    log.emit_telemetry(
+        "query_result",
+        request_id=request_id,
+        result_type=result.get("type"),
+        part_count=len(result.get("parts") or []),
+        answer_chars=len(result.get("answer") or ""),
+    )
     return result
 
 
@@ -770,6 +958,7 @@ async def jlcparts_download(background_tasks: BackgroundTasks) -> dict:
 async def chat(
     message: str = Form(default=""),
     photo: UploadFile | None = File(default=None),
+    thread_id: str = Form(default=""),
 ) -> StreamingResponse:
     # Validate photo type if provided.
     if photo is not None and photo.content_type not in ("image/jpeg", "image/png", "image/webp"):
@@ -781,8 +970,15 @@ async def chat(
         message = "add this"
 
     image_b64: str | None = None
+    ocr_status = "not_attempted"
+    ocr_route = "no_image"
+    ocr_engine: str | None = None
+    ocr_signal_count = 0
+    ocr_text_chars = 0
+    ocr_confidence: float | None = None
     if photo is not None:
         from photo.pipeline import MAX_UPLOAD_BYTES, preprocess
+        from photo.ocr import extract_local_ocr
         raw = await photo.read()
         if len(raw) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=400, detail="Image too large (max 10 MB).")
@@ -791,5 +987,88 @@ async def chat(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-    _logger.info("chat request", extra={"has_photo": image_b64 is not None, "user_message": message})
-    return StreamingResponse(_chat_stream(message, image_b64), media_type="text/event-stream")
+        ocr_result = extract_local_ocr(raw)
+        ocr_status = ocr_result.status
+        ocr_engine = ocr_result.engine
+        ocr_signal_count = ocr_result.signal_count
+        ocr_text_chars = len(ocr_result.text)
+        ocr_confidence = ocr_result.average_confidence
+        if ocr_result.should_use_text_only and ocr_result.text:
+            ocr_route = "text_only"
+            message = f"{message}\n\nOCR label text:\n{ocr_result.text}"
+            image_b64 = None
+        else:
+            ocr_route = "vision_fallback"
+
+        log.emit_telemetry(
+            "ocr_route",
+            engine=ocr_engine,
+            status=ocr_status,
+            route=ocr_route,
+            signal_count=ocr_signal_count,
+            text_chars=ocr_text_chars,
+            average_confidence=ocr_confidence,
+        )
+
+    request_id = uuid4().hex
+    thread_key = thread_id.strip() or _MAIN_CHAT_THREAD_ID
+    _logger.info("chat request", extra={"request_id": request_id, "has_photo": image_b64 is not None, "user_message": message})
+    log.emit_telemetry(
+        "chat_request",
+        request_id=request_id,
+        thread_id=thread_key,
+        has_image=image_b64 is not None,
+        user_message_chars=len(message),
+        image_base64_chars=len(image_b64 or ""),
+        inventory_count=len(list_all(_DB_PATH)),
+        ocr_status=ocr_status,
+        ocr_route=ocr_route,
+        ocr_engine=ocr_engine,
+        ocr_signal_count=ocr_signal_count,
+        ocr_text_chars=ocr_text_chars,
+        ocr_average_confidence=ocr_confidence,
+    )
+    return StreamingResponse(_chat_stream(message, image_b64, request_id, thread_key), media_type="text/event-stream")
+
+
+def _ui_index_path() -> Path:
+    return _UI_DIST_PATH / "index.html"
+
+
+def _resolve_ui_asset(relative_path: str) -> Path | None:
+    candidate = (_UI_DIST_PATH / relative_path).resolve()
+    try:
+        candidate.relative_to(_UI_DIST_PATH.resolve())
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
+if (_UI_DIST_PATH / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=_UI_DIST_PATH / "assets"), name="ui-assets")
+
+
+@app.get("/", include_in_schema=False)
+async def ui_root():
+    index_path = _ui_index_path()
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="UI build not found")
+    return FileResponse(index_path)
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def ui_catchall(full_path: str):
+    if not full_path:
+        return await ui_root()
+
+    if full_path.startswith(("chat", "inventory", "health", "jlcparts", "settings", "fine-tune")):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    asset_path = _resolve_ui_asset(full_path)
+    if asset_path is not None:
+        return FileResponse(asset_path)
+
+    if "." not in Path(full_path).name:
+        return await ui_root()
+
+    raise HTTPException(status_code=404, detail="Not found")
