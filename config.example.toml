@@ -23,3 +23,4 @@ max_sqlite_bytes = 21474836480
 
 [mcp]
 api_key = ""  # required Authorization: Bearer <token> for /mcp; leave empty to disable
+allowed_host = ""  # Host header clients will send, e.g. "parts.example.com"; leave empty to only allow localhost

@@ -96,7 +96,8 @@ _PASSIVE_VALUE_RE = re.compile(
 # ---------------------------------------------------------------------------
 
 _MCP_API_KEY: str | None = _cfg.get("mcp", {}).get("api_key") or None
-_mcp = build_mcp_server(lambda: _DB_PATH, _DIGIKEY_CREDS, _JLCPARTS_DB_PATH)
+_MCP_ALLOWED_HOST: str | None = _cfg.get("mcp", {}).get("allowed_host") or None
+_mcp = build_mcp_server(lambda: _DB_PATH, _DIGIKEY_CREDS, _JLCPARTS_DB_PATH, _MCP_ALLOWED_HOST)
 
 # StreamableHTTPSessionManager.run() may only be entered once per instance,
 # but tests spin up many short-lived app lifespans (fresh TestClient per
