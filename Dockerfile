@@ -19,7 +19,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nodejs npm tesseract-ocr \
+    && apt-get install -y --no-install-recommends nodejs npm tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-chi-tra \
     && npm install --global @openai/codex@0.146.0 \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
