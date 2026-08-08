@@ -6,7 +6,7 @@ last_updated: 2026-04-12
 
 ## Problem
 
-The older UI design assumed chat for ingest/query and a flat inventory browser. The current system has additional operational state: parts may have pending field-review proposals, users can manually refresh a part to fetch new proposals, and local JLC parts catalog status affects lookup coverage.
+The current UI has additional operational state: parts may have pending field-review proposals, users can manually refresh a part to fetch new proposals, and local JLC parts catalog status affects lookup coverage.
 
 Without this design, UI implementation would have to guess where pending review appears, whether proposed values are treated as live inventory, and how operational setup surfaces to the user.
 

@@ -105,7 +105,7 @@ def extract_local_ocr(raw_bytes: bytes) -> OCRResult:
 
         try:
             proc = subprocess.run(
-                [binary, str(image_path), "stdout", "-l", "eng+chi_sim+chi_tra", "--psm", "6", "tsv"],
+                [binary, str(image_path), "stdout", "--psm", "6", "tsv"],
                 capture_output=True,
                 text=True,
                 check=True,
