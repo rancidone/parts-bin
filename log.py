@@ -26,6 +26,17 @@ _TELEMETRY_HANDLER_NAME = "parts_bin_telemetry_file"
 _TELEMETRY_LOGGER_NAME = "parts_bin.telemetry"
 _TELEMETRY_SCHEMA_VERSION = 1
 _DEFAULT_TELEMETRY_LOG_FILE = "telemetry.jsonl"
+_REDACTED = "[redacted]"
+# Telemetry is an operational signal, not a second conversation transcript.
+# Keep this deny-list intentionally broad: callers should supply counts, names,
+# stable codes, and fingerprints instead of user or inventory values.
+_SENSITIVE_FIELD_NAMES = frozenset({
+    "api_key", "authorization", "credential", "credentials", "client_secret",
+    "data_base64", "image", "image_url", "photo", "prompt", "system",
+    "text", "user_text", "message", "content", "description", "evidence",
+    "part_number", "manufacturer", "value", "parts", "part", "inventory",
+    "reviews", "provenance", "arguments", "result", "exchanges",
+})
 
 
 class _JsonFormatter(logging.Formatter):
@@ -149,5 +160,28 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
+def _redact_telemetry(value, *, key: str | None = None):
+    """Return JSON-safe operational metadata without raw user or inventory data."""
+    key_lower = key.lower() if key is not None else ""
+    if key_lower in {"prompt_tokens", "completion_tokens", "total_tokens"}:
+        return value
+    if key is not None and (key_lower in _SENSITIVE_FIELD_NAMES or any(token in key_lower for token in ("secret", "token", "password", "credential", "prompt", "image", "inventory"))):
+        return _REDACTED
+    if isinstance(value, dict):
+        return {str(name): _redact_telemetry(item, key=str(name)) for name, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_telemetry(item) for item in value]
+    # Strings are allowed only when they are already structural metadata from a
+    # caller (event names, runtime names, stable codes, tool names).  Sensitive
+    # fields above are removed before this point.
+    return value
+
+
 def emit_telemetry(event: str, **fields) -> None:
-    logging.getLogger(_TELEMETRY_LOGGER_NAME).info(event, extra=fields)
+    """Write one redacted, structured JSONL operational event.
+
+    This final guard deliberately applies to every caller, including older
+    enrichment instrumentation, so an accidental extra field cannot persist a
+    prompt, image, credential, or inventory record.
+    """
+    logging.getLogger(_TELEMETRY_LOGGER_NAME).info(event, extra=_redact_telemetry(fields))

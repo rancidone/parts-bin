@@ -61,3 +61,17 @@ def test_init_adds_file_and_telemetry_handlers_with_existing_root_handler(tmp_pa
         root.setLevel(root_old_level)
         telemetry_logger.setLevel(telemetry_old_level)
         telemetry_logger.propagate = telemetry_old_propagate
+
+
+def test_telemetry_redacts_sensitive_operational_fields(tmp_path, monkeypatch):
+    telemetry_log = tmp_path / "telemetry.jsonl"
+    monkeypatch.setenv("TELEMETRY_LOG_FILE", str(telemetry_log))
+    log_module.init()
+    log_module.emit_telemetry("agent_tool_started", prompt="private", image={"data_base64": "AA=="},
+                              arguments={"part_number": "private"}, clientSecret="key", tool="search_parts")
+    entry = json.loads(telemetry_log.read_text().splitlines()[-1])
+    assert entry["prompt"] == "[redacted]"
+    assert entry["image"] == "[redacted]"
+    assert entry["arguments"] == "[redacted]"
+    assert entry["clientSecret"] == "[redacted]"
+    assert entry["tool"] == "search_parts"

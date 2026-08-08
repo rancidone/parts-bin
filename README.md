@@ -1,120 +1,96 @@
 # Parts Bin
 
-Electronics parts bin manager. Uses an LLM to add, remove, and search inventory via natural language or photos.
+Parts Bin is a local-first electronics inventory app. Conversations run through
+one agent gateway, a shared typed tool registry, and normalized durable events.
+The inventory remains in a local SQLite database.
 
 ## Requirements
 
-- Python 3.14+
-- [uv](https://docs.astral.sh/uv/)
-- Node.js + npm
-- An OpenAI API key
-- A running [llama.cpp](https://github.com/ggerganov/llama.cpp) server if you want local inference later
-- (Optional) Digikey API credentials for spec lookups
+- Python 3.14+ and [uv](https://docs.astral.sh/uv/)
+- Node.js and npm
+- At least one explicitly configured runtime: Codex, OpenAI API, or Local
+- Optional DigiKey credentials for supplier spec lookup
 
 ## Setup
 
 ```sh
-# Install Python dependencies
 uv sync
-
-# Install UI dependencies
 cd ui && npm install && cd ..
+cp config.example.toml config.toml
 ```
 
-Copy [config.example.toml](/Users/maddie/repos/parts-bin/config.example.toml) to `config.toml` in the project root and fill in your OpenAI key:
+Configure only the runtimes you intend to use. The runtime is selected when a
+conversation starts and remains fixed for that thread. An unavailable runtime
+reports an error; it does not select another provider.
 
 ```toml
-[llm]
-primary_backend = "openai"
+[agent]
+conversation_db_path = "data/parts.db"
 
-[llama]
-base_url = "http://localhost:8080"
+[agent.codex]
+command = "python -m tools.codex_app_server"
 
-[openai]
-api_key = "your-api-key"
+[agent.openai]
+api_key = ""
 base_url = "https://api.openai.com/v1"
-model = "gpt-5.6-luna"
+model = "gpt-5.6"
 
-[db]
-path = "parts.db"
+[agent.local]
+base_url = "http://localhost:8080/v1"
+api_key = ""
+model = "local"
+supports_native_tools = true
 
-[digikey]
-client_id = ""
-client_secret = ""
-
-[jlcparts]
-db_path = ""
-```
-
-`gpt-5.6-luna` is the intended low-cost default. You can switch back to local later by changing `llm.primary_backend` to `"llama"` or using the UI toggle when both backends are configured.
-
-## Start / Stop
-
-```sh
-./dev.sh          # start API (port 8000) and UI (port 5173)
-./dev.sh stop     # stop both
-```
-
-- API: http://localhost:8000
-- UI:  http://localhost:5173
-
-## Docker
-
-The repo now includes:
-
-- `Dockerfile` — multi-stage build that compiles the Vite UI and serves it from FastAPI
-- `compose.yaml` — simple app deployment with a mounted config file and persistent data directory
-
-For both host development and container use, keep the SQLite files under the repo `data/` directory:
-
-```toml
 [db]
 path = "data/parts.db"
-
-[jlcparts]
-db_path = "data/jlcparts.sqlite3"
 ```
 
-Then start it with:
+The Local runtime accepts an OpenAI-compatible inference endpoint. Set
+`supports_native_tools = false` only for a model that follows the documented
+strict JSON tool-call envelope. The repository Codex launcher starts
+`codex app-server --stdio` and configures the repository's `tools.mcp_server`
+as the `parts_bin` MCP server. Set `PARTS_BIN_CODEX_BIN` only when `codex` is
+not on `PATH`.
+
+See [local operations](docs/operations.md) for runtime capability requirements,
+Codex authentication, OpenAI credential handling, telemetry, diagnostics,
+backup/recovery, and redacted evaluation-failure promotion.
+
+## Run locally
+
+```sh
+./dev.sh
+```
+
+The API runs on `http://localhost:8000`; Vite serves the development UI on
+`http://localhost:5173`. Stop both with `./dev.sh stop`.
+
+## Docker deployment
+
+Keep `config.toml` and SQLite data outside the image. For a local-first
+deployment, point the Local runtime at a reachable local inference service and
+store the database under `data/`:
+
+```toml
+[agent]
+conversation_db_path = "data/parts.db"
+
+[db]
+path = "data/parts.db"
+```
 
 ```sh
 mkdir -p data
 docker compose up --build -d
 ```
 
-The app will be available at:
-
-- `http://localhost:8000`
-
-The container serves both the API and the built UI from the same port.
-`config.toml` is mounted read-only from the repo root, and telemetry is written to `./data/telemetry.jsonl`.
-
-## Telemetry
-
-The server always writes compact JSONL LLM telemetry to `telemetry.jsonl` in the repo root.
-Set `TELEMETRY_LOG_FILE` to override the path.
-
-Each line is one event with:
-
-- `ts`
-- `telemetry_version`
-- `event`
-- `request_id`
-- `operation`
-- `backend`
-- `model`
-- `latency_ms`
-- `prompt_tokens`
-- `completion_tokens`
-- `total_tokens`
-- `message_count`
-- `image_count`
-- `text_chars`
-- `inventory_count`
-- `response_chars`
+The container serves the API and built UI at `http://localhost:8000`, mounts
+`config.toml` read-only, and persists `data/`. Back up `data/parts.db` while
+the service is stopped, or use SQLite's backup facility for an online backup.
 
 ## Tests
 
 ```sh
 uv run pytest
+cd ui && npm run lint && npm run build
 ```

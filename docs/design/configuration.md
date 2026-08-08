@@ -4,25 +4,29 @@ last_updated: 2026-04-12
 ---
 # Design Unit: Configuration
 
-## Problem
-Multiple subsystems — the LLM client, enrichment pipeline, database, and external API integrations — need runtime configuration. All of it should live in one place, readable at startup, with safe defaults where possible.
-
-## Mechanism
-`config.toml` in the project root. Read by the server at startup via `tomllib`; fails fast if required keys are missing. The file is gitignored since it contains API credentials.
+`config.toml` is read at startup with `tomllib`; it is gitignored because it
+may contain provider credentials. Runtime configuration is explicit: a thread
+can use only the runtime selected at creation.
 
 ## Schema
 
 ```toml
-[llm]
-primary_backend = "openai"           # "openai" or "llama"; if omitted, auto-picks openai when configured
+[agent]
+conversation_db_path = "data/parts.db" # defaults to db.path when omitted
 
-[llama]
-base_url = "http://localhost:8080"    # llama.cpp server endpoint
-
-[openai]
-api_key = ""                          # leave empty to disable OpenAI backend
+[agent.openai]
+api_key = ""                          # leave empty to disable this runtime
 base_url = "https://api.openai.com/v1"
-model = "gpt-5.6-luna"
+model = "gpt-5.6"
+
+[agent.local]
+base_url = "http://localhost:8080/v1"
+api_key = ""
+model = "local"
+supports_native_tools = true
+
+[agent.codex]
+command = "python -m tools.codex_app_server" # repo launcher for Codex app-server + Parts Bin MCP
 
 [db]
 path = "data/parts.db"                # SQLite file path, relative to project root
@@ -43,8 +47,9 @@ max_sqlite_bytes = 21474836480        # reject extracted db above this size
 
 ## Opt-In Subsystems
 
-- **OpenAI backend**: disabled when `openai.api_key` is empty.
-- **Local llama.cpp backend**: disabled when `llama.base_url` is empty or omitted.
+- **OpenAI runtime**: unavailable when `agent.openai.api_key` is empty.
+- **Local runtime**: unavailable when `agent.local.base_url` is empty or omitted.
+- **Codex runtime**: unavailable when `agent.codex.command` is empty or omitted.
 - **DigiKey enrichment**: disabled when `digikey.client_id` is empty.
 - **JLC parts catalog**: disabled when `jlcparts.db_path` is empty.
 - **Web search escalation**: disabled when `[search]` section is absent. Uses DuckDuckGo HTML search — no API key required. Used as last resort when all other enrichment stages fail.
