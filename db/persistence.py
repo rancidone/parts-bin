@@ -349,6 +349,65 @@ def upsert(db_path: str | Path, part: dict) -> int:
         conn.close()
 
 
+def is_integrity_error(exc: Exception) -> bool:
+    return isinstance(exc, sqlite3.IntegrityError)
+
+
+def find_duplicate(db_path: str | Path, part: dict) -> dict | None:
+    p = dict(part)
+    if p.get("part_number") is not None:
+        rows = query(db_path, {"part_number": p["part_number"]})
+    else:
+        rows = query(db_path, {"part_category": p.get("part_category"), "value": p.get("value"), "package": p.get("package")})
+    return rows[0] if rows else None
+
+
+def insert_part(db_path: str | Path, part: dict) -> int:
+    p = dict(part)
+    now = _now()
+    if p.get("profile") == "passive" and p.get("value") is not None:
+        p["value"] = normalize_value(p["value"], p["part_category"])
+    conn = _connect(db_path)
+    try:
+        with conn:
+            cursor = conn.execute(
+                """INSERT INTO parts
+                (part_category, profile, value, package, part_number, quantity, manufacturer, description, created_at, updated_at)
+                VALUES (:part_category, :profile, :value, :package, :part_number, :quantity, :manufacturer, :description, :created_at, :updated_at)""",
+                {**p, "created_at": now, "updated_at": now},
+            )
+            return int(cursor.lastrowid)
+    finally:
+        conn.close()
+
+
+def increment_stock(db_path: str | Path, part_id: int, quantity: int) -> None:
+    conn = _connect(db_path)
+    try:
+        with conn:
+            cursor = conn.execute("UPDATE parts SET quantity = quantity + ?, updated_at = ? WHERE id = ?", (quantity, _now(), part_id))
+            if cursor.rowcount != 1:
+                raise KeyError(part_id)
+    finally:
+        conn.close()
+
+
+def replace_parts_atomic(db_path: str | Path, updates: list[tuple[int, dict]]) -> None:
+    allowed = {"part_category", "profile", "value", "package", "part_number", "quantity", "manufacturer", "description"}
+    conn = _connect(db_path)
+    try:
+        with conn:
+            for part_id, fields in updates:
+                values = {key: value for key, value in fields.items() if key in allowed}
+                values["updated_at"] = _now()
+                set_clause = ", ".join(f"{key} = :{key}" for key in values)
+                cursor = conn.execute(f"UPDATE parts SET {set_clause} WHERE id = :id", {**values, "id": part_id})
+                if cursor.rowcount != 1:
+                    raise KeyError(part_id)
+    finally:
+        conn.close()
+
+
 def update_fields(db_path: str | Path, part_id: int, fields: dict) -> int:
     """
     Update non-null fields on an existing part without touching quantity.

@@ -115,18 +115,16 @@ credentials, or complete inventory records by default.
 | 01 — Domain service | All inventory and enrichment mutations use typed domain operations; direct domain tests cover rules and rollbacks; adapters contain no duplicated business rules. |
 | 02 — Tool registry and MCP | Registry schemas are canonical and MCP exposes an identical tool contract; real MCP transport tests cover every tool, validation, errors, and approval enforcement. |
 | 03 — Agent runtimes | Codex, OpenAI, and local runtimes pass the same deterministic behavior suite with registry tools, normalized events, shared approvals, bounded loops, and immutable thread selection. |
-| 04 — App host and UI | One gateway and one UI event-stream client support all event types and approval round trips; the runtime selector is new-thread-only and legacy chat/query UI calls are absent. |
+| 04 — App host and UI | One gateway and one UI event-stream client support all event types and approval round trips; the runtime selector is new-thread-only. |
 | 05 — Evaluation suite | Versioned scenarios assert tool constraints, approvals, and final database/review/provenance state for every runtime using deterministic fixtures. |
-| 06 — Atomic cutover | The only conversational path is gateway + registry + normalized events; `llm/client.py`, `ConversationHistory`, `db_action`, full-inventory prompting, legacy `/chat` and `/query` paths, backend-toggle UI, old fallback transport, and their tests/docs/configuration are deleted. Existing SQLite data opens successfully. |
+| 06 — Atomic cutover | The only conversational path is gateway + registry + normalized events; obsolete orchestration, endpoints, settings, tests, docs, and configuration are absent. Existing SQLite data opens successfully. |
 | 07 — Operations | Redacted cross-runtime telemetry, setup/backup/diagnostic documentation, and an approved failure-to-regression flow are verified on supported configured runtimes. |
 
 ## Phase 00 acceptance checks
 
-- A reviewer can map each current legacy behavior to exactly one later phase:
-  embedded server business rules (01); no shared registry/MCP (02); `LLMClient`,
-  direct chat-completions, `ConversationHistory`, and fallback transport (03);
-  `/chat`, `/query`, legacy SSE, and backend toggle (04); missing cross-runtime
-  evaluation (05); and unredacted/legacy operational assumptions (07).
+- A reviewer can map each migration risk to exactly one later phase: domain
+  ownership (01); shared registry/MCP (02); runtime parity (03); gateway and
+  UI protocol (04); cross-runtime evaluation (05); and operations (07).
 - Phase 06 separately verifies repository-wide removal of the obsolete paths,
   tests, documentation, and configuration identified by the Phase 06 exit
   criterion; this cleanup does not reassign the behaviors to a second phase.

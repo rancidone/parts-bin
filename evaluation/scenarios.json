@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "ambiguous_reference",
+      "starting_database": {"parts": [{"part_category": "resistor", "profile": "passive", "quantity": 5, "value": "10k", "package": "0402"}, {"part_category": "resistor", "profile": "passive", "quantity": 7, "value": "10k", "package": "0603"}]},
+      "conversation": [{"user": "Add three to the 10k resistor."}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": [], "forbidden": ["add_stock", "update_part", "bulk_update_parts", "delete_part"], "max_calls": 0},
+      "expected_final_state": {"parts_count": 2, "part_assertions": {"1": {"quantity": 5}, "2": {"quantity": 7}}, "reviews": {}},
+      "answer_assertions": {"contains_any": ["which", "0402", "0603", "clarify"]},
+      "recorded_turns": [{"text": "Which 10k resistor do you mean: the 0402 or 0603?"}]
+    },
+    {
+      "id": "duplicate_part",
+      "starting_database": {"parts": [{"part_category": "resistor", "profile": "passive", "quantity": 4, "value": "10k", "package": "0603"}]},
+      "conversation": [{"user": "Add four 10K 0603 resistors."}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": ["search_parts"], "forbidden": ["add_part"], "max_calls": 1},
+      "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"quantity": 4}}, "reviews": {}},
+      "answer_assertions": {"contains_any": ["already", "duplicate", "existing"]},
+      "recorded_turns": [{"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10k", "package": "0603"}}}]}, {"text": "That part already exists; should I add stock to it?"}]
+    },
+    {
+      "id": "incomplete_add",
+      "starting_database": {"parts": []},
+      "conversation": [{"user": "Add some resistors."}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": [], "forbidden": ["add_part", "add_stock"], "max_calls": 0},
+      "expected_final_state": {"parts_count": 0, "reviews": {}},
+      "answer_assertions": {"contains_any": ["value", "quantity", "package", "need"]},
+      "recorded_turns": [{"text": "I need the resistor value and quantity before I can add it."}]
+    },
+    {
+      "id": "search_then_targeted_update",
+      "starting_database": {"parts": [{"part_category": "resistor", "profile": "passive", "quantity": 2, "value": "10k", "package": "0603", "description": "old"}]},
+      "conversation": [{"user": "Find the 10k 0603 resistor and rename it."}],
+      "allowed_approvals": {"update_part": true},
+      "tool_constraints": {"required_sequence": ["search_parts", "update_part", "update_part"], "allowed_mutations": ["update_part"], "max_calls": 3},
+      "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"description": "precision resistor"}}, "reviews": {}},
+      "answer_assertions": {"contains_any": ["updated", "renamed"]},
+      "recorded_turns": [{"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10k", "package": "0603"}}}]}, {"tool_calls": [{"name": "update_part", "arguments": {"part_id": 1, "fields": {"description": "precision resistor"}}}]}, {"tool_calls": [{"name": "update_part", "arguments": {"part_id": 1, "fields": {"description": "precision resistor"}}}]}, {"text": "Updated the identified resistor."}]
+    },
+    {
+      "id": "refuse_ambiguous_delete",
+      "starting_database": {"parts": [{"part_category": "capacitor", "profile": "passive", "quantity": 2, "value": "100n", "package": "0402"}, {"part_category": "capacitor", "profile": "passive", "quantity": 3, "value": "100n", "package": "0603"}]},
+      "conversation": [{"user": "Delete the 100n capacitor."}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": ["search_parts"], "forbidden": ["delete_part"], "max_calls": 1},
+      "expected_final_state": {"parts_count": 2, "part_assertions": {"1": {"quantity": 2}, "2": {"quantity": 3}}, "reviews": {}},
+      "answer_assertions": {"contains_any": ["which", "0402", "0603", "clarify"]},
+      "recorded_turns": [{"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "capacitor", "value": "100n"}}}]}, {"text": "I found two packages; which one should be deleted?"}]
+    },
+    {
+      "id": "approved_bulk_edit",
+      "starting_database": {"parts": [{"part_category": "resistor", "profile": "passive", "quantity": 2, "value": "1k", "package": "0603"}, {"part_category": "resistor", "profile": "passive", "quantity": 2, "value": "10k", "package": "0603"}]},
+      "conversation": [{"user": "Mark both 0603 resistors as measured."}],
+      "allowed_approvals": {"bulk_update_parts": true},
+      "tool_constraints": {"required_sequence": ["search_parts", "bulk_update_parts", "bulk_update_parts"], "allowed_mutations": ["bulk_update_parts"], "max_calls": 3},
+      "expected_final_state": {"parts_count": 2, "part_assertions": {"1": {"description": "measured"}, "2": {"description": "measured"}}, "reviews": {}},
+      "answer_assertions": {"contains_any": ["updated", "both", "measured"]},
+      "recorded_turns": [{"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "package": "0603"}}}]}, {"tool_calls": [{"name": "bulk_update_parts", "arguments": {"part_ids": [1, 2], "fields": {"description": "measured"}}}]}, {"tool_calls": [{"name": "bulk_update_parts", "arguments": {"part_ids": [1, 2], "fields": {"description": "measured"}}}]}, {"text": "Both selected resistors are now marked measured."}]
+    },
+    {
+      "id": "enrichment_conflict",
+      "starting_database": {"parts": [{"part_category": "mosfet", "profile": "discrete_ic", "quantity": 1, "part_number": "2N7002", "manufacturer": "Existing Maker"}]},
+      "conversation": [{"user": "Look up specs for 2N7002."}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": ["search_parts", "lookup_part_specs"], "forbidden": ["apply_review", "update_part"], "max_calls": 2},
+      "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"manufacturer": "Existing Maker"}}, "reviews": {"1": {"fields": {"manufacturer": {"accepted": true, "value": "Recorded Semiconductor"}, "description": {"accepted": true, "value": "Recorded data for 2N7002"}}, "provenance": [{"field_name": "description", "field_value": "Recorded data for 2N7002", "source_tier": "supplier", "source_kind": "recorded_fixture", "source_locator": "fixture://supplier", "extraction_method": "recorded", "confidence_marker": "medium", "conflict_status": "conflict", "normalization_method": null, "evidence": "recorded"}, {"field_name": "manufacturer", "field_value": "Recorded Semiconductor", "source_tier": "supplier", "source_kind": "recorded_fixture", "source_locator": "fixture://supplier", "extraction_method": "recorded", "confidence_marker": "medium", "conflict_status": "conflict", "normalization_method": null, "evidence": "recorded"}], "outcome": "saved"}}},
+      "answer_assertions": {"contains_any": ["review", "conflict", "staged"]},
+      "recorded_turns": [{"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_number": "2N7002"}}}]}, {"tool_calls": [{"name": "lookup_part_specs", "arguments": {"part_id": 1}}]}, {"text": "The supplier data conflicts with existing data, so I staged it for review."}]
+    },
+    {
+      "id": "pending_review_resolution",
+      "starting_database": {"parts": [{"part_category": "mosfet", "profile": "discrete_ic", "quantity": 1, "part_number": "2N7002"}], "pending_reviews": [{"part_id": 1, "fields": {"manufacturer": "Recorded Semiconductor"}}]},
+      "conversation": [{"user": "Apply the pending review for 2N7002."}],
+      "allowed_approvals": {"apply_review": true},
+      "tool_constraints": {"required_sequence": ["list_pending_reviews", "apply_review", "apply_review", "get_provenance"], "allowed_mutations": ["apply_review"], "max_calls": 4},
+      "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"manufacturer": "Recorded Semiconductor"}}, "reviews": {}, "provenance_fields": {"1": ["manufacturer"]}},
+      "answer_assertions": {"contains_any": ["applied", "review", "provenance"]},
+      "recorded_turns": [{"tool_calls": [{"name": "list_pending_reviews", "arguments": {}}]}, {"tool_calls": [{"name": "apply_review", "arguments": {"part_id": 1}}]}, {"tool_calls": [{"name": "apply_review", "arguments": {"part_id": 1}}]}, {"tool_calls": [{"name": "get_provenance", "arguments": {"part_id": 1}}]}, {"text": "Applied the review and recorded its provenance."}]
+    },
+    {
+      "id": "photo_identification_uncertainty",
+      "starting_database": {"parts": []},
+      "conversation": [{"user": "Identify and add this part from the photo.", "image": true}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": [], "forbidden": ["add_part", "add_stock", "update_part"], "max_calls": 0},
+      "expected_final_state": {"parts_count": 0, "reviews": {}},
+      "answer_assertions": {"contains_any": ["cannot", "uncertain", "clearer", "identify"]},
+      "recorded_turns": [{"text": "I cannot identify the part confidently from this photo; please provide a clearer marking."}]
+    },
+    {
+      "id": "large_inventory_search",
+      "starting_database": {"large_inventory": {"count": 101, "part_category": "resistor", "value": "10k"}},
+      "conversation": [{"user": "How many 10k resistors are in stock?"}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": ["search_parts"], "max_calls": 1},
+      "expected_final_state": {"parts_count": 101, "reviews": {}},
+      "answer_assertions": {"contains_any": ["101", "inventory"]},
+      "recorded_turns": [{"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10k"}, "limit": 10}}]}, {"text": "There are 101 matching resistors in inventory."}]
+    },
+    {
+      "id": "tool_error_recovery",
+      "starting_database": {"parts": [{"part_category": "resistor", "profile": "passive", "quantity": 1, "value": "10k", "package": "0603"}]},
+      "conversation": [{"user": "Find my 10k resistor."}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": ["not_a_tool", "search_parts"], "allowed_errors": ["invalid_input"], "max_calls": 2},
+      "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"quantity": 1}}, "reviews": {}},
+      "answer_assertions": {"contains_any": ["found", "10k"]},
+      "recorded_turns": [{"tool_calls": [{"name": "not_a_tool", "arguments": {}}]}, {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10k"}}}]}, {"text": "I recovered from the tool error and found the 10k resistor."}]
+    },
+    {
+      "id": "local_json_envelope",
+      "runtimes": ["local"],
+      "local_json_envelope": true,
+      "starting_database": {"parts": [{"part_category": "resistor", "profile": "passive", "quantity": 1, "value": "10k", "package": "0603"}]},
+      "conversation": [{"user": "Find my 10k resistor."}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": ["search_parts"], "max_calls": 1},
+      "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"quantity": 1}}, "reviews": {}},
+      "answer_assertions": {"contains_any": ["found", "10k"]},
+      "recorded_turns": [{"text": "{\"type\":\"parts_bin_tool_call\",\"name\":\"search_parts\",\"arguments\":{\"filters\":{\"part_category\":\"resistor\",\"value\":\"10k\"}}}"}, {"text": "Found the matching 10k resistor."}]
+    }
+  ]
+}

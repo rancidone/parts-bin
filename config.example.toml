@@ -1,13 +1,22 @@
-[llm]
-primary_backend = "openai"
+[agent]
+# Conversation events and threads share the inventory database by default.
+conversation_db_path = "data/parts.db"
 
-[llama]
-base_url = "http://localhost:8080"
-
-[openai]
+[agent.openai]
 api_key = ""
 base_url = "https://api.openai.com/v1"
-model = "gpt-5.6-luna"
+model = "gpt-5.6"
+
+[agent.local]
+# An OpenAI-compatible local inference endpoint. Include /v1 if required.
+base_url = "http://localhost:8080/v1"
+api_key = ""
+model = "local"
+supports_native_tools = true
+
+[agent.codex]
+# Repository launcher: configures Codex app-server to use Parts Bin MCP.
+command = "python -m tools.codex_app_server"
 
 [db]
 path = "data/parts.db"

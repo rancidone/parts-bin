@@ -130,17 +130,13 @@
   background: var(--surface);
 }
 
-/* Backend toggle */
-.backendRow {
+.runtimeRow {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.backendToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+.runtimeRow select {
   font-size: 0.75rem;
   padding: 3px 8px;
   border-radius: 12px;
@@ -151,36 +147,24 @@
   color: var(--fg);
 }
 
-.backendToggle:disabled {
+.runtimeRow select:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.backendLocal .backendDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #4caf50;
-  display: inline-block;
-}
-
-.backendOpenAI {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.backendOpenAI .backendDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  display: inline-block;
-}
-
-.backendWarn {
+.runtimeLocked {
   font-size: 0.75rem;
   color: #c0392b;
 }
+
+.activity {
+  align-self: flex-start;
+  color: var(--muted);
+  font-size: .8rem;
+}
+
+.approval { composes: assistantBubble; }
+.attachment { font-size: .78rem; opacity: .8; }
 
 /* Input bar */
 .inputBar {
