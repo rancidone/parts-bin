@@ -48,36 +48,13 @@ export const DISPLAY_PART_FIELDS: { key: keyof Part; label: string }[] = [
   { key: 'description', label: 'Description' },
 ]
 
-export type MessageRole = 'user' | 'system'
+export type RuntimeName = 'codex' | 'openai' | 'local'
+export type AgentEventKind = 'user_message' | 'assistant_text' | 'tool_call' | 'tool_result' | 'approval_request' | 'approval_decision' | 'error' | 'completed'
 
-export interface UserMessage {
-  role: 'user'
-  text: string
-  photoUrl?: string // object URL for thumbnail display
+export interface AgentEvent {
+  kind: AgentEventKind
+  thread_id: string
+  runtime: RuntimeName
+  sequence: number
+  data: Record<string, unknown>
 }
-
-export interface BatchSummary {
-  count: number
-  fields: string[]
-}
-
-export interface SystemMessage {
-  role: 'system'
-  threadId?: string
-  clarificationKind?: 'duplicate_upsert'
-  kind:
-    | 'chat'
-    | 'text'
-    | 'ingest-result'
-    | 'ingest-increment'
-    | 'clarification'
-    | 'query-result'
-    | 'not-found'
-    | 'error'
-  text?: string
-  part?: Part
-  matches?: Part[]
-  batchSummary?: BatchSummary
-}
-
-export type Message = UserMessage | SystemMessage

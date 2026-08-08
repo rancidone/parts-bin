@@ -95,7 +95,10 @@ async def _download(
                     shutil.copyfileobj(src, out)
 
         _ensure_free_space(tmp_dir, min_free_bytes)
-        sqlite_path = _extract_sqlite(concat_path, tmp_dir, max_sqlite_bytes=max_sqlite_bytes)
+        if max_sqlite_bytes is None:
+            sqlite_path = _extract_sqlite(concat_path, tmp_dir)
+        else:
+            sqlite_path = _extract_sqlite(concat_path, tmp_dir, max_sqlite_bytes=max_sqlite_bytes)
         if sqlite_path is None:
             raise RuntimeError("no .sqlite3 file found in jlcparts archive")
 

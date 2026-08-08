@@ -23,6 +23,13 @@ _FALLBACK_FIELD_SCOPE = ("manufacturer", "part_number", "package", "description"
 _WITHHELD_FALLBACK_FIELDS = ("part_category", "profile", "value")
 
 
+def merge_specs(record: dict, specs: dict) -> dict:
+    """Return a copy of a record with provider fields applied."""
+    merged = dict(record)
+    merged.update({key: value for key, value in specs.items() if value is not None})
+    return merged
+
+
 def _elapsed_ms(started: float) -> float:
     return round((perf_counter() - started) * 1000, 1)
 
@@ -146,19 +153,6 @@ async def _digikey_lookup_detailed(
                 **_http_error_details(exc),
             }
             _logger.warning("digikey lookup timeout", extra=last_error)
-        except httpx.HTTPStatusError as exc:
-            last_error = {
-                "part_number": part_number,
-                "attempt": attempt + 1,
-                "latency_ms": round((perf_counter() - attempt_started) * 1000, 1),
-                "total_latency_ms": round((perf_counter() - lookup_started) * 1000, 1),
-                **_http_error_details(exc),
-            }
-            if exc.response.status_code == 404:
-                _logger.info("digikey lookup no match", extra=last_error)
-                return {"specs": None, "debug": None, "status": "no_match", "error": last_error}
-            _logger.warning("digikey lookup failed", extra=last_error)
-            return {"specs": None, "debug": None, "status": "failed", "error": last_error}
         except Exception as exc:
             last_error = {
                 "part_number": part_number,
@@ -689,9 +683,7 @@ async def fetch_specs_detailed(
     part_number: str,
     digikey_credentials: dict | None = None,
     jlcparts_db_path: str | None = None,
-    llm=None,
     search_config: dict | None = None,
-    part_id: int | None = None,
 ) -> dict:
     """
     Fetch spec fields for a part number with provider-level outcome details.
@@ -834,53 +826,6 @@ async def fetch_specs_detailed(
                     stage_timings_ms["web_search_pdf_reconcile"] = _elapsed_ms(web_reconcile_started)
                     if outcome in ("saved", "incomplete"):
                         outcome = "needs_confirmation"
-
-    if llm is not None and outcome != "conflict":
-        desc_candidates = field_candidates.get("description", [])
-        if len(desc_candidates) >= 2:
-            descriptions = _dedupe_preserve_order(
-                [c["candidate_value"] for c in desc_candidates]
-            )
-            if len(descriptions) >= 2:
-                merge_started = perf_counter()
-                try:
-                    merged = await llm.merge_descriptions(descriptions, part_id=part_id)
-                    stage_timings_ms["description_merge"] = _elapsed_ms(merge_started)
-                    if merged:
-                        chosen_updates["description"] = merged
-                        # Replace the chosen description candidate with a merge record.
-                        merged_candidate = desc_candidates[0].copy()
-                        merged_candidate["candidate_value"] = merged
-                        merged_candidate["extraction_method"] = "source-description-merge"
-                        merged_candidate["normalization_method"] = "llm_description_merge"
-                        merged_candidate["competing_candidates"] = [
-                            {
-                                "field_name": "description",
-                                "field_value": c["candidate_value"],
-                                "source_tier": c["source_tier"],
-                                "source_kind": c["source_kind"],
-                                "source_locator": c.get("source_locator"),
-                                "extraction_method": c["extraction_method"],
-                                "provider": c.get("provider"),
-                                "evidence": c.get("evidence"),
-                                "conflict_status": "merged",
-                            }
-                            for c in desc_candidates
-                        ]
-                        # Update chosen_candidates list.
-                        chosen_candidates = [
-                            merged_candidate if c.get("field_name") == "description" else c
-                            for c in chosen_candidates
-                        ]
-                        _logger.info("description merge ok", extra={
-                            "part_number": part_number,
-                            "source_count": len(descriptions),
-                        })
-                except Exception:
-                    stage_timings_ms["description_merge"] = _elapsed_ms(merge_started)
-                    _logger.warning("description merge failed, keeping longest", extra={
-                        "part_number": part_number,
-                    })
 
     for field_name, candidates in withheld_candidates.items():
         if not candidates:

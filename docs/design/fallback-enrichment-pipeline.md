@@ -62,5 +62,4 @@ More runtime structure and provenance tracking than the current lookup helper in
 
 Fully implemented.
 
-- **Description merge** — `fetch_specs_detailed` accepts an optional `llm` parameter; when two or more deduplicated description candidates exist and identity fields are not in conflict, `LLMClient.merge_descriptions()` reduces them into one canonical description. Provenance records the source descriptions and marks `normalization_method="llm_description_merge"`.
 - **Confirmed search escalation** — `fetch_specs_detailed` accepts an optional `search_config` dict. When all prior stages yield `no_match` or `incomplete` and `search_config` is not None, the pipeline searches DuckDuckGo for a datasheet PDF (no API key required), extracts it immediately as `authority_tier=web_search`, and returns `outcome=needs_confirmation` with the candidates stored as pending review. Skipped if `[search]` config section is absent from `config.toml`.
