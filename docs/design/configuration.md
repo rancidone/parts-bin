@@ -26,7 +26,8 @@ model = "local"
 supports_native_tools = true
 
 [agent.codex]
-command = "python -m tools.codex_app_server" # repo launcher for Codex app-server + Parts Bin MCP
+command = "codex exec" # MCP is configured in ~/.codex/config.toml
+model = "gpt-5.6-luna" # optional model override passed to Codex CLI
 
 [db]
 path = "data/parts.db"                # SQLite file path, relative to project root

@@ -185,8 +185,9 @@ export function Inventory({ active }: { active: boolean }) {
     setSavingEdit(true)
     setError(null)
     try {
+      // Send only domain-editable fields. The API intentionally rejects
+      // identity and audit columns such as id/created_at/updated_at.
       const payload = {
-        ...draft,
         part_category: draft.part_category.trim(),
         profile: draft.profile.trim(),
         value: draft.value?.trim() || null,
