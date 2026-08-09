@@ -6,17 +6,22 @@ async function readEventStream(response: Response, receive: (event: AgentEvent) 
   if (!reader) throw new Error('The server did not return an event stream.')
   const decoder = new TextDecoder()
   let buffer = ''
+  const processChunk = (chunk: string) => {
+    const lines = chunk.split('\n').map(line => line.replace(/\r$/, ''))
+    const eventName = lines.find(line => line.startsWith('event:'))?.slice('event:'.length).trim()
+    const raw = lines.find(line => line.startsWith('data:'))?.slice('data:'.length).trim()
+    if (eventName !== 'agent_event' || !raw) return
+    try { receive(JSON.parse(raw) as AgentEvent) } catch { /* ignore malformed network data */ }
+  }
   while (true) {
     const { done, value } = await reader.read()
-    if (done) return
-    buffer += decoder.decode(value, { stream: true })
-    const chunks = buffer.split('\n\n')
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done })
+    const chunks = buffer.split(/\r?\n\r?\n/)
     buffer = chunks.pop() ?? ''
-    for (const chunk of chunks) {
-      const eventName = chunk.match(/^event: (.+)$/m)?.[1]
-      const raw = chunk.match(/^data: (.+)$/m)?.[1]
-      if (eventName !== 'agent_event' || !raw) continue
-      try { receive(JSON.parse(raw) as AgentEvent) } catch { /* ignore malformed network data */ }
+    chunks.forEach(processChunk)
+    if (done) {
+      if (buffer.trim()) processChunk(buffer)
+      return
     }
   }
 }

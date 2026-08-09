@@ -32,6 +32,7 @@ class ModelRequest:
     exchanges: tuple[dict[str, Any], ...]
     json_tool_envelope: bool = False
     thread_id: str | None = None
+    history: tuple[dict[str, str], ...] = ()
 
 
 class ModelTransport(Protocol):
@@ -66,6 +67,7 @@ class _TurnState:
     user_text: str
     image: ImageInput | None
     exchanges: list[dict[str, Any]] = field(default_factory=list)
+    history: tuple[dict[str, str], ...] = ()
 
 
 class AgentRuntime:
@@ -115,8 +117,13 @@ class AgentRuntime:
                                        "approved": approval_response.approved})
             self.telemetry.approval_decided(thread_id, self.runtime, request.tool_name, approval_response.approved)
 
+        history = tuple(
+            {"role": "user" if event.kind == "user_message" else "assistant", "text": str(event.data.get("text", ""))}
+            for event in self.store.events(thread_id)
+            if event.kind in {"user_message", "assistant_text"} and event.data.get("text")
+        )
         emit("user_message", {"text": user_text, "image": None if image is None else {"media_type": image.media_type}})
-        state = _TurnState(thread_id, user_text, image)
+        state = _TurnState(thread_id, user_text, image, history=history)
         if approval_response is not None and not approval_response.approved:
             state.exchanges.append({"type": "approval_denied", "request_id": approval_response.request_id})
 
@@ -178,7 +185,7 @@ class OpenAIResponsesRuntime(AgentRuntime):
     async def _complete(self, state: _TurnState) -> ModelTurn:
         return await self.transport.complete(ModelRequest(SYSTEM_INSTRUCTIONS, state.user_text, state.image,
             tuple(_responses_tool(tool) for tool in self.registry.list_tools()), tuple(state.exchanges),
-            thread_id=state.thread_id))
+            thread_id=state.thread_id, history=state.history))
 
 
 class LocalOpenAICompatibleRuntime(AgentRuntime):
@@ -207,7 +214,7 @@ class CodexAppServerRuntime(AgentRuntime):
     async def _complete(self, state: _TurnState) -> ModelTurn:
         # App-server transports receive the same registry projection as their MCP configuration.
         return await self.transport.complete(ModelRequest(SYSTEM_INSTRUCTIONS, state.user_text, state.image,
-            tuple(self.registry.list_tools()), tuple(state.exchanges), thread_id=state.thread_id))
+            tuple(self.registry.list_tools()), tuple(state.exchanges), thread_id=state.thread_id, history=state.history))
 
 
 def _responses_tool(tool: dict[str, Any]) -> dict[str, Any]:

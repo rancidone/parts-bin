@@ -67,6 +67,7 @@ async def test_codex_transport_uses_json_rpc_lifecycle_and_streamed_notification
     assert process.stdin.writes[2]["params"]["baseInstructions"] == "system instructions"
     assert process.stdin.writes[3]["params"]["threadId"] == "codex-1"
     assert process.stdin.writes[3]["params"]["input"][-1] == {"type": "image", "url": "data:image/png;base64,AA=="}
+    assert process.stdin.writes[3]["params"]["approvalPolicy"] == "never"
 
 
 @pytest.mark.asyncio

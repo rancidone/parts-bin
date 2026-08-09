@@ -4,13 +4,119 @@ from __future__ import annotations
 
 import json
 import asyncio
+import base64
 import shlex
+import tempfile
+from time import perf_counter
+from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 import httpx
+import log
 
 from .models import ModelTurn, ToolCall
 from .runtime import ModelRequest
+from .telemetry import fingerprint
+
+
+class CodexExecTransport:
+    """Run Codex through its supported non-interactive JSON/MCP interface."""
+
+    def __init__(self, *, command: str, model: str | None = None,
+                 get_session: Callable[[str], str | None], set_session: Callable[[str, str], None]) -> None:
+        self.command = command
+        self.model = model
+        self.get_session = get_session
+        self.set_session = set_session
+
+    async def complete(self, request: ModelRequest) -> ModelTurn:
+        started_at = perf_counter()
+        thread_hash = fingerprint(request.thread_id or "unknown")
+        prompt = f"{request.system}\n\nUser request:\n{request.user_text}"
+        if request.image is not None:
+            prompt += "\nUse the attached image as part of the request."
+        session_id = self.get_session(request.thread_id or "") if request.thread_id else None
+        command = shlex.split(self.command)
+        if session_id:
+            command += ["resume", session_id]
+        args = command + ["--json"]
+        if self.model:
+            args += ["--model", self.model]
+        args += [
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--skip-git-repo-check", prompt,
+        ]
+        temp_path: Path | None = None
+        try:
+            if request.image is not None:
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as image_file:
+                    image_file.write(base64.b64decode(request.image.data_base64))
+                    temp_path = Path(image_file.name)
+                args[args.index(prompt):args.index(prompt)] = ["--image", str(temp_path)]
+            process = await asyncio.create_subprocess_exec(
+                *args, stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            log.emit_telemetry("codex_exec_timing", thread_hash=thread_hash, phase="process_started", latency_ms=round((perf_counter() - started_at) * 1000, 1))
+            stderr_task = asyncio.create_task(process.stderr.read())
+            stdout_lines: list[str] = []
+            first_event_at: float | None = None
+            mcp_started: dict[str, float] = {}
+            mcp_durations: list[float] = []
+            while True:
+                line = await asyncio.wait_for(process.stdout.readline(), timeout=120)
+                if not line:
+                    break
+                now = perf_counter()
+                stdout_lines.append(line.decode(errors="replace"))
+                try:
+                    event = json.loads(stdout_lines[-1])
+                except json.JSONDecodeError:
+                    continue
+                if first_event_at is None:
+                    first_event_at = now
+                    log.emit_telemetry("codex_exec_timing", thread_hash=thread_hash, phase="first_event", latency_ms=round((now - started_at) * 1000, 1))
+                item = event.get("item") or {}
+                if event.get("type") == "thread.started" and request.thread_id:
+                    codex_session_id = str(event.get("thread_id", ""))
+                    if codex_session_id:
+                        self.set_session(request.thread_id, codex_session_id)
+                if event.get("type") == "item.started" and item.get("type") == "mcp_tool_call":
+                    key = str(item.get("id", item.get("tool", "unknown")))
+                    mcp_started[key] = now
+                    log.emit_telemetry("codex_exec_timing", thread_hash=thread_hash, phase="mcp_started", tool=str(item.get("tool", "unknown")), latency_ms=round((now - started_at) * 1000, 1))
+                if event.get("type") == "item.completed" and item.get("type") == "mcp_tool_call":
+                    key = str(item.get("id", item.get("tool", "unknown")))
+                    if key in mcp_started:
+                        duration = (now - mcp_started[key]) * 1000
+                        mcp_durations.append(duration)
+                        log.emit_telemetry("codex_exec_timing", thread_hash=thread_hash, phase="mcp_completed", tool=str(item.get("tool", "unknown")), latency_ms=round(duration, 1), status="failed" if item.get("error") else "completed")
+            stderr = await stderr_task
+            await process.wait()
+            stdout = "".join(stdout_lines).encode()
+            log.emit_telemetry("codex_exec_timing", thread_hash=thread_hash, phase="process_completed", latency_ms=round((perf_counter() - started_at) * 1000, 1), mcp_call_count=len(mcp_durations))
+        except asyncio.TimeoutError as exc:
+            if 'process' in locals() and process.returncode is None:
+                process.kill()
+                await process.wait()
+            raise RuntimeError("Timed out waiting for Codex CLI response") from exc
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+        messages: list[str] = []
+        for line in stdout.decode(errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            item = event.get("item") or {}
+            if event.get("type") == "item.completed" and item.get("type") == "agent_message":
+                messages.append(str(item.get("text", "")))
+        if process.returncode != 0:
+            detail = stderr.decode(errors="replace").strip() or "Codex CLI exited unexpectedly"
+            raise RuntimeError(detail)
+        return ModelTurn(messages[-1] if messages else "")
 
 
 class CodexAppServerTransport:
@@ -32,6 +138,9 @@ class CodexAppServerTransport:
             codex_thread = await self._thread_for(process, request)
             turn_request = await self._send(process, "turn/start", {
                 "threadId": codex_thread, "input": self._input(request),
+                # Parts Bin owns tool approval. Do not leave the app-server
+                # waiting on an approval request this transport cannot answer.
+                "approvalPolicy": "never",
             })
             turn_id: str | None = None
             text: list[str] = []
@@ -156,7 +265,10 @@ class CodexAppServerTransport:
 
     async def _read_message(self, process: asyncio.subprocess.Process) -> dict[str, Any]:
         assert process.stdout is not None
-        line = await process.stdout.readline()
+        try:
+            line = await asyncio.wait_for(process.stdout.readline(), timeout=120)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("Timed out waiting for Codex app-server response") from exc
         if not line:
             stderr = b"" if process.stderr is None else await process.stderr.read()
             raise RuntimeError(f"Codex app-server stopped unexpectedly: {stderr.decode(errors='replace').strip()}")

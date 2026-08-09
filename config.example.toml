@@ -15,8 +15,10 @@ model = "local"
 supports_native_tools = true
 
 [agent.codex]
-# Repository launcher: configures Codex app-server to use Parts Bin MCP.
-command = "python -m tools.codex_app_server"
+# Codex reads Parts Bin MCP from its standard ~/.codex/config.toml.
+command = "codex exec"
+# Optional per-app model override; the command remains generic.
+model = "gpt-5.6-luna"
 
 [db]
 path = "data/parts.db"

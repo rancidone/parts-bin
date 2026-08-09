@@ -7,9 +7,9 @@ from .models import ApprovalResponse, ConversationEvent, ImageInput, ModelTurn, 
 from .runtime import AgentRuntime, CodexAppServerRuntime, LocalOpenAICompatibleRuntime, OpenAIResponsesRuntime
 from .store import ConversationStore, RuntimeSelectionError
 from .telemetry import AgentTelemetry
-from .transports import CodexAppServerTransport, LocalOpenAICompatibleTransport, OpenAIResponsesTransport
+from .transports import CodexAppServerTransport, CodexExecTransport, LocalOpenAICompatibleTransport, OpenAIResponsesTransport
 
 __all__ = ["AgentGateway", "AgentRuntime", "AgentTelemetry", "ApprovalEngine", "ApprovalRequest", "ApprovalResponse", "CodexAppServerRuntime",
            "ConversationEvent", "ConversationStore", "ImageInput", "LocalOpenAICompatibleRuntime", "ModelTurn",
-           "OpenAIResponsesRuntime", "OpenAIResponsesTransport", "CodexAppServerTransport", "PartsBinMCPClient", "RuntimeResult", "RuntimeSelectionError",
+           "OpenAIResponsesRuntime", "OpenAIResponsesTransport", "CodexAppServerTransport", "CodexExecTransport", "PartsBinMCPClient", "RuntimeResult", "RuntimeSelectionError",
            "ToolCall", "LocalOpenAICompatibleTransport"]
