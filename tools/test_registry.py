@@ -53,6 +53,21 @@ async def test_mcp_projection_matches_registry_and_returns_json(registry):
 
 
 @pytest.mark.asyncio
+async def test_mcp_initialize_negotiates_requested_protocol_version(registry):
+    response = await MCPServer(registry).handle({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-03-26"},
+    })
+    assert response["result"]["protocolVersion"] == "2025-03-26"
+
+    unsupported = await MCPServer(registry).handle({
+        "jsonrpc": "2.0", "id": 2, "method": "initialize",
+        "params": {"protocolVersion": "2025-11-25"},
+    })
+    assert unsupported["result"]["protocolVersion"] == "2025-06-18"
+
+
+@pytest.mark.asyncio
 async def test_standalone_stdio_client_completes_every_inventory_workflow(tmp_path, capsys):
     async def fetcher(_part_number):
         return {

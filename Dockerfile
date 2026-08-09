@@ -20,7 +20,7 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends nodejs npm tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-chi-tra \
-    && npm install --global @openai/codex@0.146.0 \
+    && npm install --global @openai/codex@0.147.0 \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
 
@@ -34,7 +34,8 @@ COPY --from=ui-builder /app/ui/dist ./ui/dist
 
 RUN useradd --create-home --shell /bin/bash appuser \
     && mkdir -p /app/data \
-    && chown -R appuser:appuser /app
+    && mkdir -p /home/appuser/.codex \
+    && chown -R appuser:appuser /app /home/appuser/.codex
 
 USER appuser
 
@@ -45,4 +46,4 @@ ENV LOG_LEVEL=INFO \
 
 VOLUME ["/app/data"]
 
-CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/.venv/bin/python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]

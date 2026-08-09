@@ -15,6 +15,9 @@ from ingestion.lookup import fetch_specs_detailed
 
 from .registry import ApprovalReceipt, PartsBinToolRegistry, ToolExecutionContext
 
+_SUPPORTED_PROTOCOL_VERSIONS = {"2024-11-05", "2025-02-24", "2025-03-26", "2025-06-18"}
+_LATEST_PROTOCOL_VERSION = "2025-06-18"
+
 
 class MCPServer:
     def __init__(self, registry: PartsBinToolRegistry):
@@ -27,7 +30,11 @@ class MCPServer:
             return None
         try:
             if method == "initialize":
-                result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}, "resources": {}}, "serverInfo": {"name": "parts-bin", "version": "0.1.0"}}
+                # MCP negotiates a common protocol version. Never echo a
+                # client version that this server does not implement.
+                requested_version = (request.get("params") or {}).get("protocolVersion")
+                protocol_version = requested_version if requested_version in _SUPPORTED_PROTOCOL_VERSIONS else _LATEST_PROTOCOL_VERSION
+                result = {"protocolVersion": protocol_version, "capabilities": {"tools": {}, "resources": {}}, "serverInfo": {"name": "parts-bin", "version": "0.1.0"}}
             elif method == "tools/list":
                 result = {"tools": self.registry.list_tools()}
             elif method == "tools/call":
@@ -77,7 +84,44 @@ def main() -> None:
     config_path = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("config.toml")
     service = PartsBinService(db_path, spec_fetcher=_configured_spec_fetcher(config_path))
     registry = PartsBinToolRegistry(service, approval_checker=_interactive_approval)
-    asyncio.run(serve_stdio(MCPServer(registry)))
+    asyncio.run(_serve_official_mcp(registry))
+
+
+async def _serve_official_mcp(registry: PartsBinToolRegistry) -> None:
+    """Expose the registry through the official MCP stdio implementation."""
+    from mcp.server.lowlevel import Server
+    from mcp.server.stdio import stdio_server
+    from mcp.types import CallToolResult, Resource, TextContent, Tool
+
+    server = Server("parts-bin", version="0.1.0")
+
+    @server.list_tools()
+    async def list_tools():
+        return [Tool(**tool) for tool in registry.list_tools()]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]):
+        approval = ApprovalReceipt.issue(name, arguments) if registry.approval_checker is not None else None
+        outcome = await registry.execute(name, arguments, context=ToolExecutionContext(approval=approval))
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(outcome, separators=(",", ":")))],
+            structuredContent=outcome,
+            isError=not outcome["ok"],
+        )
+
+    @server.list_resources()
+    async def list_resources():
+        return [Resource(**resource) for resource in registry.list_resources()]
+
+    @server.read_resource()
+    async def read_resource(uri):
+        return json.dumps(registry.read_resource(str(uri)), separators=(",", ":"))
+
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream, write_stream,
+            server.create_initialization_options(),
+        )
 
 
 def _configured_spec_fetcher(config_path: Path):

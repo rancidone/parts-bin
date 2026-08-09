@@ -33,9 +33,10 @@ Configure only the runtime you intend to use in `config.toml`.
   the key in telemetry, shell history, screenshots, or scenario fixtures.
 - Codex: authenticate the locally installed Codex CLI/app server using its
   normal interactive login before starting Parts Bin. The repository launcher
-  then starts the app server and configures the Parts Bin MCP server. Parts Bin
-  passes no Codex credential itself and does not attempt programmatic login or
-  a fallback if the app server is unavailable.
+  then starts the app server and configures the Parts Bin MCP server. For the
+  Docker deployment, set `CODEX_HOME` to the host Codex directory; Compose
+  mounts only its `auth.json` into the container read-only. Parts Bin does not
+  attempt programmatic login or a fallback if the app server is unavailable.
 
 The health endpoint reports configuration availability, not provider login or
 model-quality validation. Run a new thread with each configured runtime for an

@@ -1,0 +1,5 @@
+# Standard Codex MCP configuration for the Parts Bin container.
+[mcp_servers.parts_bin]
+command = "/app/.venv/bin/python"
+args = ["-m", "tools.mcp_server", "data/parts.db", "config.toml"]
+cwd = "/app"

@@ -17,7 +17,7 @@ from time import perf_counter
 import log
 from agent_runtime import (
     AgentGateway, ApprovalEngine, ApprovalResponse, CodexAppServerRuntime,
-    CodexAppServerTransport, ConversationStore, ImageInput,
+    CodexExecTransport, ConversationStore, ImageInput,
     LocalOpenAICompatibleRuntime, LocalOpenAICompatibleTransport,
     OpenAIResponsesRuntime, OpenAIResponsesTransport, PartsBinMCPClient,
 )
@@ -103,7 +103,12 @@ def _make_agent_runtime(runtime: str):
             api_key=config.get("api_key") or None,
         ), supports_native_tools=bool(config.get("supports_native_tools", True)), **common)
     if runtime == "codex":
-        transport = CodexAppServerTransport(command=_agent_cfg.get("codex", {}).get("command", ""))
+        transport = CodexExecTransport(
+            command=_agent_cfg.get("codex", {}).get("command", ""),
+            model=_agent_cfg.get("codex", {}).get("model"),
+            get_session=_conversation_store.codex_session,
+            set_session=_conversation_store.set_codex_session,
+        )
         return CodexAppServerRuntime(transport, mcp_client=PartsBinMCPClient(MCPServer(registry)), **common)
     raise ValueError(f"Unknown runtime: {runtime}")
 
