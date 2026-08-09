@@ -28,7 +28,8 @@ reports an error; it does not select another provider.
 conversation_db_path = "data/parts.db"
 
 [agent.codex]
-command = "python -m tools.codex_app_server"
+command = "codex exec"
+model = "gpt-5.6-luna"
 
 [agent.openai]
 api_key = ""
