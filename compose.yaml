@@ -1,6 +1,7 @@
 services:
   parts-bin:
     build: .
+    init: true
     ports:
       - "8000:8000"
     volumes:
@@ -18,4 +19,16 @@ services:
       LOG_FORMAT: json
       LOG_FILE: /app/data/parts_bin.log
       TELEMETRY_LOG_FILE: /app/data/telemetry.jsonl
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          from urllib.request import urlopen;
+          urlopen('http://127.0.0.1:8000/health', timeout=5)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped

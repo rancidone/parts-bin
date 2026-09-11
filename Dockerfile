@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS ui-builder
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS ui-builder
 
 WORKDIR /app/ui
 
@@ -9,7 +9,7 @@ COPY ui/ ./
 RUN npm run build
 
 
-FROM python:3.14-slim AS runtime
+FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
