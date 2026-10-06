@@ -45,7 +45,7 @@ class CodexExecTransport:
             args += ["--model", self.model]
         args += [
             "--dangerously-bypass-approvals-and-sandbox",
-            "--skip-git-repo-check", prompt,
+            "--skip-git-repo-check", "--", prompt,
         ]
         temp_path: Path | None = None
         try:
@@ -53,7 +53,10 @@ class CodexExecTransport:
                 with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as image_file:
                     image_file.write(base64.b64decode(request.image.data_base64))
                     temp_path = Path(image_file.name)
-                args[args.index(prompt):args.index(prompt)] = ["--image", str(temp_path)]
+                # --image accepts multiple values; terminate options so the
+                # positional prompt cannot be consumed as another image.
+                separator = args.index("--")
+                args[separator:separator] = ["--image", str(temp_path)]
             process = await asyncio.create_subprocess_exec(
                 *args, stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
