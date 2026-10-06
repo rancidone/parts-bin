@@ -7,6 +7,8 @@ durable ``ConversationEvent`` objects to the one stream consumed by the UI.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 from collections.abc import AsyncIterator, Callable
 from time import perf_counter
 from typing import Awaitable
@@ -36,23 +38,61 @@ class AgentGateway:
         self.telemetry.runtime_selected(thread_id, runtime)
         return thread_id
 
-    async def submit(self, thread_id: str, text: str, *, image: ImageInput | None = None) -> tuple[ConversationEvent, ...]:
+    async def submit(self, thread_id: str, text: str, *, image: ImageInput | None = None,
+                     on_event: Callable[[ConversationEvent], None] | None = None) -> tuple[ConversationEvent, ...]:
         runtime_name = self._runtime_name(thread_id)
         started = perf_counter()
         try:
             runtime = await self._runtime_for(thread_id)
-            return (await runtime.run(thread_id, text, image=image)).events
+            return (await runtime.run(thread_id, text, image=image, on_event=on_event)).events
         except Exception as exc:  # Provider/process failures share the event contract.
-            return self._failure(thread_id, runtime_name, "runtime_startup_failed", str(exc), latency_ms=(perf_counter() - started) * 1000)
+            events = self._failure(thread_id, runtime_name, "runtime_startup_failed", str(exc), latency_ms=(perf_counter() - started) * 1000)
+            if on_event is not None:
+                for event in events:
+                    on_event(event)
+            return events
 
-    async def respond_to_approval(self, thread_id: str, response: ApprovalResponse) -> tuple[ConversationEvent, ...]:
+    async def respond_to_approval(self, thread_id: str, response: ApprovalResponse, *,
+                                  on_event: Callable[[ConversationEvent], None] | None = None) -> tuple[ConversationEvent, ...]:
         runtime_name = self._runtime_name(thread_id)
         started = perf_counter()
         try:
             runtime = await self._runtime_for(thread_id)
-            return (await runtime.run(thread_id, "", approval_response=response)).events
+            return (await runtime.run(thread_id, "", approval_response=response, on_event=on_event)).events
         except Exception as exc:
-            return self._failure(thread_id, runtime_name, "runtime_failed", str(exc), latency_ms=(perf_counter() - started) * 1000)
+            events = self._failure(thread_id, runtime_name, "runtime_failed", str(exc), latency_ms=(perf_counter() - started) * 1000)
+            if on_event is not None:
+                for event in events:
+                    on_event(event)
+            return events
+
+    def submit_stream(self, thread_id: str, text: str, *, image: ImageInput | None = None) -> AsyncIterator[ConversationEvent]:
+        self._runtime_name(thread_id)
+        return self._stream(lambda receive: self.submit(thread_id, text, image=image, on_event=receive))
+
+    def approval_stream(self, thread_id: str, response: ApprovalResponse) -> AsyncIterator[ConversationEvent]:
+        self._runtime_name(thread_id)
+        return self._stream(lambda receive: self.respond_to_approval(thread_id, response, on_event=receive))
+
+    async def _stream(self, run) -> AsyncIterator[ConversationEvent]:
+        queue: asyncio.Queue[ConversationEvent | None] = asyncio.Queue()
+
+        async def produce():
+            try:
+                await run(queue.put_nowait)
+            finally:
+                queue.put_nowait(None)
+
+        task = asyncio.create_task(produce())
+        try:
+            while (event := await queue.get()) is not None:
+                yield event
+            await task
+        finally:
+            if not task.done():
+                task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
     def events(self, thread_id: str, *, after: int = 0) -> tuple[ConversationEvent, ...]:
         if self.store.runtime_for(thread_id) is None:

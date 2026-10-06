@@ -139,3 +139,31 @@ async def test_codex_exec_routes_mcp_approval_failure_to_gateway(monkeypatch, st
     assert turn.text == ""
     assert turn.tool_calls[0].arguments == arguments
     assert turn.tool_calls[0].name == "update_part"
+
+
+@pytest.mark.asyncio
+async def test_codex_exec_streams_tool_start_and_result_before_exit(monkeypatch):
+    import asyncio
+    from dataclasses import replace
+    lines = asyncio.Queue()
+    observed = asyncio.Queue()
+    process = SimpleNamespace(stdout=SimpleNamespace(readline=lines.get),
+        stderr=SimpleNamespace(read=AsyncMock(return_value=b"")), wait=AsyncMock(return_value=0), returncode=0)
+    monkeypatch.setattr("agent_runtime.transports.asyncio.create_subprocess_exec", AsyncMock(return_value=process))
+    transport = CodexExecTransport(command="codex exec", get_session=lambda _: None, set_session=lambda *_: None)
+    request = replace(_request(), image=None, on_protocol_event=lambda kind, data: observed.put_nowait((kind, data)))
+    task = asyncio.create_task(transport.complete(request))
+    item = {"id": "search", "type": "mcp_tool_call", "tool": "search_parts", "arguments": {}}
+    lines.put_nowait(json.dumps({"type": "item.started", "item": item}).encode() + b"\n")
+    assert (await asyncio.wait_for(observed.get(), 1))[0] == "tool_call"
+    assert not task.done()
+    item["result"] = {"structuredContent": {"ok": True, "result": {"parts": []}}}
+    lines.put_nowait(json.dumps({"type": "item.completed", "item": item}).encode() + b"\n")
+    assert (await asyncio.wait_for(observed.get(), 1))[0] == "tool_result"
+    assert not task.done()
+    lines.put_nowait(b'{"type":"item.completed","item":{"type":"agent_message","text":"Done"}}\n')
+    lines.put_nowait(b"")
+    turn = await asyncio.wait_for(task, 1)
+    assert turn.text == "Done"
+    assert turn.protocol_events == ()  # Streamed events are not replayed.
+    assert observed.empty()

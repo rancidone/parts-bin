@@ -49,6 +49,17 @@ class CodexExecTransport:
             "--dangerously-bypass-approvals-and-sandbox",
             "--skip-git-repo-check", "--", prompt,
         ]
+        messages: list[str] = []
+        pending_calls: list[ToolCall] = []
+        protocol_events: list[tuple[str, dict[str, Any]]] = []
+        reported_calls: set[str] = set()
+
+        def report(kind: str, data: dict[str, Any]) -> None:
+            if request.on_protocol_event is not None:
+                request.on_protocol_event(kind, data)
+            else:
+                protocol_events.append((kind, data))
+
         temp_path: Path | None = None
         try:
             if request.image is not None:
@@ -65,7 +76,6 @@ class CodexExecTransport:
             )
             log.emit_telemetry("codex_exec_timing", thread_hash=thread_hash, phase="process_started", latency_ms=round((perf_counter() - started_at) * 1000, 1))
             stderr_task = asyncio.create_task(process.stderr.read())
-            stdout_lines: list[str] = []
             first_event_at: float | None = None
             mcp_started: dict[str, float] = {}
             mcp_durations: list[float] = []
@@ -74,11 +84,34 @@ class CodexExecTransport:
                 if not line:
                     break
                 now = perf_counter()
-                stdout_lines.append(line.decode(errors="replace"))
                 try:
-                    event = json.loads(stdout_lines[-1])
+                    event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                item = event.get("item") or {}
+                if event.get("type") == "item.completed" and item.get("type") == "mcp_tool_call":
+                    result = item.get("result") or {}
+                    outcome = result.get("structuredContent", result.get("structured_content"))
+                    if outcome is None:
+                        for block in result.get("content", []):
+                            if block.get("type") == "text":
+                                try:
+                                    outcome = json.loads(block.get("text", ""))
+                                except (ValueError, TypeError):
+                                    continue
+                                if isinstance(outcome, dict):
+                                    break
+                    if isinstance(outcome, dict):
+                        call = ToolCall(item.get("tool", ""), item.get("arguments") or {}, item.get("id", ""))
+                        if outcome.get("error", {}).get("code") == "approval_required":
+                            pending_calls.append(call)
+                        else:
+                            if call.call_id not in reported_calls:
+                                report("tool_call", {"call_id": call.call_id, "name": call.name, "arguments": call.arguments})
+                                reported_calls.add(call.call_id)
+                            report("tool_result", {"call_id": call.call_id, "name": call.name, "result": outcome})
+                if event.get("type") == "item.completed" and item.get("type") == "agent_message":
+                    messages.append(str(item.get("text", "")))
                 if first_event_at is None:
                     first_event_at = now
                     log.emit_telemetry("codex_exec_timing", thread_hash=thread_hash, phase="first_event", latency_ms=round((now - started_at) * 1000, 1))
@@ -90,6 +123,9 @@ class CodexExecTransport:
                 if event.get("type") == "item.started" and item.get("type") == "mcp_tool_call":
                     key = str(item.get("id", item.get("tool", "unknown")))
                     mcp_started[key] = now
+                    if key not in reported_calls:
+                        report("tool_call", {"call_id": key, "name": item.get("tool", ""), "arguments": item.get("arguments") or {}})
+                        reported_calls.add(key)
                     log.emit_telemetry("codex_exec_timing", thread_hash=thread_hash, phase="mcp_started", tool=str(item.get("tool", "unknown")), latency_ms=round((now - started_at) * 1000, 1))
                 if event.get("type") == "item.completed" and item.get("type") == "mcp_tool_call":
                     key = str(item.get("id", item.get("tool", "unknown")))
@@ -99,48 +135,26 @@ class CodexExecTransport:
                         log.emit_telemetry("codex_exec_timing", thread_hash=thread_hash, phase="mcp_completed", tool=str(item.get("tool", "unknown")), latency_ms=round(duration, 1), status="failed" if item.get("error") else "completed")
             stderr = await stderr_task
             await process.wait()
-            stdout = "".join(stdout_lines).encode()
             log.emit_telemetry("codex_exec_timing", thread_hash=thread_hash, phase="process_completed", latency_ms=round((perf_counter() - started_at) * 1000, 1), mcp_call_count=len(mcp_durations))
+        except asyncio.CancelledError:
+            if 'process' in locals() and process.returncode is None:
+                process.kill()
+                await process.wait()
+            raise
         except asyncio.TimeoutError as exc:
             if 'process' in locals() and process.returncode is None:
                 process.kill()
                 await process.wait()
             raise RuntimeError("Timed out waiting for Codex CLI response") from exc
         finally:
+            if 'stderr_task' in locals() and not stderr_task.done():
+                stderr_task.cancel()
+                try:
+                    await stderr_task
+                except asyncio.CancelledError:
+                    pass
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
-        messages: list[str] = []
-        pending_calls: list[ToolCall] = []
-        protocol_events: list[tuple[str, dict[str, Any]]] = []
-        for line in stdout.decode(errors="replace").splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            item = event.get("item") or {}
-            if event.get("type") == "item.completed" and item.get("type") == "mcp_tool_call":
-                result = item.get("result") or {}
-                outcome = result.get("structuredContent", result.get("structured_content"))
-                if outcome is None:
-                    for block in result.get("content", []):
-                        if block.get("type") == "text":
-                            try:
-                                outcome = json.loads(block.get("text", ""))
-                            except (ValueError, TypeError):
-                                continue
-                            if isinstance(outcome, dict):
-                                break
-                if isinstance(outcome, dict):
-                    call = ToolCall(item.get("tool", ""), item.get("arguments") or {}, item.get("id", ""))
-                    if outcome.get("error", {}).get("code") == "approval_required":
-                        pending_calls.append(call)
-                    else:
-                        protocol_events.extend([
-                            ("tool_call", {"call_id": call.call_id, "name": call.name, "arguments": call.arguments}),
-                            ("tool_result", {"call_id": call.call_id, "name": call.name, "result": outcome}),
-                        ])
-            if event.get("type") == "item.completed" and item.get("type") == "agent_message":
-                messages.append(str(item.get("text", "")))
         if process.returncode != 0:
             detail = stderr.decode(errors="replace").strip() or "Codex CLI exited unexpectedly"
             raise RuntimeError(detail)
@@ -173,6 +187,12 @@ class CodexAppServerTransport:
             turn_id: str | None = None
             text: list[str] = []
             protocol_events: list[tuple[str, dict[str, Any]]] = []
+            def report(kind: str, data: dict[str, Any]) -> None:
+                if request.on_protocol_event is not None:
+                    request.on_protocol_event(kind, data)
+                else:
+                    protocol_events.append((kind, data))
+
             while True:
                 message = await self._read_message(process)
                 if message.get("id") == turn_request:
@@ -188,22 +208,22 @@ class CodexAppServerTransport:
                 if message.get("method") == "item/completed":
                     item = (message.get("params") or {}).get("item") or {}
                     if item.get("type") == "mcpToolCall":
-                        protocol_events.append(("tool_result", {
+                        report("tool_result", {
                             "call_id": str(item.get("id", "")),
                             "name": str(item.get("tool", "")),
                             "result": item.get("result") if item.get("error") is None else {"error": item.get("error")},
-                        }))
+                        })
                     if item.get("type") == "agentMessage" and not text:
                         text.append(str(item.get("text", "")))
                     continue
                 if message.get("method") == "item/started":
                     item = (message.get("params") or {}).get("item") or {}
                     if item.get("type") == "mcpToolCall":
-                        protocol_events.append(("tool_call", {
+                        report("tool_call", {
                             "call_id": str(item.get("id", "")),
                             "name": str(item.get("tool", "")),
                             "arguments": item.get("arguments") or {},
-                        }))
+                        })
                     continue
                 if message.get("method") == "turn/completed":
                     params = message.get("params") or {}
