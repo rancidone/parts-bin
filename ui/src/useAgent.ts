@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { AgentEvent, RuntimeName } from './types'
 
 async function readEventStream(response: Response, receive: (event: AgentEvent) => void) {
@@ -31,6 +31,8 @@ export function useAgent() {
   const [threadId, setThreadId] = useState<string | null>(null)
   const [runtime, setRuntime] = useState<RuntimeName>('codex')
   const [pending, setPending] = useState(false)
+  const localSequence = useRef(0)
+  const submitting = useRef(false)
 
   function receive(event: AgentEvent) {
     setEvents(previous => previous.some(item => item.sequence === event.sequence && item.thread_id === event.thread_id)
@@ -49,7 +51,12 @@ export function useAgent() {
   }
 
   async function submit(message: string, photo?: File) {
+    if (submitting.current) return
+    submitting.current = true
     setPending(true)
+    const sequence = --localSequence.current
+    receive({ kind: 'user_message', thread_id: threadId ?? 'new', runtime, sequence,
+      data: { text: message, image: photo ? { media_type: photo.type } : null } })
     try {
       const id = await ensureThread()
       const form = new FormData()
@@ -57,10 +64,17 @@ export function useAgent() {
       if (photo) form.append('photo', photo)
       const response = await fetch(`/agent/threads/${id}/messages`, { method: 'POST', body: form })
       if (!response.ok) throw new Error(await response.text())
-      await readEventStream(response, receive)
+      await readEventStream(response, event => {
+        if (event.kind === 'user_message') {
+          // Replace this submission's local echo with the persisted event.
+          setEvents(previous => previous.map(item => item.sequence === sequence ? event : item))
+        } else {
+          receive(event)
+        }
+      })
     } catch (error) {
       receive({ kind: 'error', thread_id: threadId ?? 'new', runtime, sequence: -Date.now(), data: { code: 'network_error', message: error instanceof Error ? error.message : 'Could not reach the server.' } })
-    } finally { setPending(false) }
+    } finally { submitting.current = false; setPending(false) }
   }
 
   async function decide(requestId: string, approved: boolean) {

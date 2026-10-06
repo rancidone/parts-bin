@@ -59,7 +59,7 @@ async def test_approval_is_visible_and_must_be_returned_by_same_thread(tmp_path)
     runtime, _transport, store = build_runtime("openai", tmp_path, [
         ModelTurn(tool_calls=(ToolCall("add_part", {"part_category": "resistor", "profile": "passive", "quantity": 1, "value": "10k"}),)),
         ModelTurn("added"), ModelTurn(tool_calls=(update,)),
-        ModelTurn(tool_calls=(update,)), ModelTurn("updated"),
+        ModelTurn("updated"),
     ])
     await runtime.run("thread", "add")
     pending = await runtime.run("thread", "rename")
@@ -96,3 +96,24 @@ async def test_tool_errors_recover_and_images_reach_each_runtime(tmp_path, kind)
     assert result.status == "completed"
     assert any(event.kind == "tool_result" and event.data["result"]["error"]["code"] == "invalid_input" for event in result.events)
     assert transport.requests[0].image == ImageInput("image/png", "AA==")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["codex", "openai", "local"])
+async def test_approved_ic_correction_executes_without_model_repeating_call(tmp_path, kind):
+    from domain import GetPartRequest
+    runtime, transport, _ = build_runtime(kind, tmp_path, [
+        ModelTurn(tool_calls=(ToolCall("add_part", {"part_category": "IC", "profile": "discrete_ic", "quantity": 110, "part_number": "NE5532"}),)),
+        ModelTurn("added"),
+        ModelTurn(tool_calls=(ToolCall("update_part", {"part_id": 1, "fields": {"quantity": 10, "package": "DIP", "part_category": "operational amplifier", "description": "Dual operational amplifier"}}),)),
+        ModelTurn("corrected"),
+    ])
+    await runtime.run("t", "add")
+    pending = await runtime.run("t", "I have 10 not 100 and they are DIP")
+    event = next(e for e in pending.events if e.kind == "approval_request")
+    assert runtime.registry.service.get(GetPartRequest(1)).quantity == 110
+    result = await runtime.run("t", "", approval_response=ApprovalResponse(event.data["request_id"], True))
+    assert result.status == "completed"
+    part = runtime.registry.service.get(GetPartRequest(1))
+    assert (part.quantity, part.package, part.part_category) == (10, "DIP", "operational amplifier")
+    assert transport.requests[-1].exchanges[0]["result"]["ok"]

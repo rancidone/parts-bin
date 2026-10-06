@@ -19,7 +19,11 @@ from .models import ApprovalResponse, ConversationEvent, ImageInput, ModelTurn, 
 from .store import ConversationStore
 from .telemetry import AgentTelemetry, _domain_outcome
 
-SYSTEM_INSTRUCTIONS = """You are the Parts Bin assistant. Inventory facts must be discovered with Parts Bin tools; never assume or list unseen inventory. Use tools for every inventory fact and mutation."""
+SYSTEM_INSTRUCTIONS = """You are the Parts Bin assistant. Inventory facts must be discovered with Parts Bin tools; never assume or list unseen inventory. Use tools for every inventory fact and mutation.
+Use electronics knowledge to identify named components, distinguishing it from stored inventory facts. Add common identifiable ICs with a functional category and meaningful description, rather than a generic IC label. Do not invent manufacturer, package, or electrical specifications from an ambiguous base part number. Preserve user-provided quantity and package.
+Search before adding stock. A matching base part number does not establish that different package variants are the same stock. Clarify before merging uncertain variants. 'I have 10, not 100' sets quantity to 10; it is not an increment.
+Adding an identified IC stages supplier details automatically; inspect the enrichment outcome. Use lookup_part_specs to retry unavailable lookups or enrich existing parts. Explain lookup failures or pending reviews; staged proposals are not committed facts. Submit update_part or apply_review for corrections and accepted enrichment so the server presents approval controls. Do not ask for approval only in prose or claim tools cannot be approved in this session.
+"""
 JSON_TOOL_ENVELOPE = '{"type":"parts_bin_tool_call","name":"<registered tool name>","arguments":{}}'
 
 
@@ -127,6 +131,21 @@ class AgentRuntime:
         if approval_response is not None and not approval_response.approved:
             state.exchanges.append({"type": "approval_denied", "request_id": approval_response.request_id})
 
+        # Resume the exact approved operation without model reconstruction.
+        if approval_response is not None and approval_response.approved:
+            receipt = self.approvals.receipt_for(thread_id, request.tool_name, request.arguments)
+            emit("tool_call", {"call_id": request.request_id, "name": request.tool_name, "arguments": request.arguments})
+            self.telemetry.tool_started(thread_id, self.runtime, request.tool_name, request.arguments)
+            tool_started = perf_counter()
+            result = await self.executor.execute(request.tool_name, request.arguments, receipt)
+            self.telemetry.tool_finished(thread_id, self.runtime, request.tool_name, request.arguments,
+                                         latency_ms=(perf_counter() - tool_started) * 1000, result=result)
+            emit("tool_result", {"call_id": request.request_id, "name": request.tool_name, "arguments": request.arguments, "result": result})
+            state.exchanges.append({"type": "tool_result", "call_id": request.request_id,
+                                    "name": request.tool_name, "arguments": request.arguments, "result": result})
+            if result.get("ok"):
+                domain_outcome = _domain_outcome(request.tool_name, result)
+
         for tool_turn in range(self.max_tool_turns + 1):
             if tool_turn == self.max_tool_turns:
                 emit("error", {"code": "tool_loop_limit", "message": f"Tool loop exceeded {self.max_tool_turns} turns"})
@@ -168,7 +187,7 @@ class AgentRuntime:
                 if result.get("ok"):
                     domain_outcome = _domain_outcome(call.name, result)
                 state.exchanges.append({"type": "tool_result", "call_id": call.call_id,
-                                        "name": call.name, "result": result})
+                                        "name": call.name, "arguments": call.arguments, "result": result})
         raise AssertionError("unreachable")
 
     async def _complete(self, state: _TurnState) -> ModelTurn:
@@ -199,7 +218,7 @@ class LocalOpenAICompatibleRuntime(AgentRuntime):
     async def _complete(self, state: _TurnState) -> ModelTurn:
         request = ModelRequest(SYSTEM_INSTRUCTIONS + ("\nWhen a tool is needed, reply with exactly " + JSON_TOOL_ENVELOPE if not self.supports_native_tools else ""),
             state.user_text, state.image, tuple(_chat_tool(tool) for tool in self.registry.list_tools()) if self.supports_native_tools else (),
-            tuple(state.exchanges), json_tool_envelope=not self.supports_native_tools, thread_id=state.thread_id)
+            tuple(state.exchanges), json_tool_envelope=not self.supports_native_tools, thread_id=state.thread_id, history=state.history)
         turn = await self.transport.complete(request)
         return _parse_local_envelope(turn) if not self.supports_native_tools else turn
 

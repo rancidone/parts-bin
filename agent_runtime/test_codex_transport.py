@@ -118,3 +118,24 @@ async def test_codex_transport_reuses_initialized_process_thread():
     assert (await transport.complete(_request())).text == "one"
     assert (await transport.complete(_request())).text == "two"
     assert [message["method"] for message in process.stdin.writes] == ["initialize", "initialized", "thread/start", "turn/start", "turn/start"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("structured", [True, False])
+async def test_codex_exec_routes_mcp_approval_failure_to_gateway(monkeypatch, structured):
+    arguments = {"part_id": 1, "fields": {"quantity": 10, "package": "DIP", "part_category": "operational amplifier"}}
+    outcome = {"ok": False, "error": {"code": "approval_required"}}
+    result = {"structuredContent": outcome} if structured else {"content": [{"type": "text", "text": json.dumps(outcome)}]}
+    events = [
+        {"type": "item.completed", "item": {"id": "u", "type": "mcp_tool_call", "tool": "update_part", "arguments": arguments, "result": result}},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": "Cannot approve"}},
+    ]
+    async def spawn(*args, **kwargs):
+        return SimpleNamespace(stdout=SimpleNamespace(readline=AsyncMock(side_effect=[*(json.dumps(e).encode() + b"\n" for e in events), b""])),
+            stderr=SimpleNamespace(read=AsyncMock(return_value=b"")), wait=AsyncMock(return_value=0), returncode=0)
+    monkeypatch.setattr("agent_runtime.transports.asyncio.create_subprocess_exec", spawn)
+    transport = CodexExecTransport(command="codex exec", get_session=lambda _: None, set_session=lambda *_: None)
+    turn = await transport.complete(ModelRequest("system", "correct", None, (), (), thread_id="t"))
+    assert turn.text == ""
+    assert turn.tool_calls[0].arguments == arguments
+    assert turn.tool_calls[0].name == "update_part"

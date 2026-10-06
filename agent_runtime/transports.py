@@ -34,6 +34,8 @@ class CodexExecTransport:
         started_at = perf_counter()
         thread_hash = fingerprint(request.thread_id or "unknown")
         prompt = f"{request.system}\n\nUser request:\n{request.user_text}"
+        if request.exchanges:
+            prompt += "\nHost tool outcomes (already executed; do not repeat these operations):\n" + json.dumps(request.exchanges)
         if request.image is not None:
             prompt += "\nUse the attached image as part of the request."
         session_id = self.get_session(request.thread_id or "") if request.thread_id else None
@@ -108,18 +110,41 @@ class CodexExecTransport:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
         messages: list[str] = []
+        pending_calls: list[ToolCall] = []
+        protocol_events: list[tuple[str, dict[str, Any]]] = []
         for line in stdout.decode(errors="replace").splitlines():
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
             item = event.get("item") or {}
+            if event.get("type") == "item.completed" and item.get("type") == "mcp_tool_call":
+                result = item.get("result") or {}
+                outcome = result.get("structuredContent", result.get("structured_content"))
+                if outcome is None:
+                    for block in result.get("content", []):
+                        if block.get("type") == "text":
+                            try:
+                                outcome = json.loads(block.get("text", ""))
+                            except (ValueError, TypeError):
+                                continue
+                            if isinstance(outcome, dict):
+                                break
+                if isinstance(outcome, dict):
+                    call = ToolCall(item.get("tool", ""), item.get("arguments") or {}, item.get("id", ""))
+                    if outcome.get("error", {}).get("code") == "approval_required":
+                        pending_calls.append(call)
+                    else:
+                        protocol_events.extend([
+                            ("tool_call", {"call_id": call.call_id, "name": call.name, "arguments": call.arguments}),
+                            ("tool_result", {"call_id": call.call_id, "name": call.name, "result": outcome}),
+                        ])
             if event.get("type") == "item.completed" and item.get("type") == "agent_message":
                 messages.append(str(item.get("text", "")))
         if process.returncode != 0:
             detail = stderr.decode(errors="replace").strip() or "Codex CLI exited unexpectedly"
             raise RuntimeError(detail)
-        return ModelTurn(messages[-1] if messages else "")
+        return ModelTurn("" if pending_calls else (messages[-1] if messages else ""), tuple(pending_calls), tuple(protocol_events))
 
 
 class CodexAppServerTransport:
@@ -290,9 +315,13 @@ class OpenAIResponsesTransport:
         content: list[dict[str, Any]] = [{"type": "input_text", "text": request.user_text}]
         if request.image is not None:
             content.append({"type": "input_image", "image_url": f"data:{request.image.media_type};base64,{request.image.data_base64}"})
-        input_items: list[dict[str, Any]] = [{"role": "user", "content": content}]
+        input_items: list[dict[str, Any]] = [
+            {"role": item["role"], "content": item["text"]} for item in request.history
+        ] + [{"role": "user", "content": content}]
         for exchange in request.exchanges:
             if exchange["type"] == "tool_result":
+                input_items.append({"type": "function_call", "call_id": exchange["call_id"],
+                                    "name": exchange["name"], "arguments": json.dumps(exchange.get("arguments", {}))})
                 input_items.append({"type": "function_call_output", "call_id": exchange["call_id"],
                                     "output": json.dumps(exchange["result"], separators=(",", ":"))})
         response = await self.client.post(f"{self.base_url}/responses", headers={"Authorization": f"Bearer {self.api_key}"},
@@ -322,9 +351,17 @@ class LocalOpenAICompatibleTransport:
         user_content: Any = request.user_text
         if request.image is not None:
             user_content = [{"type": "text", "text": request.user_text}, {"type": "image_url", "image_url": {"url": f"data:{request.image.media_type};base64,{request.image.data_base64}"}}]
-        messages: list[dict[str, Any]] = [{"role": "system", "content": request.system}, {"role": "user", "content": user_content}]
+        messages: list[dict[str, Any]] = [{"role": "system", "content": request.system}]
+        messages.extend({"role": item["role"], "content": item["text"]} for item in request.history)
+        messages.append({"role": "user", "content": user_content})
         for exchange in request.exchanges:
             if exchange["type"] == "tool_result":
+                if request.json_tool_envelope:
+                    messages.append({"role": "user", "content": "Host tool outcome: " + json.dumps(exchange)})
+                    continue
+                messages.append({"role": "assistant", "content": None, "tool_calls": [
+                    {"id": exchange["call_id"], "type": "function", "function": {
+                        "name": exchange["name"], "arguments": json.dumps(exchange.get("arguments", {}))}}]})
                 messages.append({"role": "tool", "tool_call_id": exchange["call_id"],
                                  "content": json.dumps(exchange["result"], separators=(",", ":"))})
         headers = {} if not self.api_key else {"Authorization": f"Bearer {self.api_key}"}

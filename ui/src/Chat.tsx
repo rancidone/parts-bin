@@ -28,7 +28,7 @@ export function Chat() {
   }
   function send(event: React.FormEvent) {
     event.preventDefault()
-    if (!text.trim() && !photo) return
+    if (pending || (!text.trim() && !photo)) return
     void submit(text.trim(), photo); setText(''); clearPhoto()
   }
 
