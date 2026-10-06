@@ -139,7 +139,20 @@ class PartsBinToolRegistry:
             return _compact_part(self.service.get(GetPartRequest(args["part_id"])))
         if name == "add_part":
             fields = {key: args.get(key) for key in _FIELDS}
-            return _compact_part(self.service.add_part(AddPartRequest(PartFields(**fields))))
+            part = self.service.add_part(AddPartRequest(PartFields(**fields)))
+            result = _compact_part(part)
+            if self.service.should_enrich(result):
+                try:
+                    lookup = await self.service.fetch_and_stage_specs(FetchSpecsRequest(part.id))
+                    result["enrichment"] = {key: value for key, value in lookup.items()
+                                            if key in {"chosen_updates", "provider", "outcome", "status", "tried_providers"}}
+                except DomainError as exc:
+                    result["enrichment"] = {"status": "unavailable", "code": str(exc.code)}
+                except Exception:
+                    # Stock was committed successfully. Supplier failure must
+                    # not misreport the addition as failed and cause a retry.
+                    result["enrichment"] = {"status": "failed"}
+            return result
         if name == "add_stock":
             return _compact_part(self.service.add_stock(AddStockRequest(args["part_id"], args["quantity"])))
         if name == "update_part":

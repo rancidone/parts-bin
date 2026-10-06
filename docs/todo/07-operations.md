@@ -21,3 +21,18 @@ Test telemetry schemas and redaction with representative messages, images, tool 
 ```text
 Verify operational readiness by running a local-model session, an OpenAI API session when configured, and a Codex session when configured. Confirm logs distinguish runtime/tool/domain failures, telemetry is redacted, backups restore the inventory database, and a newly observed failure can be converted into a regression scenario. Report unsupported deployment modes explicitly.
 ```
+
+## Chat ingestion and correction regressions
+
+Named IC additions include functional identification in the assistant's instructions
+and automatically run supplier lookup through the domain service. Lookup results
+are staged for review, with failures reported in the addition's `enrichment`
+result; supplier failures do not undo stock or invite duplicate retries. Ambiguous
+base numbers must not imply a package or manufacturer, and uncertain package
+variants require clarification before merging stock.
+
+The Codex exec adapter projects completed MCP activity into conversation events
+and routes `approval_required` results to the gateway's approval controls. An
+accepted approval executes the saved tool arguments directly before model
+continuation. The continuation receives the committed outcome. Recorded approval
+scenarios therefore contain no second model-generated mutation call.

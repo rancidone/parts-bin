@@ -39,7 +39,7 @@
       "tool_constraints": {"required_sequence": ["search_parts", "update_part", "update_part"], "allowed_mutations": ["update_part"], "max_calls": 3},
       "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"description": "precision resistor"}}, "reviews": {}},
       "answer_assertions": {"contains_any": ["updated", "renamed"]},
-      "recorded_turns": [{"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10k", "package": "0603"}}}]}, {"tool_calls": [{"name": "update_part", "arguments": {"part_id": 1, "fields": {"description": "precision resistor"}}}]}, {"tool_calls": [{"name": "update_part", "arguments": {"part_id": 1, "fields": {"description": "precision resistor"}}}]}, {"text": "Updated the identified resistor."}]
+      "recorded_turns": [{"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10k", "package": "0603"}}}]}, {"tool_calls": [{"name": "update_part", "arguments": {"part_id": 1, "fields": {"description": "precision resistor"}}}]}, {"text": "Updated the identified resistor."}]
     },
     {
       "id": "refuse_ambiguous_delete",
@@ -59,7 +59,7 @@
       "tool_constraints": {"required_sequence": ["search_parts", "bulk_update_parts", "bulk_update_parts"], "allowed_mutations": ["bulk_update_parts"], "max_calls": 3},
       "expected_final_state": {"parts_count": 2, "part_assertions": {"1": {"description": "measured"}, "2": {"description": "measured"}}, "reviews": {}},
       "answer_assertions": {"contains_any": ["updated", "both", "measured"]},
-      "recorded_turns": [{"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "package": "0603"}}}]}, {"tool_calls": [{"name": "bulk_update_parts", "arguments": {"part_ids": [1, 2], "fields": {"description": "measured"}}}]}, {"tool_calls": [{"name": "bulk_update_parts", "arguments": {"part_ids": [1, 2], "fields": {"description": "measured"}}}]}, {"text": "Both selected resistors are now marked measured."}]
+      "recorded_turns": [{"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "package": "0603"}}}]}, {"tool_calls": [{"name": "bulk_update_parts", "arguments": {"part_ids": [1, 2], "fields": {"description": "measured"}}}]}, {"text": "Both selected resistors are now marked measured."}]
     },
     {
       "id": "enrichment_conflict",
@@ -79,7 +79,7 @@
       "tool_constraints": {"required_sequence": ["list_pending_reviews", "apply_review", "apply_review", "get_provenance"], "allowed_mutations": ["apply_review"], "max_calls": 4},
       "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"manufacturer": "Recorded Semiconductor"}}, "reviews": {}, "provenance_fields": {"1": ["manufacturer"]}},
       "answer_assertions": {"contains_any": ["applied", "review", "provenance"]},
-      "recorded_turns": [{"tool_calls": [{"name": "list_pending_reviews", "arguments": {}}]}, {"tool_calls": [{"name": "apply_review", "arguments": {"part_id": 1}}]}, {"tool_calls": [{"name": "apply_review", "arguments": {"part_id": 1}}]}, {"tool_calls": [{"name": "get_provenance", "arguments": {"part_id": 1}}]}, {"text": "Applied the review and recorded its provenance."}]
+      "recorded_turns": [{"tool_calls": [{"name": "list_pending_reviews", "arguments": {}}]}, {"tool_calls": [{"name": "apply_review", "arguments": {"part_id": 1}}]}, {"tool_calls": [{"name": "get_provenance", "arguments": {"part_id": 1}}]}, {"text": "Applied the review and recorded its provenance."}]
     },
     {
       "id": "photo_identification_uncertainty",

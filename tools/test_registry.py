@@ -135,3 +135,29 @@ async def test_mcp_approval_is_server_supplied_not_client_controlled(registry):
     })
     assert approved["result"]["isError"] is False
     assert approved["result"]["structuredContent"]["result"]["deleted"] is True
+
+
+@pytest.mark.asyncio
+async def test_add_ic_stages_specs_without_overwriting_inventory(tmp_path):
+    from unittest.mock import AsyncMock
+    from domain import GetPartRequest
+    fetcher = AsyncMock(return_value={"status": "matched", "chosen_updates": {"description": "Dual operational amplifier"}})
+    service = PartsBinService(tmp_path / "parts.db", spec_fetcher=fetcher)
+    registry = PartsBinToolRegistry(service)
+    outcome = await registry.execute("add_part", {"part_category": "operational amplifier", "profile": "discrete_ic", "part_number": "NE5532", "quantity": 10, "package": "DIP"})
+    assert outcome["ok"]
+    fetcher.assert_awaited_once_with("NE5532")
+    assert outcome["result"]["enrichment"]["status"] == "matched"
+    assert service.get(GetPartRequest(outcome["result"]["id"])).description is None
+    assert service.list_pending_reviews()
+
+
+@pytest.mark.asyncio
+async def test_supplier_failure_does_not_fail_successful_ic_add(tmp_path):
+    from unittest.mock import AsyncMock
+    service = PartsBinService(tmp_path / "parts.db", spec_fetcher=AsyncMock(side_effect=RuntimeError("offline")))
+    outcome = await PartsBinToolRegistry(service).execute("add_part", {"part_category": "operational amplifier", "profile": "discrete_ic", "part_number": "UA741CN", "quantity": 6})
+    assert outcome["ok"]
+    assert outcome["result"]["enrichment"]["status"] == "failed"
+    assert len(service.list()) == 1
+    assert service.list()[0].quantity == 6
