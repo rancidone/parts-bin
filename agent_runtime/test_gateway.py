@@ -40,3 +40,49 @@ async def test_gateway_turns_runtime_startup_failure_into_events(tmp_path):
     assert [(event.kind, event.data.get("code")) for event in emitted] == [
         ("error", "runtime_startup_failed"), ("completed", None),
     ]
+
+
+@pytest.mark.asyncio
+async def test_gateway_streams_tool_activity_before_model_finishes(tmp_path):
+    import asyncio
+    from agent_runtime import ToolCall
+    release = asyncio.Event()
+    calls = 0
+
+    class PausedTransport:
+        async def complete(self, request):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return ModelTurn(tool_calls=(ToolCall("search_parts", {}, "search"),))
+            await release.wait()
+            return ModelTurn("Finished")
+
+    store = ConversationStore(tmp_path / "conversation.db")
+    gateway = AgentGateway(store, lambda _: OpenAIResponsesRuntime(PausedTransport(),
+        registry=PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db")), store=store, approvals=ApprovalEngine()))
+    thread = gateway.create_thread("openai")
+    stream = gateway.submit_stream(thread, "find parts")
+    received = []
+    for kind in ["user_message", "tool_call", "tool_result"]:
+        event = await asyncio.wait_for(anext(stream), 1)
+        assert event.kind == kind
+        received.append(event)
+    assert not release.is_set()
+    assert gateway.events(thread) == tuple(received)
+    release.set()
+    assert [event.kind async for event in stream] == ["assistant_text", "completed"]
+
+
+@pytest.mark.asyncio
+async def test_gateway_preserves_partial_events_on_stream_failure(tmp_path):
+    class BrokenTransport:
+        async def complete(self, request):
+            raise RuntimeError("provider stopped")
+    store = ConversationStore(tmp_path / "conversation.db")
+    gateway = AgentGateway(store, lambda _: OpenAIResponsesRuntime(BrokenTransport(),
+        registry=PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db")), store=store, approvals=ApprovalEngine()))
+    thread = gateway.create_thread("openai")
+    events = [event async for event in gateway.submit_stream(thread, "hello")]
+    assert [event.kind for event in events] == ["user_message", "error", "completed"]
+    assert gateway.events(thread) == tuple(events)

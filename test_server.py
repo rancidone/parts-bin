@@ -40,3 +40,40 @@ def test_inventory_still_opens(client):
     response = client[0].get("/inventory")
     assert response.status_code == 200
     assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_message_endpoint_returns_sse_before_turn_finishes(tmp_path, monkeypatch):
+    import asyncio
+    from agent_runtime import AgentGateway, ApprovalEngine, ConversationStore, ModelTurn, OpenAIResponsesRuntime, ToolCall
+    from domain import PartsBinService
+    from tools import PartsBinToolRegistry
+    release = asyncio.Event()
+    stopped = asyncio.Event()
+
+    class PausedTransport:
+        calls = 0
+        async def complete(self, request):
+            self.calls += 1
+            if self.calls == 1:
+                return ModelTurn(tool_calls=(ToolCall("search_parts", {}, "search"),))
+            try:
+                await release.wait()
+                return ModelTurn("done")
+            finally:
+                stopped.set()
+
+    store = ConversationStore(tmp_path / "conversation.db")
+    gateway = AgentGateway(store, lambda _: OpenAIResponsesRuntime(PausedTransport(),
+        registry=PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db")), store=store, approvals=ApprovalEngine()))
+    monkeypatch.setattr(server, "_agent_gateway", gateway)
+    thread = gateway.create_thread("openai")
+    response = await asyncio.wait_for(server.submit_agent_message(thread, "search", None), 1)
+    assert response.headers["x-accel-buffering"] == "no"
+    for kind in ["user_message", "tool_call", "tool_result"]:
+        chunk = await asyncio.wait_for(anext(response.body_iterator), 1)
+        assert f'"kind": "{kind}"' in chunk
+    assert not release.is_set()
+    # Disconnecting closes the producer, including a still-pending model call.
+    await response.body_iterator.aclose()
+    await asyncio.wait_for(stopped.wait(), 1)

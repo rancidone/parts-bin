@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from time import perf_counter
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from tools import PartsBinToolRegistry, ToolExecutionContext
 
@@ -37,6 +37,7 @@ class ModelRequest:
     json_tool_envelope: bool = False
     thread_id: str | None = None
     history: tuple[dict[str, str], ...] = ()
+    on_protocol_event: Callable[[str, dict[str, Any]], None] | None = None
 
 
 class ModelTransport(Protocol):
@@ -72,6 +73,7 @@ class _TurnState:
     image: ImageInput | None
     exchanges: list[dict[str, Any]] = field(default_factory=list)
     history: tuple[dict[str, str], ...] = ()
+    on_protocol_event: Callable[[str, dict[str, Any]], None] | None = None
 
 
 class AgentRuntime:
@@ -96,14 +98,18 @@ class AgentRuntime:
         self.telemetry = telemetry or AgentTelemetry()
 
     async def run(self, thread_id: str, user_text: str, *, image: ImageInput | None = None,
-                  approval_response: ApprovalResponse | None = None) -> RuntimeResult:
+                  approval_response: ApprovalResponse | None = None,
+                  on_event: Callable[[ConversationEvent], None] | None = None) -> RuntimeResult:
         self.store.create_thread(thread_id, self.runtime)
         emitted: list[ConversationEvent] = []
         started = perf_counter()
         domain_outcome: str | None = None
 
         def emit(kind: str, data: dict[str, Any]) -> None:
-            emitted.append(self.store.append(ConversationEvent(kind, thread_id, self.runtime, data)))
+            event = self.store.append(ConversationEvent(kind, thread_id, self.runtime, data))
+            emitted.append(event)
+            if on_event is not None:
+                on_event(event)
 
         def finish(status: str) -> RuntimeResult:
             self.telemetry.turn_finished(thread_id, self.runtime, latency_ms=(perf_counter() - started) * 1000,
@@ -127,7 +133,7 @@ class AgentRuntime:
             if event.kind in {"user_message", "assistant_text"} and event.data.get("text")
         )
         emit("user_message", {"text": user_text, "image": None if image is None else {"media_type": image.media_type}})
-        state = _TurnState(thread_id, user_text, image, history=history)
+        state = _TurnState(thread_id, user_text, image, history=history, on_protocol_event=emit)
         if approval_response is not None and not approval_response.approved:
             state.exchanges.append({"type": "approval_denied", "request_id": approval_response.request_id})
 
@@ -204,7 +210,7 @@ class OpenAIResponsesRuntime(AgentRuntime):
     async def _complete(self, state: _TurnState) -> ModelTurn:
         return await self.transport.complete(ModelRequest(SYSTEM_INSTRUCTIONS, state.user_text, state.image,
             tuple(_responses_tool(tool) for tool in self.registry.list_tools()), tuple(state.exchanges),
-            thread_id=state.thread_id, history=state.history))
+            thread_id=state.thread_id, history=state.history, on_protocol_event=state.on_protocol_event))
 
 
 class LocalOpenAICompatibleRuntime(AgentRuntime):
@@ -218,7 +224,7 @@ class LocalOpenAICompatibleRuntime(AgentRuntime):
     async def _complete(self, state: _TurnState) -> ModelTurn:
         request = ModelRequest(SYSTEM_INSTRUCTIONS + ("\nWhen a tool is needed, reply with exactly " + JSON_TOOL_ENVELOPE if not self.supports_native_tools else ""),
             state.user_text, state.image, tuple(_chat_tool(tool) for tool in self.registry.list_tools()) if self.supports_native_tools else (),
-            tuple(state.exchanges), json_tool_envelope=not self.supports_native_tools, thread_id=state.thread_id, history=state.history)
+            tuple(state.exchanges), json_tool_envelope=not self.supports_native_tools, thread_id=state.thread_id, history=state.history, on_protocol_event=state.on_protocol_event)
         turn = await self.transport.complete(request)
         return _parse_local_envelope(turn) if not self.supports_native_tools else turn
 
@@ -233,7 +239,7 @@ class CodexAppServerRuntime(AgentRuntime):
     async def _complete(self, state: _TurnState) -> ModelTurn:
         # App-server transports receive the same registry projection as their MCP configuration.
         return await self.transport.complete(ModelRequest(SYSTEM_INSTRUCTIONS, state.user_text, state.image,
-            tuple(self.registry.list_tools()), tuple(state.exchanges), thread_id=state.thread_id, history=state.history))
+            tuple(self.registry.list_tools()), tuple(state.exchanges), thread_id=state.thread_id, history=state.history, on_protocol_event=state.on_protocol_event))
 
 
 def _responses_tool(tool: dict[str, Any]) -> dict[str, Any]:

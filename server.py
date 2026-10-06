@@ -129,8 +129,15 @@ def _sse(event: str, data: dict) -> str:
 
 
 async def _agent_sse(events) -> AsyncGenerator[str, None]:
-    for event in events:
-        yield _sse("agent_event", event.payload())
+    if hasattr(events, "__aiter__"):
+        try:
+            async for event in events:
+                yield _sse("agent_event", event.payload())
+        finally:
+            await events.aclose()
+    else:
+        for event in events:
+            yield _sse("agent_event", event.payload())
 
 
 async def _agent_image(photo: UploadFile | None) -> ImageInput | None:
@@ -162,7 +169,7 @@ async def resume_agent_thread(thread_id: str, after: int = 0) -> StreamingRespon
         events = _agent_gateway.events(thread_id, after=max(after, 0))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown conversation thread") from exc
-    return StreamingResponse(_agent_sse(events), media_type="text/event-stream")
+    return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/agent/threads/{thread_id}/messages")
@@ -170,10 +177,10 @@ async def submit_agent_message(thread_id: str, message: str = Form(default=""), 
     if not message.strip() and photo is None:
         raise HTTPException(status_code=422, detail="message or photo required")
     try:
-        events = await _agent_gateway.submit(thread_id, message.strip() or "Identify this part.", image=await _agent_image(photo))
+        events = _agent_gateway.submit_stream(thread_id, message.strip() or "Identify this part.", image=await _agent_image(photo))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown conversation thread") from exc
-    return StreamingResponse(_agent_sse(events), media_type="text/event-stream")
+    return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/agent/threads/{thread_id}/approvals")
@@ -182,10 +189,10 @@ async def respond_to_agent_approval(thread_id: str, body: dict) -> StreamingResp
     if not isinstance(request_id, str) or not isinstance(approved, bool):
         raise HTTPException(status_code=422, detail="request_id and approved boolean are required")
     try:
-        events = await _agent_gateway.respond_to_approval(thread_id, ApprovalResponse(request_id, approved))
+        events = _agent_gateway.approval_stream(thread_id, ApprovalResponse(request_id, approved))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown conversation thread") from exc
-    return StreamingResponse(_agent_sse(events), media_type="text/event-stream")
+    return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/health")

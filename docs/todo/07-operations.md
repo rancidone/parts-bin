@@ -36,3 +36,10 @@ and routes `approval_required` results to the gateway's approval controls. An
 accepted approval executes the saved tool arguments directly before model
 continuation. The continuation receives the committed outcome. Recorded approval
 scenarios therefore contain no second model-generated mutation call.
+
+Chat message and approval endpoints stream persisted events while the turn is
+running. Codex tool starts and results are forwarded as JSON lines arrive, and
+are not replayed at turn completion. SSE responses disable proxy buffering and
+caching. Client disconnection cancels the turn producer and its Codex subprocess;
+already persisted events remain available through thread replay. Assistant text
+is currently emitted as a complete message, while tool activity streams live.
