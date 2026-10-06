@@ -1,12 +1,44 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from agent_runtime import CodexAppServerTransport, ImageInput, ModelTurn
 from agent_runtime.runtime import ModelRequest
+from agent_runtime.transports import CodexExecTransport
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("session_id", [None, "codex-session"])
+async def test_codex_exec_photo_keeps_prompt_outside_image_arguments(monkeypatch, session_id):
+    async def spawn(*args, **kwargs):
+        separator = args.index("--")
+        image_option = args.index("--image")
+        assert args[image_option + 2] == "--"
+        assert len(args[separator + 1:]) == 1
+        assert "User request:\nhello" in args[-1]
+        image_path = Path(args[image_option + 1])
+        assert image_path.read_bytes() == b"\x00"
+        if session_id:
+            assert args[:4] == ("codex", "exec", "resume", session_id)
+        spawn.image_path = image_path
+        return SimpleNamespace(
+            stdout=SimpleNamespace(readline=AsyncMock(side_effect=[
+                b'{"type":"item.completed","item":{"type":"agent_message","text":"OK"}}\n', b"",
+            ])),
+            stderr=SimpleNamespace(read=AsyncMock(return_value=b"")),
+            wait=AsyncMock(return_value=0), returncode=0,
+        )
+
+    monkeypatch.setattr("agent_runtime.transports.asyncio.create_subprocess_exec", spawn)
+    transport = CodexExecTransport(command="codex exec", model="test-model",
+        get_session=lambda _: session_id, set_session=lambda *_: None)
+    assert (await transport.complete(_request())).text == "OK"
+    assert not spawn.image_path.exists()
 
 
 class _Stdin:
