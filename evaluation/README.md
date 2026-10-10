@@ -29,7 +29,7 @@ factory. Do not reconstruct a store from a local filename inside a runtime facto
 For natural-language lookup, evaluate requests such as “Find four 10 kΩ
 resistors”, “Do I have 0.1 µF capacitors?”, and exact ordering codes with meaningful
 suffixes. Include uncertain packages, insufficient stock, and requirements such
-as tolerance or power that the basic search tool cannot confirm. The tool supports
+as tolerance or power when candidates lack sourced ratings. The tool supports
 nominal-value equivalence and `minimum_quantity` per committed record; it does not
 combine separate stock records or inspect pending reviews. Deterministic domain
 and tool tests verify matching independently of live model interpretation.
@@ -58,8 +58,9 @@ usage, and cost outside the checked-in fixtures; do not reuse local production
 configuration or inventory. The current offline results establish deterministic
 tool orchestration and matching only, not live model interpretation quality.
 
-See [evaluation decisions](../docs/design/evaluation.md) for the distinction
-between deterministic checks, live quality measurements, and source review.
+Deterministic tests and recorded turns check rules and orchestration; live runs
+measure model and retrieval behavior. Source review is needed to establish factual
+correctness. Keep synthetic scenarios separate from private captured content.
 
 The [enrichment acceptance set](enrichment/acceptance.json) supplies representative
 inputs. Its companion
