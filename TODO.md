@@ -22,14 +22,17 @@ electrical lookup are improved.
 
 ## Source discovery and extraction evaluation
 
-- Resolve the remaining supplied-source [acceptance cases](evaluation/enrichment/acceptance.json):
-  extract the exact NE555P package with a supporting ordering-table passage, and
-  distinguish a mismatched datasheet from unresolved identity when the model
-  excerpt omits the requested part. Preserve unknown fields until supported.
-  Recheck clarification and photo identification when changing prompts or models,
-  using small, explicitly bounded live experiments.
+- Recheck the supplied-source [acceptance cases](evaluation/enrichment/acceptance.json),
+  clarification and photo identification when changing prompts or models, using
+  small, explicitly bounded live experiments. Preserve unknown fields until supported.
 - Expand the [electrical source cases](evaluation/enrichment/electrical_sources.json)
   with new variants, operating ranges and ambiguous identities.
+- Preserve applicable headings, vertically merged table cells, and distant
+  measurement-method sections in bounded source selection. Exercise different
+  supplier layouts; do not solve missing context with part-specific rules.
+- Extend conservative condition comparison from independently reviewed source
+  cases when additional units or representations are needed. Evaluate qualifier
+  completeness separately from extraction coverage and cross-run matching.
 - Measure repeatability of electrical table interpretation across models and
   sources. Check global test conditions, min/max endpoints, paired load ratings
   and reference-circuit values; authentic citations can still support an incorrect

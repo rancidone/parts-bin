@@ -53,6 +53,8 @@ def search(service, category, requirements, **kwargs):
 def test_each_initial_category_review_and_inclusive_search(tmp_path, category, name, stored, requested, basis):
     repository, service, part = setup(tmp_path, category)
     proposed = fact(name, stored, basis)
+    if category == 'capacitor':
+        proposed['conditions'] = {'rating_temperature': '85 °C', 'current_type': 'DC'}
     service.stage_specifications(part, [proposed])
     query = [requirement(proposed, requested)]
     pending = search(service, category, query)

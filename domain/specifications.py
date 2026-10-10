@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 from .errors import DomainError, ErrorCode
+from .specification_conditions import same_conditions
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,20 @@ SPECIFICATIONS = {
 # SI prefixes are case-sensitive. Ratio and percent have no prefixes.
 _PREFIXES = {'': 0, 'p': -12, 'n': -9, 'u': -6, 'µ': -6, 'μ': -6, 'm': -3, 'k': 3, 'M': 6, 'G': 9}
 MAX_CONDITIONS = 12
+# Minimum qualification for confirming sourced capacitor facts. More conditions
+# may govern a particular document; these checks cannot certify source completeness.
+MINIMUM_SOURCE_CONDITIONS = {
+    'capacitor': {
+        'capacitance': (('measurement_frequency',), ('measurement_temperature',)),
+        'rated_voltage': (('current_type', 'voltage_type'), ('rating_temperature',)),
+    },
+}
+
+
+def missing_qualifiers(category: str, fact: dict) -> list[str]:
+    groups = MINIMUM_SOURCE_CONDITIONS.get(category.lower(), {}).get(fact['name'], ())
+    return [group[0] for group in groups if not any(key in fact['conditions'] for key in group)]
+
 
 
 def invalid(message: str) -> None:
@@ -87,7 +102,8 @@ def contract(category: str) -> dict:
     return {'category': category, 'supported': bool(fields),
             'fields': {name: asdict(item) for name, item in fields.items()},
             'comparisons': ['eq', 'gte', 'lte'],
-            'conditions_policy': 'Match all stated conditions exactly; omitted conditions are incomplete.',
+            'minimum_source_conditions': MINIMUM_SOURCE_CONDITIONS.get(category.lower(), {}),
+            'conditions_policy': 'Match complete condition mappings. Explicit Celsius/humidity intervals and center ± tolerance compare by equal endpoints; omitted conditions are incomplete. Preserve original conditions and evidence.',
             'evidence_policy': 'Only accepted source evidence confirms requirements. User assertions remain incomplete.'}
 
 
@@ -241,7 +257,8 @@ def evaluate(category: str, facts: list[dict], requirements: list[dict]) -> tupl
         name = requirement['name']
         fact = by_name.get(name)
         if (fact is None or fact['evidence']['kind'] != 'source' or
-                fact['basis'] != requirement['basis'] or fact['conditions'] != requirement['conditions']):
+                fact['basis'] != requirement['basis'] or missing_qualifiers(category, fact) or
+                not same_conditions(fact['conditions'], requirement['conditions'])):
             missing.append(name)
             continue
         item = definition(category, name)

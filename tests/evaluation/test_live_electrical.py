@@ -16,7 +16,7 @@ def document(case):
 def response(case):
     excerpt = document(case).pages[0]
     fields = {'part_number': case['part_number'], 'manufacturer': case['manufacturer']}
-    return {'outcome': 'proposal', 'clarification': None, 'fields': {
+    return {'outcome': 'proposal', 'clarification': None, 'mismatch_evidence': None, 'fields': {
         **{name: {'value': value, 'evidence': {'page': 1, 'excerpt': excerpt}}
            for name, value in fields.items()}, 'package': None, 'description': None},
         'facts': [{'name': name, 'value': value, 'basis': basis,

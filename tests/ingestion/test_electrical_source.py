@@ -22,7 +22,7 @@ DOCUMENT = source.Document(URL, 'a' * 64, '2026-10-10T00:00:00+00:00', (PASSAGE,
 
 
 def candidate(number=NUMBER, passage=PASSAGE, facts=None):
-    return {'outcome': 'proposal', 'clarification': None, 'fields': {
+    return {'outcome': 'proposal', 'clarification': None, 'mismatch_evidence': None, 'fields': {
         'part_number': {'value': number, 'evidence': {'page': 1, 'excerpt': passage}},
         'manufacturer': {'value': 'Vishay', 'evidence': {'page': 1, 'excerpt': passage}},
         'package': None, 'description': None}, 'facts': facts if facts is not None else [
@@ -69,6 +69,7 @@ async def test_four_resistors_confirm_only_after_source_review_and_approval(tmp_
             patch.object(source, 'extract', AsyncMock(return_value=extracted)):
         staged = await registry.execute('ingest_datasheet', {'part_id': part.id, 'source_url': URL})
     assert staged['ok'] and staged['result']['review_staged']
+    assert staged['result']['extraction_assessment'] == extracted['extraction_assessment']
     assert staged['result']['facts'] == []
     assert service.get(GetPartRequest(part.id)) == part
     assert (await registry.execute('search_parts', query))['result']['matches'] == []
@@ -136,11 +137,13 @@ async def test_invalid_electrical_proposals_are_rejected(change):
 @pytest.mark.parametrize('outcome', ['needs_clarification', 'no_match'])
 async def test_unresolved_identity_has_no_facts(outcome):
     raw = candidate()
-    raw.update(outcome=outcome, clarification='Which exact ordering variant?', fields=dict.fromkeys(source.FIELDS))
+    document = source.Document(URL, 'a' * 64, DOCUMENT.retrieved_at, ('Coilcraft flyback transformer',))
+    raw.update(mismatch_evidence={'page': 1, 'excerpt': document.pages[0]} if outcome == 'no_match' else None,
+               outcome=outcome, clarification='Which exact ordering variant?', fields=dict.fromkeys(source.FIELDS))
     with pytest.raises(source.EnrichmentError):
         await extract(raw)
     raw['facts'] = []
-    result = await extract(raw)
+    result = await extract(raw, document=document)
     assert result['facts'] == [] and result['outcome'] == outcome
 
 

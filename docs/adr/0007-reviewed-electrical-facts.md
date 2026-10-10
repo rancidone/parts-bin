@@ -1,6 +1,6 @@
 # 0007: Match electrical requirements against reviewed, qualified facts
 
-Status: Accepted
+Status: Superseded in condition comparison by [0011](0011-best-effort-pdf-extraction.md)
 
 Recorded: 2026-10-10 (existing project decision)
 

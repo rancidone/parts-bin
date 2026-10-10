@@ -3,7 +3,8 @@ import styles from './SpecificationFacts.module.css'
 
 type Fact = { name: string; value: string; basis: string; conditions: Record<string, string>; evidence: { kind: string; excerpt: string; url?: string; page?: number; supporting_passages?: { page: number; excerpt: string }[] } }
 type Review = { facts: Fact[]; snapshot: { metadata: { part_number: string | null; package: string | null; part_category: string } } }
-type Result = { matches?: { part: Part; supporting_facts: Fact[] }[]; incomplete?: { part: Part; missing_or_unqualified: string[] }[]; facts?: Fact[]; part_id?: number; pending_review?: Review | null; truncated?: boolean; match_count?: number; incomplete_count?: number }
+type Assessment = { confidence_score: number; score_explanation: string; missing_fields: string[]; incomplete_fields?: Record<string, string[]>; reasons: string[]; relevant_pages: { page: number; reason: string; url: string }[] }
+type Result = { extraction_assessment?: Assessment | null; clarification?: string | null; matches?: { part: Part; supporting_facts: Fact[] }[]; incomplete?: { part: Part; missing_or_unqualified: string[] }[]; facts?: Fact[]; part_id?: number; pending_review?: Review | null; truncated?: boolean; match_count?: number; incomplete_count?: number }
 
 const label = (text: string) => text.replaceAll('_', ' ')
 
@@ -17,10 +18,10 @@ export function SpecificationFacts({ facts, reviewing = false }: { facts: Fact[]
     <details className={styles.evidence} open={reviewing}>
       <summary>View {fact.evidence.kind === 'source' ? 'source evidence' : 'user assertion'}</summary>
       <div className={styles.evidenceBody}>
-        {fact.evidence.kind === 'source' && <a href={fact.evidence.url} target="_blank" rel="noreferrer">Source document · page {fact.evidence.page}</a>}
+        {fact.evidence.kind === 'source' && <a href={`${fact.evidence.url}#page=${fact.evidence.page}`}  target="_blank" rel="noreferrer">Source document · page {fact.evidence.page}</a>}
         <blockquote>{fact.evidence.excerpt}</blockquote>
         {fact.evidence.kind === 'source' && fact.evidence.supporting_passages?.map((passage, index) => <div key={index}>
-          <a href={fact.evidence.url} target="_blank" rel="noreferrer">Supporting source passage · page {passage.page}</a>
+          <a href={`${fact.evidence.url}#page=${passage.page}`}  target="_blank" rel="noreferrer">Supporting source passage · page {passage.page}</a>
           <blockquote>{passage.excerpt}</blockquote>
         </div>)}
       </div>
@@ -54,6 +55,17 @@ export function SpecificationResult({ value }: { value: Result }) {
   const incomplete = value.incomplete ?? []
   const searching = value.matches !== undefined
   return <section className={styles.results} aria-label={searching ? 'Specification search results' : 'Electrical specifications'}>
+    {value.extraction_assessment && <section className={styles.card} aria-label="PDF extraction assessment">
+      <strong>Extraction confidence · {Math.round(value.extraction_assessment.confidence_score * 100)}% field coverage</strong>
+      <p className={styles.note}>{value.extraction_assessment.score_explanation}</p>
+      {value.clarification && <p>{value.clarification}</p>}
+      {value.extraction_assessment.missing_fields.length > 0 && <p>Missing or unqualified: {value.extraction_assessment.missing_fields.map(label).join(', ')}.</p>}
+      {Object.entries(value.extraction_assessment.incomplete_fields ?? {}).map(([name, qualifiers]) => <p key={name}>{label(name)} needs: {qualifiers.map(label).join(', ')}.</p>)}
+      {value.extraction_assessment.reasons.map(reason => <p className={styles.note} key={reason}>{reason}</p>)}
+      <details open={value.extraction_assessment.confidence_score < 1}><summary>Inspect relevant PDF pages</summary>
+        {value.extraction_assessment.relevant_pages.map(page => <p key={page.page}><a href={page.url} target="_blank" rel="noreferrer">Page {page.page} · {page.reason}</a></p>)}
+      </details>
+    </section>}
     {searching && <div className={styles.overview}><strong>{value.match_count ?? matches.length} confirmed match{(value.match_count ?? matches.length) === 1 ? '' : 'es'}</strong>
       {(value.incomplete_count ?? incomplete.length) > 0 && <span> · {value.incomplete_count ?? incomplete.length} {(value.incomplete_count ?? incomplete.length) === 1 ? 'needs' : 'need'} evidence or conditions</span>}
     </div>}

@@ -21,7 +21,7 @@
     {
       "id": "exact_timer_package",
       "input": "Texas Instruments NE555P",
-      "accepted_aliases": {"package": ["PDIP (P), 8 pins", "PDIP, 8 pins"]},
+      "accepted_aliases": {"package": ["PDIP (P), 8 pins", "PDIP, 8 pins", "PDIP, 8-pin"]},
       "expected_fields": {
         "manufacturer": "Texas Instruments",
         "part_number": "NE555P",
@@ -56,6 +56,20 @@
       "expected_behavior": "Preserve the supplied package as user-provided, investigate identity, and request markings or a source when necessary. Leave manufacturer and pinout unresolved without evidence.",
       "must_not": ["Treat the package assertion as independently verified", "Silently rename the part", "Overwrite the user's assertion with a candidate's package"],
       "source_status": "No exact manufacturer source selected; this case evaluates provenance and uncertainty."
+    },
+    {
+      "id": "mismatched_datasheet",
+      "input": "Vishay Dale RS02C10K00FS7017 with Coilcraft TA7618 datasheet",
+      "expected_outcome": "no_match",
+      "expected_behavior": "Cite positive evidence identifying the unrelated flyback transformer; propose no metadata or electrical facts. Missing exact identity alone still requires clarification.",
+      "source": {
+        "url": "https://www.coilcraft.com/getmedia/f080b1aa-a575-4b78-94e5-0976b1d2673a/ta7618.pdf",
+        "locator": "Page 1 title"
+      },
+      "must_not": [
+        "Treat missing identity in selected excerpts as proof of mismatch",
+        "Propose fields or facts from the unrelated device"
+      ]
     }
   ]
 }
