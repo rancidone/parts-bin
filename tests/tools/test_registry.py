@@ -116,3 +116,21 @@ async def test_supplier_failure_does_not_fail_successful_ic_add(tmp_path):
     assert outcome["result"]["enrichment"]["status"] == "failed"
     assert len(service.list()) == 1
     assert service.list()[0].quantity == 6
+
+
+async def test_approved_edit_is_found_by_equivalent_value_notation(registry):
+    added = await registry.execute('add_part', {
+        'part_category': 'resistor', 'profile': 'passive', 'quantity': 5,
+        'value': '10K', 'package': '0402',
+    })
+    part_id = added['result']['id']
+    arguments = {'part_id': part_id, 'fields': {'value': '5K1'}}
+    edited = await registry.execute('update_part', arguments,
+        context=ToolExecutionContext(ApprovalReceipt.issue('update_part', arguments)))
+    assert edited['ok'] and edited['result']['value'] == '5.1k'
+    found = await registry.execute('search_parts', {'filters': {
+        'part_category': 'resistor', 'value': '5K1', 'package': '0402',
+    }})
+    assert found['result']['count'] == 1
+    assert found['result']['parts'][0]['id'] == part_id
+    assert found['result']['parts'][0]['quantity'] == 5

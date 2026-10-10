@@ -4,13 +4,23 @@ This is a planning list, not implementation evidence. Remove entries when the
 work no longer needs tracking; use code, tests, and run output to inspect behavior.
 Design rationale belongs in [docs/design/](docs/design/).
 
-## Next: persistence decoupling and serverless
+## Next: local chat and lookup
 
-- Use repository-injected scenarios plus adapter-specific atomicity, concurrency,
-  and recovery checks to evaluate a cloud persistence candidate. Rehearse migration
-  on a copy, preserving identities, evidence, event ordering, and retry protection.
-- Resolve the AWS experiment's budget and recovery constraints before selecting
-  cloud services; justify each service against the smallest viable stack.
+- Restore the current conversation after reload, replay persisted events without
+  duplicates, and expose explicit execution resume. Handle interrupted streams
+  and photo resubmission without automatically repeating uncertain paid work.
+- Resolve approval controls after decisions, prevent overlapping submissions,
+  and distinguish running, awaiting-review, interrupted, and completed work.
+- Replace source-string UI checks with behavioral tests for streaming, reconnect,
+  errors, duplicate delivery, and approval interaction.
+- Evaluate natural-language inventory lookup through the existing narrow tool
+  contract. Exercise value notation, exact ordering suffixes, package ambiguity,
+  stock availability, and useful clarification. Keep committed inventory separate
+  from pending enrichment and measure live model interpretation independently
+  of deterministic matching.
+
+Cloud experiments are deferred while these local workflows and evidence-backed
+lookup are improved.
 
 ## Resistor requirements search
 
@@ -33,24 +43,6 @@ Design rationale belongs in [docs/design/](docs/design/).
   unknown facts, insufficient stock, variant identity, and search before/after
   approval. Test natural-language interpretation separately from deterministic
   matching; evaluate live extraction quality separately from recorded fixtures.
-
-## Durable ingestion experiment
-
-- Define the acceptance scenario: identify a photo or request clarification,
-  retrieve evidence for the exact part, stage a review, restart while awaiting
-  approval, then apply the approved operation once despite duplicate delivery.
-  Honor the existing ephemeral-photo policy; persist derived candidates and
-  progress rather than image bytes. If an interrupted photo stage cannot resume,
-  request a fresh image explicitly.
-- Resolve the budget, region, access, and recovery constraints needed for a small
-  AWS experiment. Compare Lambda durable functions with Step Functions Standard
-  using the same scenario; verify Python/async and Terraform integration.
-- Demonstrate authenticated progress delivery, browser reconnect, explicit
-  cancellation, concurrent requests, worker replacement, and retry behavior.
-  Keep model/tool context distinct from user-visible conversation events.
-- Record the orchestration, persistence, and ingress tradeoffs in
-  [cloud hosting decisions](docs/design/cloud-hosting.md), using run artifacts for
-  correctness, latency, and cost evidence. Do not select services by implication.
 
 ## Enrichment simplification
 
@@ -76,8 +68,29 @@ Design rationale belongs in [docs/design/](docs/design/).
 - Apply the [storage boundaries](docs/design/storage-and-retention.md): keep photos
   out of durable history/queues and discard retrieved documents after extraction.
 
+## Durable ingestion experiment
+
+- Define the acceptance scenario: identify a photo or request clarification,
+  retrieve evidence for the exact part, stage a review, restart while awaiting
+  approval, then apply the approved operation once despite duplicate delivery.
+  Honor the existing ephemeral-photo policy; persist derived candidates and
+  progress rather than image bytes. If an interrupted photo stage cannot resume,
+  request a fresh image explicitly.
+- Resolve the budget, region, access, and recovery constraints needed for a small
+  AWS experiment. Compare Lambda durable functions with Step Functions Standard
+  using the same scenario; verify Python/async and Terraform integration.
+- Demonstrate authenticated progress delivery, browser reconnect, explicit
+  cancellation, concurrent requests, worker replacement, and retry behavior.
+  Keep model/tool context distinct from user-visible conversation events.
+- Record the orchestration, persistence, and ingress tradeoffs in
+  [cloud hosting decisions](docs/design/cloud-hosting.md), using run artifacts for
+  correctness, latency, and cost evidence. Do not select services by implication.
+
 ## Cloud work
 
+- Use repository-injected scenarios plus adapter-specific atomicity, concurrency,
+  and recovery checks to evaluate a persistence candidate. Rehearse migration on
+  a copy, preserving identities, evidence, ordering, and retry protection.
 - Resolve budget, intended access, region, acceptable downtime, maximum data loss,
   and recovery time before dependent infrastructure choices.
 - Use the durable ingestion experiment to select cloud persistence, orchestration,

@@ -66,6 +66,27 @@ inventory and operation outcomes independently would lose that guarantee.
 Backend-specific constraints must become repository errors before reaching
 domain rules. Keep existing SQLite data and schema readable during this refactor.
 
+Value canonicalization and stock identity belong in
+[domain normalization](../../domain/normalization.py). Apply the same rules before
+additions, edits, batch identity comparison, and accepted review writes. Storage
+adapters persist supplied fields and match non-null filters by exact equality;
+they must not invent units or apply their own normalization rules. Unknown or
+incompatible suffixes remain uninterpreted. Exact manufacturer ordering suffixes
+remain part of identity.
+
+Historical edits may contain noncanonical passive spellings. Value search narrows
+through the repository using the other filters, then compares values using domain
+normalization for each candidate’s category. This preserves stored IDs, quantities,
+timestamps, and evidence
+without a startup rewrite or automatic merge. Duplicate decisions use exact
+normalized identity, including unknown package values rather than treating them
+as wildcards. Ambiguous historical identities require explicit resolution before
+stock increments. Edits and batches check final identities for collisions before
+writing. For the local inventory this trades broader candidate reads for safe
+historical matching; indexed canonical fields would require a separately reviewed
+migration. Accepted evidence retains its original field value and passage even
+when the committed display value is canonicalized.
+
 Conversation history has a separate injected repository contract because visible
 events are published outside the inventory transaction. Disposable supplier caches
 remain separate from authoritative storage. Select a cloud database and migration

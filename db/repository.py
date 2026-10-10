@@ -31,10 +31,6 @@ class SQLiteInventoryRepository:
         row = persistence.get_by_id(self.database, part_id)
         return None if row is None else Part.from_row(row)
 
-    def find_duplicate(self, fields: dict) -> Part | None:
-        row = persistence.find_duplicate(self.database, fields)
-        return None if row is None else Part.from_row(row)
-
     def insert(self, fields: dict) -> int:
         try:
             return persistence.insert_part(self.database, fields)
