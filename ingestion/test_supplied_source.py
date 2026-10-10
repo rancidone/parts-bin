@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from db.repository import SQLitePartsBinRepository
 
 from domain import AddPartRequest, AddStockRequest, ApplyReviewRequest, GetPartRequest, PartFields, PartsBinService, UpdatePartRequest
 from domain.errors import DomainError
@@ -179,7 +180,7 @@ def part(service):
 
 
 def test_stage_and_accept_keep_quantity_and_evidence(tmp_path):
-    service = PartsBinService(tmp_path / "parts.db")
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"))
     original = part(service)
     result = source.review_result(extraction())
     service.add_stock(AddStockRequest(original.id, 2))
@@ -194,7 +195,7 @@ def test_stage_and_accept_keep_quantity_and_evidence(tmp_path):
 
 
 def test_staging_rejects_changed_metadata_and_preserves_pending_review(tmp_path):
-    service = PartsBinService(tmp_path / "parts.db")
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"))
     original = part(service)
     result = source.review_result(extraction())
     service.update_part(UpdatePartRequest(original.id, {"package": "user-package"}))
@@ -209,7 +210,7 @@ def test_staging_rejects_changed_metadata_and_preserves_pending_review(tmp_path)
 
 
 def test_staging_rejects_quantity_and_unevidenced_fields(tmp_path):
-    service = PartsBinService(tmp_path / "parts.db")
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"))
     original = part(service)
     with pytest.raises(DomainError):
         service.stage_enrichment(original, {"quantity": 100}, [])

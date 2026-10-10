@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from db.repository import SQLitePartsBinRepository
 
 from agent_runtime import AgentGateway, ApprovalEngine, ConversationStore, ModelTurn, OpenAIResponsesRuntime
 from agent_runtime.runtime import ModelRequest
@@ -18,9 +19,10 @@ async def test_gateway_persists_and_resumes_one_normalized_stream(tmp_path):
     store = ConversationStore(tmp_path / "conversations.db")
 
     def make_runtime():
+        repository = SQLitePartsBinRepository(tmp_path / "parts.db")
         return OpenAIResponsesRuntime(
-            TextTransport(), registry=PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db")),
-            store=store, approvals=ApprovalEngine(),
+            TextTransport(), registry=PartsBinToolRegistry(PartsBinService(repository)),
+            store=store, approvals=ApprovalEngine(repository),
         )
 
     gateway = AgentGateway(store, make_runtime)
@@ -58,8 +60,9 @@ async def test_gateway_streams_tool_activity_before_model_finishes(tmp_path):
             return ModelTurn("Finished")
 
     store = ConversationStore(tmp_path / "conversation.db")
+    repository = SQLitePartsBinRepository(tmp_path / "parts.db")
     gateway = AgentGateway(store, lambda: OpenAIResponsesRuntime(PausedTransport(),
-        registry=PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db")), store=store, approvals=ApprovalEngine()))
+        registry=PartsBinToolRegistry(PartsBinService(repository)), store=store, approvals=ApprovalEngine(repository)))
     thread = gateway.create_thread()
     stream = gateway.submit_stream(thread, "find parts")
     received = []
@@ -79,8 +82,9 @@ async def test_gateway_preserves_partial_events_on_stream_failure(tmp_path):
         async def complete(self, request):
             raise RuntimeError("provider stopped")
     store = ConversationStore(tmp_path / "conversation.db")
+    repository = SQLitePartsBinRepository(tmp_path / "parts.db")
     gateway = AgentGateway(store, lambda: OpenAIResponsesRuntime(BrokenTransport(),
-        registry=PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db")), store=store, approvals=ApprovalEngine()))
+        registry=PartsBinToolRegistry(PartsBinService(repository)), store=store, approvals=ApprovalEngine(repository)))
     thread = gateway.create_thread()
     events = [event async for event in gateway.submit_stream(thread, "hello")]
     assert [event.kind for event in events] == ["user_message", "error", "completed"]
@@ -94,7 +98,7 @@ async def test_opening_existing_database_preserves_history_and_provider_state(tm
     from domain import AddPartRequest, PartFields
 
     database = tmp_path / "existing.db"
-    service = PartsBinService(database)
+    service = PartsBinService(SQLitePartsBinRepository(database))
     service.add_part(AddPartRequest(PartFields(part_category="resistor", profile="passive", quantity=17, value="10k")))
     with sqlite3.connect(database) as conn:
         conn.executescript("""

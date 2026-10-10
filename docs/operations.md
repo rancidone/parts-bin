@@ -50,6 +50,19 @@ correctness of the inventory it contains.
 
 ## Backup and recovery
 
+Approval requests, decisions, and saved mutation outcomes live with inventory,
+even when conversations use a separate database. Retain them together: removing
+operation records can remove the protection against duplicate approval delivery.
+After a restart, resubmit the same approval ID to recover its saved outcome.
+If inventory or pending evidence changed while approval was waiting, request a
+fresh proposal and review it again. An opposite decision cannot replace a recorded
+approval or denial.
+
+Proposals created by older versions with in-memory approvals cannot be safely
+reconstructed from conversation prose or events. Ask the assistant for a fresh
+proposal if an old approval ID is unknown; do not infer consent from history.
+These procedures recover approval operations, not an interrupted model turn.
+
 Identify the inventory and conversation database paths from your configuration.
 They may share a file. Protect configuration separately and retain historical
 provider session files if they are part of your recovery requirements. A supplier cache is not an inventory

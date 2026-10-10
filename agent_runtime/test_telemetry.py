@@ -1,4 +1,5 @@
 from __future__ import annotations
+from db.repository import SQLitePartsBinRepository
 
 from agent_runtime import AgentGateway, AgentTelemetry, ApprovalEngine, ConversationStore, ModelTurn, OpenAIResponsesRuntime, ToolCall
 from domain import PartsBinService
@@ -25,10 +26,10 @@ async def test_agent_telemetry_redacts_private_content(tmp_path):
     captured = CapturedTelemetry()
     telemetry = AgentTelemetry(captured.emit)
     store = ConversationStore(tmp_path / "events.db")
-    registry = PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db"))
+    registry = PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db")))
     runtime = OpenAIResponsesRuntime(Turns([
         ModelTurn(tool_calls=(ToolCall("search_parts", {"filters": {"part_number": "private-part"}}),)), ModelTurn("private answer"),
-    ]), registry=registry, store=store, approvals=ApprovalEngine(), telemetry=telemetry)
+    ]), registry=registry, store=store, approvals=ApprovalEngine(registry.service.repository), telemetry=telemetry)
     gateway = AgentGateway(store, lambda: runtime, telemetry=telemetry)
     thread = gateway.create_thread()
     await gateway.submit(thread, "private prompt")
@@ -45,12 +46,12 @@ async def test_telemetry_records_tool_error_approval_loop_and_runtime_failure(tm
     captured = CapturedTelemetry()
     telemetry = AgentTelemetry(captured.emit)
     store = ConversationStore(tmp_path / "events.db")
-    registry = PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db"))
+    registry = PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db")))
     runtime = OpenAIResponsesRuntime(Turns([ModelTurn(tool_calls=(ToolCall("unknown", {"credential": "never"}),)), ModelTurn("done")]),
-                                    registry=registry, store=store, approvals=ApprovalEngine(), telemetry=telemetry)
+                                    registry=registry, store=store, approvals=ApprovalEngine(registry.service.repository), telemetry=telemetry)
     await runtime.run("one", "secret")
     looping = OpenAIResponsesRuntime(Turns([ModelTurn(tool_calls=(ToolCall("search_parts", {}),))]), registry=registry,
-                                     store=store, approvals=ApprovalEngine(), telemetry=telemetry, max_tool_turns=1)
+                                     store=store, approvals=ApprovalEngine(registry.service.repository), telemetry=telemetry, max_tool_turns=1)
     await looping.run("two", "secret")
     emitted = {event for event, _ in captured.items}
     assert "agent_tool_error" in emitted and "agent_loop_limit" in emitted

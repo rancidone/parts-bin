@@ -12,9 +12,10 @@ Design rationale belongs in [docs/design/](docs/design/).
   Honor the existing ephemeral-photo policy; persist derived candidates and
   progress rather than image bytes. If an interrupted photo stage cannot resume,
   request a fresh image explicitly.
-- Specify persisted execution and approval state, stable mutation operation IDs,
-  target-version validation, and atomic recording of mutation results. Exercise
-  the failure window between a committed write and an acknowledged job step.
+- Add persisted model/tool execution context and job state around approval
+  continuation. Extend stable operation IDs and atomic outcomes to ordinary
+  additions and stock increments; exercise interrupted paid stages and the
+  failure window between a committed write and an acknowledged job step.
 - Resolve the budget, region, access, and recovery constraints needed for a small
   AWS experiment. Compare Lambda durable functions with Step Functions Standard
   using the same scenario; verify Python/async and Terraform integration.
@@ -47,6 +48,10 @@ Design rationale belongs in [docs/design/](docs/design/).
   and recovery time before dependent infrastructure choices.
 - Use the durable ingestion experiment to select cloud persistence, orchestration,
   and ingress before expanding the deployment.
+- Implement the selected cloud storage adapters against the inventory/approval
+  unit-of-work and conversation repository contracts. Exercise the same domain,
+  atomicity, retry, and recovery scenarios on both local and cloud storage;
+  migrate a copy of existing data and verify inventory, evidence, and history.
 - Build reproducible AWS infrastructure with Terraform, preserving local operation.
 - Address secret delivery, release automation, monitoring, backup and restoration.
 - Demonstrate fresh-account deployment, upgrade/rollback, recovery, performance,

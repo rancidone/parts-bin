@@ -86,6 +86,12 @@ class PartsBinToolRegistry:
     def list_tools(self) -> list[dict[str, Any]]:
         return [tool.copy() for tool in _TOOL_DEFINITIONS]
 
+    @staticmethod
+    def approval_targets(name: str, arguments: dict[str, Any]) -> tuple[int, ...]:
+        if name not in _APPROVAL_REQUIRED:
+            raise ValueError("Tool does not require approval")
+        return tuple(arguments["part_ids"]) if name == "bulk_update_parts" else (arguments["part_id"],)
+
     async def execute(self, name: str, arguments: Mapping[str, Any] | None = None, *, context: ToolExecutionContext | None = None) -> ToolResult:
         args = dict(arguments or {})
         if name not in self._tools:

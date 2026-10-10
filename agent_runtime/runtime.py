@@ -6,11 +6,11 @@ from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any, Callable, Protocol
 
-from tools import PartsBinToolRegistry, ToolExecutionContext
+from tools import PartsBinToolRegistry
 
 from .approval import ApprovalEngine
 from .models import ApprovalResponse, ConversationEvent, ImageInput, ModelTurn, RuntimeResult
-from .store import ConversationStore
+from .store import ConversationRepository
 from .telemetry import AgentTelemetry, _domain_outcome
 
 SYSTEM_INSTRUCTIONS = """You are the Parts Bin assistant. Inventory facts must be discovered with Parts Bin tools; never assume or list unseen inventory. Use tools for every inventory fact and mutation.
@@ -51,7 +51,7 @@ class OpenAIResponsesRuntime:
     runtime = "openai"
 
     def __init__(self, transport: ModelTransport, *, registry: PartsBinToolRegistry,
-                 store: ConversationStore, approvals: ApprovalEngine,
+                 store: ConversationRepository, approvals: ApprovalEngine,
                  max_tool_turns: int = 8, telemetry: AgentTelemetry | None = None) -> None:
         if max_tool_turns < 1:
             raise ValueError("max_tool_turns must be positive")
@@ -59,7 +59,8 @@ class OpenAIResponsesRuntime:
         self.registry = registry
         self.store = store
         self.approvals = approvals
-        self.registry.approval_checker = approvals.checker
+        if registry.service.repository.storage_id != approvals.repository.storage_id:
+            raise ValueError("Approvals and inventory must share one transactional database")
         self.max_tool_turns = max_tool_turns
         self.telemetry = telemetry or AgentTelemetry()
 
@@ -105,11 +106,10 @@ class OpenAIResponsesRuntime:
 
         # Resume the exact approved operation without model reconstruction.
         if approval_response is not None and approval_response.approved:
-            receipt = self.approvals.receipt_for(thread_id, request.tool_name, request.arguments)
             emit("tool_call", {"call_id": request.request_id, "name": request.tool_name, "arguments": request.arguments})
             self.telemetry.tool_started(thread_id, self.runtime, request.tool_name, request.arguments)
             tool_started = perf_counter()
-            result = await self.registry.execute(request.tool_name, request.arguments, context=ToolExecutionContext(approval=receipt))
+            result = await self.approvals.execute(request, self.registry)
             self.telemetry.tool_finished(thread_id, self.runtime, request.tool_name, request.arguments,
                                          latency_ms=(perf_counter() - tool_started) * 1000, result=result)
             emit("tool_result", {"call_id": request.request_id, "name": request.tool_name, "arguments": request.arguments, "result": result})
@@ -141,17 +141,16 @@ class OpenAIResponsesRuntime:
             for call in turn.tool_calls:
                 emit("tool_call", {"call_id": call.call_id, "name": call.name, "arguments": call.arguments})
                 self.telemetry.tool_started(thread_id, self.runtime, call.name, call.arguments)
-                receipt = self.approvals.receipt_for(thread_id, call.name, call.arguments)
                 tool_started = perf_counter()
                 try:
-                    result = await self.registry.execute(call.name, call.arguments, context=ToolExecutionContext(approval=receipt))
+                    result = await self.registry.execute(call.name, call.arguments)
                 except Exception:
                     self.telemetry.runtime_failure(thread_id, self.runtime, "tool_executor_failed")
                     raise
                 self.telemetry.tool_finished(thread_id, self.runtime, call.name, call.arguments,
                                              latency_ms=(perf_counter() - tool_started) * 1000, result=result)
                 if result.get("error", {}).get("code") == "approval_required":
-                    request = self.approvals.request(thread_id, call.name, call.arguments)
+                    request = self.approvals.request(thread_id, call.name, call.arguments, service=self.registry.service)
                     emit("approval_request", {"request_id": request.request_id, "tool": call.name,
                                               "target": call.arguments.get("part_id", call.arguments.get("part_ids", "selection")),
                                               "effect": _approval_effect(call.name, call.arguments), "arguments": call.arguments})

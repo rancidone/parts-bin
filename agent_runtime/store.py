@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import Protocol
 
 from .models import ConversationEvent, RuntimeName
 
@@ -15,6 +16,15 @@ class RuntimeSelectionError(ValueError):
 
 class UnsupportedRuntimeError(ValueError):
     """Historical conversations can be read but not executed by a new provider."""
+
+
+class ConversationRepository(Protocol):
+    """Conversation identity and ordered event storage, independent of its backend."""
+
+    def create_thread(self, thread_id: str, runtime: RuntimeName) -> None: ...
+    def runtime_for(self, thread_id: str) -> RuntimeName | None: ...
+    def append(self, event: ConversationEvent) -> ConversationEvent: ...
+    def events(self, thread_id: str) -> list[ConversationEvent]: ...
 
 
 class ConversationStore:

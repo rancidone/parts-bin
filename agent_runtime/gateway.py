@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from .models import ApprovalResponse, ConversationEvent, ImageInput, RuntimeName
 from .runtime import OpenAIResponsesRuntime
-from .store import ConversationStore, UnsupportedRuntimeError
+from .store import ConversationRepository, UnsupportedRuntimeError
 from .telemetry import AgentTelemetry
 
 RuntimeFactory = Callable[[], Awaitable[OpenAIResponsesRuntime] | OpenAIResponsesRuntime]
@@ -25,7 +25,7 @@ RuntimeFactory = Callable[[], Awaitable[OpenAIResponsesRuntime] | OpenAIResponse
 class AgentGateway:
     """Thread routing, runtime lifecycle, and durable event replay only."""
 
-    def __init__(self, store: ConversationStore, make_runtime: RuntimeFactory,
+    def __init__(self, store: ConversationRepository, make_runtime: RuntimeFactory,
                  *, telemetry: AgentTelemetry | None = None) -> None:
         self.store = store
         self._make_runtime = make_runtime
