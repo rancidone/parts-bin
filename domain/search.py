@@ -13,6 +13,15 @@ _SCALES = {
 _NUMBER = r"([0-9]*\.?[0-9]+)"
 
 
+def search_category(raw: str) -> str:
+    """Compare known category synonyms without changing stored stock identity."""
+    text = raw.strip().lower()
+    spelling = re.sub(r"[\s_-]+", "", text)
+    if spelling in {"opamp", "opamps", "operationalamplifier", "operationalamplifiers"}:
+        return "operational amplifier"
+    return text
+
+
 def nominal_value(raw: str, category: str) -> Decimal | None:
     """Return a base-unit value only for recognized category-specific notation.
 

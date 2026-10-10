@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from domain.models import Part
+from domain.models import CategorySummary, Part
 from domain.repositories import ApprovalRepository, InventoryRepository, OperationRepository, ExecutionRepository, RepositoryConflict, StoredApproval
 
 from . import persistence, specifications
@@ -26,6 +26,9 @@ class SQLiteInventoryRepository:
 
     def search(self, filters: dict) -> list[Part]:
         return [Part.from_row(row) for row in persistence.query(self.database, filters)]
+
+    def list_categories(self) -> list[CategorySummary]:
+        return [CategorySummary(**row) for row in persistence.list_categories(self.database)]
 
     def get(self, part_id: int) -> Part | None:
         row = persistence.get_by_id(self.database, part_id)

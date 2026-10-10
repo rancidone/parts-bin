@@ -4,14 +4,6 @@ This is a planning list, not implementation evidence. Remove entries when the
 work no longer needs tracking; use code, tests, and run output to inspect behavior.
 Decisions and rationale belong in [ADRs](docs/adr/README.md).
 
-## Next: local chat and lookup
-
-- Evaluate natural-language inventory lookup through the existing narrow tool
-  contract. Exercise value notation, exact ordering suffixes, package ambiguity,
-  stock availability, and useful clarification. Keep committed inventory separate
-  from pending enrichment and measure live model interpretation independently
-  of deterministic matching.
-
 Cloud experiments are deferred while these local workflows and evidence-backed
 lookup are improved.
 
