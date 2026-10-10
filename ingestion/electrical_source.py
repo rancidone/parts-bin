@@ -1,7 +1,7 @@
 """Electrical extraction shapes and evidence checks for supplied PDF passages."""
 
 from domain import DomainError
-from domain.specifications import MAX_CONDITIONS, contract, validate_facts
+from domain.specifications import MAX_CONDITIONS, contract, definition, validate_facts
 from ingestion.errors import EnrichmentError
 
 
@@ -29,13 +29,23 @@ def facts_schema(category: str) -> dict:
 
 
 def validate_source_facts(raw: list, category: str, part_number: str, document,
-                          passages: list[dict]) -> list[dict]:
+                          passages: list[dict], *, rejected: list[dict] | None = None) -> list[dict]:
     if not isinstance(raw, list) or len(raw) > 20:
         raise EnrichmentError('Invalid electrical fact list')
-    facts = []
+    facts, names = [], set()
     for record in raw:
         if not isinstance(record, dict) or set(record) != {'name', 'value', 'basis', 'conditions', 'evidence'}:
             raise EnrichmentError('Invalid electrical fact')
+        name = record['name']
+        if not isinstance(name, str) or name in names:
+            raise EnrichmentError('Specification names must be distinct strings')
+        names.add(name)
+        try:
+            item = definition(category, name)
+            if record['basis'] != item.basis:
+                raise EnrichmentError(f'{name} requires basis {item.basis}; qualifiers cannot be substituted')
+        except DomainError as exc:
+            raise EnrichmentError(exc.message) from exc
         pairs = record['conditions']
         if not isinstance(pairs, list) or len(pairs) > MAX_CONDITIONS:
             raise EnrichmentError('Invalid electrical conditions')
@@ -59,12 +69,15 @@ def validate_source_facts(raw: list, category: str, part_number: str, document,
                     or passage['excerpt'] not in document.pages[passage['page'] - 1]):
                 raise EnrichmentError('Supplied passage is not present in the source')
         page, excerpt = cited[0]['page'], cited[0]['excerpt']
-        facts.append({**record, 'conditions': conditions, 'evidence': {
+        proposed = {**record, 'conditions': conditions, 'evidence': {
             'kind': 'source', 'page': page, 'excerpt': excerpt, 'url': document.url,
             'sha256': document.sha256, 'retrieved_at': document.retrieved_at,
             'part_number': part_number,
-            **({'supporting_passages': cited[1:]} if len(cited) > 1 else {})}})
-    try:
-        return validate_facts(category, facts, part_number=part_number) if facts else []
-    except DomainError as exc:
-        raise EnrichmentError(exc.message) from exc
+            **({'supporting_passages': cited[1:]} if len(cited) > 1 else {})}}
+        try:
+            facts.extend(validate_facts(category, [proposed], part_number=part_number))
+        except DomainError as exc:
+            if rejected is None:
+                raise EnrichmentError(exc.message) from exc
+            rejected.append({'name': name, 'reason': exc.message})
+    return facts

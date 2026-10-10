@@ -31,7 +31,8 @@
         "600 V operating at 70 °C and 350 V operating at 105 °C are distinct from the nominal 500 V rating.",
         "Preserve the page-16 routine capacitance test conditions: 1 kHz at room temperature. If omitted from selected excerpts, do not treat an unqualified capacitance as complete.",
         "Review vertically merged voltage cells and terminal variants; do not infer other pin-count variants."
-      ]
+      ],
+      "layout_class": "ruled_tables"
     },
     {
       "id": "bjt_exact_gain_variant",
@@ -46,7 +47,8 @@
         "Preserve the 25 gain group and BU shipping suffix from the ordering table.",
         "NPN, collector-emitter absolute maximum 45 V, continuous collector absolute maximum 800 mA; preserve ambient temperature 25 °C.",
         "Minimum DC gain for the 25 group is 160 at IC 100 mA and VCE 1 V; do not take the 40 group or typical value."
-      ]
+      ],
+      "layout_class": "ruled_tables"
     },
     {
       "id": "mosfet_current_and_gate_conditions",
@@ -61,7 +63,8 @@
         "Preserve PbF ordering suffix; N-channel.",
         "Drain-source absolute maximum 60 V; continuous 50 A at case 25 °C and VGS 5 V; pulsed 200 A has pulse-width/junction limits.",
         "RDS(on) maximum 0.028 Ω at VGS 5 V and ID 31 A; gate threshold is a 1–2 V range, not full enhancement."
-      ]
+      ],
+      "layout_class": "ruled_tables"
     },
     {
       "id": "inductor_saturation_and_rms",
@@ -76,7 +79,8 @@
         "Map the full MRC ordering example to the 223MR_ table row without dropping termination/packaging.",
         "22 µH ±20%; inductance test 100 kHz, 0.1 Vrms.",
         "Isat columns are defined by separate 10%, 20%, 30% inductance drops at 25 °C; Irms columns are defined by 20 °C or 40 °C temperature rise, not absolute maximum current."
-      ]
+      ],
+      "layout_class": "borderless_columns"
     },
     {
       "id": "transformer_ratio_and_missing_ratings",
@@ -91,7 +95,8 @@
         "Preserve the D packaging suffix; turns ratio primary:secondary is 1:4, or 0.25 as a decimal primary/secondary ratio.",
         "5000 Vrms isolation for one minute is not primary/secondary operating voltage.",
         "Leave unsupported VA and operating voltage ratings unknown; preserve source test conditions."
-      ]
+      ],
+      "layout_class": "borderless_columns"
     },
     {
       "id": "switch_low_current_variant",
@@ -160,6 +165,39 @@
       "review": [
         "TA7618-AL_ requires a packaging code. Ask for the exact code; do not choose D or B automatically."
       ]
+    },
+    {
+      "id": "bjt_40_gain_variant",
+      "category": "bjt",
+      "part_number": "BC33740BU",
+      "manufacturer": "onsemi",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.onsemi.com/pdf/datasheet/bc337-fsc-d.pdf",
+      "expected_outcome": "proposal",
+      "review": [
+        "Exact BC33740BU ordering row on page 1; preserve 40 gain group and BU suffix.",
+        "NPN, 45 V collector-emitter absolute maximum and continuous 800 mA at ambient 25 °C.",
+        "Page-2 minimum DC gain is 250 for group 40 at IC 100 mA, VCE 1 V and ambient 25 °C; do not substitute group 25 gain 160."
+      ],
+      "layout_class": "ruled_tables"
+    },
+    {
+      "id": "mosfet_halogen_free_variant",
+      "category": "mosfet",
+      "part_number": "IRLZ44PbF-BE3",
+      "manufacturer": "Vishay Siliconix",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.vishay.com/docs/91328/irlz44.pdf",
+      "expected_outcome": "proposal",
+      "review": [
+        "Page-1 ordering table explicitly names IRLZ44PbF-BE3 as lead-free and halogen-free; preserve the BE3 suffix.",
+        "Ratings share IRLZ44 family evidence: 60 V absolute maximum, 50 A continuous at case 25 °C and VGS 5 V.",
+        "Maximum RDS(on) is 0.028 Ω at VGS 5 V, ID 31 A and junction 25 °C; retain pulse width ≤300 µs and duty cycle ≤2% from note b.",
+        "A threshold endpoint is 1 V minimum or 2 V maximum at VDS=VGS and ID 250 µA, junction 25 °C; pulsed 200 A is limited by maximum junction temperature and figure 11."
+      ],
+      "layout_class": "ruled_tables"
     },
     {
       "category": "operational amplifier",
