@@ -216,8 +216,7 @@ class PartsBinToolRegistry:
             result = await self.service.fetch_and_stage_specs(FetchSpecsRequest(args["part_id"]))
             return {key: (_compact_part(value) if key == "part" else value) for key, value in result.items() if key in {"part", "chosen_updates", "provider", "outcome", "status", "tried_providers"}}
         if name == "list_pending_reviews":
-            reviews = self.service.list_pending_reviews()
-            return {"reviews": [{"part_id": part_id, **review} for part_id, review in reviews.items()]}
+            return self.service.pending_review_page(**args)
         if name == "apply_review":
             part = self.service.apply_review(ApplyReviewRequest(args["part_id"], args.get("updates")))
             return _compact_part(part)
@@ -281,7 +280,7 @@ def _matches(value: Any, rule: dict[str, Any]) -> bool:
     types = rule.get("type", [])
     if isinstance(types, str):
         types = [types]
-    valid_type = any((kind == "string" and isinstance(value, str)) or (kind == "integer" and isinstance(value, int) and not isinstance(value, bool)) or (kind == "object" and isinstance(value, dict)) or (kind == "array" and isinstance(value, list)) or (kind == "null" and value is None) for kind in types)
+    valid_type = any((kind == "string" and isinstance(value, str)) or (kind == "boolean" and isinstance(value, bool)) or (kind == "integer" and isinstance(value, int) and not isinstance(value, bool)) or (kind == "object" and isinstance(value, dict)) or (kind == "array" and isinstance(value, list)) or (kind == "null" and value is None) for kind in types)
     if not valid_type or "enum" in rule and value not in rule["enum"]:
         return False
     if isinstance(value, dict) and 'properties' in rule:
@@ -341,7 +340,7 @@ _TOOL_DEFINITIONS = [
     _tool("bulk_update_parts", "Update explicit fields on an explicit part selection.", {"part_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}}, "fields": _fields_schema(min_properties=1)}, required=["part_ids", "fields"]),
     _tool("delete_part", "Delete one identified part.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
     _tool("lookup_part_specs", "Fetch and stage supplier specifications for review.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
-    _tool("list_pending_reviews", "List pending base-metadata proposals, not committed fields or electrical-rating reviews. Each fields entry contains the proposed value and an accepted flag used to select review fields; accepted does not mean the proposal has been applied. Use get_part for committed identity and quantity, and get_specifications for pending electrical facts.", {}),
+    _tool("list_pending_reviews", "List pending base-metadata proposals, not committed fields or electrical-rating reviews. Each fields entry contains the proposed value and an accepted flag used to select review fields; accepted does not mean the proposal has been applied. Use get_part for committed identity and quantity, and get_specifications for pending electrical facts. Filter by value (equivalent nominal units), exact part_number, or part_id; filters match proposed or committed fields. Pages are ordered by part_id; follow next_offset with unchanged arguments until null. Discovery omits provenance; include_provenance requires a single part_id.", {"part_id": {"type": "integer", "minimum": 1}, "value": {"type": "string", "minLength": 1}, "part_number": {"type": "string", "minLength": 1}, "include_provenance": {"type": "boolean"}, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}),
     _tool("apply_review", "Apply a pending review for one part.", {"part_id": {"type": "integer", "minimum": 1}, "updates": _fields_schema()}, required=["part_id"]),
     _tool("reject_review", "Reject a pending review, wholly or by field.", {"part_id": {"type": "integer", "minimum": 1}, "fields": {"type": "array", "items": {"type": "string", "minLength": 1}}}, required=["part_id"]),
     _tool("get_provenance", "Get accepted field provenance for one part.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),

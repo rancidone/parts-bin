@@ -228,3 +228,38 @@ async def test_specification_discovery_assertion_review_and_search(registry):
 async def test_nested_fact_schema_rejects_invalid_or_model_invented_source(registry, fact):
     response = await registry.execute('stage_specification_review', {'part_id': 1, 'facts': [fact]})
     assert response['error']['code'] == 'invalid_input'
+
+
+async def test_pending_review_discovery_is_filtered_paginated_and_omits_provenance(registry):
+    service = registry.service
+    identifiers = []
+    for i in range(5):
+        part = service.add_part(AddPartRequest(_fields(value=f'{i + 1}k')))
+        identifiers.append(part.id)
+        service.repository.inventory.save_pending_review(part.id, {'value': '10k'}, [{'field_name': 'value', 'excerpt': 'large evidence'}])
+    first = (await registry.execute('list_pending_reviews', {'value': '10000r', 'limit': 2}))['result']
+    assert first['count'] == 5
+    assert first['next_offset'] == 2
+    assert [row['part_id'] for row in first['reviews']] == identifiers[:2]
+    assert all('provenance' not in row for row in first['reviews'])
+    last = (await registry.execute('list_pending_reviews', {'value': '10000r', 'limit': 2, 'offset': 4}))['result']
+    assert [row['part_id'] for row in last['reviews']] == identifiers[4:]
+    assert last['next_offset'] is None and last['truncated'] is False
+    assert (await registry.execute('list_pending_reviews', {'value': '99k'}))['result']['count'] == 0
+    assert not (await registry.execute('list_pending_reviews', {'include_provenance': True}))['ok']
+    detailed = await registry.execute('list_pending_reviews', {'part_id': identifiers[0], 'include_provenance': True})
+    assert detailed['ok']
+    assert detailed['result']['reviews'][0]['provenance'] == service.list_pending_reviews()[identifiers[0]]['provenance']
+    assert len(service.list_pending_reviews()) == 5
+    for args in ({'limit': 101}, {'offset': -1}, {'include_provenance': 'true'}):
+        assert not (await registry.execute('list_pending_reviews', args))['ok']
+
+
+async def test_pending_review_exact_suffix_filter_matches_proposed_or_committed_identity(registry):
+    part = registry.service.add_part(AddPartRequest(_fields(
+        profile='discrete_ic', value=None, part_category='transistor', part_number='PBSS5350T')))
+    registry.service.repository.inventory.save_pending_review(part.id, {'part_number': 'PBSS5350X'}, [])
+    for number in ('PBSS5350T', 'PBSS5350X'):
+        page = await registry.execute('list_pending_reviews', {'part_number': number})
+        assert page['result']['count'] == 1
+    assert (await registry.execute('list_pending_reviews', {'part_number': 'PBSS5350'}))['result']['count'] == 0

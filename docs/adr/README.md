@@ -12,6 +12,8 @@ status. Recording them does not select additional services or change behavior.
 - [0007: Match electrical requirements against reviewed, qualified facts](0007-reviewed-electrical-facts.md)
 - [0008: Target AWS and Terraform without selecting a cloud stack yet](0008-deferred-aws-direction.md)
 
+- [0009: Bound model context independently of retained data](0009-bounded-model-context.md)
+
 Use one numbered record per decision with **Status**, **Context**, **Decision**,
 and **Consequences**. Do not append implementation progress, test counts, or
 current configuration. Correct factual mistakes when necessary; when a decision

@@ -305,3 +305,62 @@ async def test_cache_key_preserves_identity_source_model_and_policy(tmp_path):
         with patch.object(source, "POLICY_VERSION", "next-policy"):
             await lookup()
         assert retrieve.await_count == extract.await_count == 6
+
+
+def test_excerpts_bound_multibyte_text_and_retain_late_exact_identity():
+    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, (
+        '🪿' * 6000,
+        ('Other identity PBSS5350TX. ' * 250),
+        PAGE,
+    ))
+    excerpts, omitted = source.select_excerpts(document, 'PBSS5350T')
+    assert omitted
+    assert sum(len(page['text'].encode('utf-8')) for page in excerpts) <= source.MAX_EXCERPT_BYTES
+    assert {'page': 3, 'text': PAGE} in excerpts
+    for page in excerpts:
+        assert page['text'] in document.pages[page['page'] - 1]
+    assert source.select_excerpts(DOCUMENT, 'PBSS5350T') == ([{'page': 1, 'text': PAGE}], False)
+
+
+async def test_selected_excerpts_use_original_citations_and_validate_visible_evidence():
+    captured = []
+    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, ('x' * 20_000, PAGE))
+    result = candidate()
+    for field in result['fields'].values():
+        field['evidence']['page'] = 2
+    def handler(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json={'status': 'completed', 'output': [
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(result)}]}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        extracted = await source.extract(document, 'PBSS5350T', None, api_key='fake', model='test', client=client)
+    model_input = json.loads(captured[0]['input'])
+    assert model_input['text_omitted'] is True
+    assert sum(len(page['text'].encode('utf-8')) for page in model_input['pages']) <= source.MAX_EXCERPT_BYTES
+    assert extracted['fields']['part_number']['evidence']['page'] == 2
+
+
+async def test_excerpt_absence_does_not_become_no_match():
+    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, ('x' * 20_000,))
+    outcome = {'outcome': 'no_match', 'clarification': None, 'fields': dict.fromkeys(source.FIELDS)}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={
+            'status': 'completed', 'output': [{'type': 'message', 'content': [
+                {'type': 'output_text', 'text': json.dumps(outcome)}]}],
+    }))) as client:
+        result = await source.extract(document, 'PBSS5350T', None, api_key='fake', model='test', client=client)
+    assert result['outcome'] == 'needs_clarification'
+    assert result['fields'] == {}
+
+
+async def test_cannot_quote_evidence_outside_selected_excerpts():
+    hidden = 'Secret package evidence'
+    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, (PAGE + hidden,))
+    result = candidate()
+    result['fields']['package']['evidence']['excerpt'] = hidden
+    with patch.object(source, 'select_excerpts', return_value=([{'page': 1, 'text': PAGE}], True)):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={
+                'status': 'completed', 'output': [{'type': 'message', 'content': [
+                    {'type': 'output_text', 'text': json.dumps(result)}]}],
+        }))) as client:
+            with pytest.raises(source.EnrichmentError, match='supplied excerpts'):
+                await source.extract(document, 'PBSS5350T', None, api_key='fake', model='test', client=client)
