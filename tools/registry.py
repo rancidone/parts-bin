@@ -165,17 +165,16 @@ class PartsBinToolRegistry:
         if name == "search_parts":
             limit = args.get("limit", 20)
             request = SearchPartsRequest(args.get("filters", {}), args.get("minimum_quantity", 0))
+            offset = args.get("offset", 0)
             if 'requirements' in args:
-                return self.service.search_specifications(request, args['requirements'], limit=limit)
-            rows = self.service.search(request)
-            return {"parts": [_compact_part(row) for row in rows[:limit]], "count": len(rows), "truncated": len(rows) > limit}
+                return self.service.search_specifications(request, args['requirements'], limit=limit, offset=offset)
+            page = self.service.search_page(request, limit=limit, offset=offset)
+            return {**page, "parts": [_compact_part(row) for row in page["parts"]]}
         if name == "search_candidates":
-            rows = self.service.search_candidates(SearchCandidatesRequest(
-                args["query"], args.get("filters", {}), args.get("minimum_quantity", 0)))
-            limit = args.get("limit", 20)
-            return {"candidates": [_compact_part(row) for row in rows[:limit]],
-                    "count": len(rows), "truncated": len(rows) > limit,
-                    "match_kind": "candidate"}
+            page = self.service.candidate_page(SearchCandidatesRequest(
+                args["query"], args.get("filters", {}), args.get("minimum_quantity", 0)),
+                limit=args.get("limit", 20), offset=args.get("offset", 0))
+            return {**page, "candidates": [_compact_part(row) for row in page["candidates"]]}
         if name == 'get_specification_contract':
             return contract(args['category'])
         if name == 'get_specifications':
@@ -325,12 +324,12 @@ _FACTS_SCHEMA = {'type': 'array', 'minItems': 1, 'maxItems': 20, 'items': {
 }}
 
 _TOOL_DEFINITIONS = [
-    _tool("search_parts", "Search committed inventory. Passive values compare equivalent nominal units (10 kΩ = 10000r, 0.1 µF = 100nF). Package and full part number match exactly; omit an uncertain package and ask for clarification. minimum_quantity is available stock per record. Discover supported specification requirements with get_specification_contract before querying requirements. Returns confirmed matches with supporting source evidence separately from incomplete candidates. All qualifiers and conditions must match; ratings do not establish application suitability.", {"filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}}, "requirements": _REQUIREMENTS_SCHEMA, "minimum_quantity": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},),
-    _tool("search_candidates", "Find candidate stock by a literal, case-insensitive substring across committed descriptions, manufacturers, and part numbers. Markings can be found only if recorded in those fields. query is one contiguous fragment, not a natural-language question or wildcard. Optional filters use search_parts exact identity and nominal-value rules; minimum_quantity applies per record. Results are candidates, not verified identities, interchangeable stock, or evidence of electrical suitability. Preserve every returned ordering suffix and quantity; clarify ambiguous markings before adding or merging stock. Pending proposals are excluded. Results are ordered by id and bounded by limit.", {
+    _tool("search_parts", "Search committed inventory. Pages are ordered by part id. Start with offset 0; when next_offset is non-null, reuse the same filters, requirements, minimum_quantity, and limit with that offset. Counts cover all results. For specification searches, limit and offset apply separately to matches and incomplete candidates (at most 2 * limit records per page). next_offset is null when both groups are exhausted. If inventory or accepted facts change, restart pagination. Passive values compare equivalent nominal units (10 kΩ = 10000r, 0.1 µF = 100nF). Package and full part number match exactly; omit an uncertain package and ask for clarification. minimum_quantity is available stock per record. Discover supported specification requirements with get_specification_contract before querying requirements. Returns confirmed matches with supporting source evidence separately from incomplete candidates. All qualifiers and conditions must match; ratings do not establish application suitability.", {"filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}}, "requirements": _REQUIREMENTS_SCHEMA, "minimum_quantity": {"type": "integer", "minimum": 0}, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},),
+    _tool("search_candidates", "Find candidate stock by a literal, case-insensitive substring across committed descriptions, manufacturers, and part numbers. Markings can be found only if recorded in those fields. query is one contiguous fragment, not a natural-language question or wildcard. Optional filters use search_parts exact identity and nominal-value rules; minimum_quantity applies per record. Results are candidates, not verified identities, interchangeable stock, or evidence of electrical suitability. Preserve every returned ordering suffix and quantity; clarify ambiguous markings before adding or merging stock. Pending proposals are excluded. Results are ordered by id and bounded by limit. Start with offset 0 and follow next_offset with the same query, filters, minimum_quantity, and limit until null. Counts cover all candidates. Restart if inventory changes.", {
         "query": {"type": "string", "minLength": 1},
         "filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}},
         "minimum_quantity": {"type": "integer", "minimum": 0},
-        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+        "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100},
     }, required=["query"]),
     _tool("get_part", "Get one committed part by id.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
     _tool("add_part", "Add one distinct part.", _FIELDS, required=["part_category", "profile", "quantity"]),
