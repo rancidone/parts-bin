@@ -49,14 +49,39 @@ uv run python -m evaluation.runner \
   --workspace /private/tmp/parts-bin-lookup-evals
 ```
 
-For a later paid interpretation measurement, provide a runtime factory that uses
-the OpenAI Responses API, ignores the recorded turns, and uses only the injected
-disposable repositories. Then run the same fixture file with
-`PARTS_BIN_LIVE_EVAL=1` and `--live-factory module:function`. Record the model
-snapshot, per-scenario correctness, clarification usefulness, latency, token
-usage, and cost outside the checked-in fixtures; do not reuse local production
-configuration or inventory. The current offline results establish deterministic
-tool orchestration and matching only, not live model interpretation quality.
+Run a paid lookup measurement with an explicit model and an environment-provided
+`OPENAI_API_KEY` (never place the key in recorded artifacts):
+
+```sh
+PARTS_BIN_LIVE_EVAL=1 uv run python -m evaluation.live_lookup \
+  --model YOUR_MODEL --workspace /private/tmp/parts-bin-live-lookup
+```
+
+The command uses the production Responses transport and runtime with fresh
+synthetic repositories, ignores recorded turns, and never loads application
+configuration or production inventory. It runs all lookup cases by default;
+`--scenario SCENARIO_ID` selects cases. Each case makes at most five model
+requests, with at most 1,000 output tokens per request. Provider failures stop the run without retry; rerunning is an explicit
+paid action. Each run gets a new directory, with the report updated after each
+case and disposable inventory/conversation databases retained for inspection.
+
+The report contains returned model snapshots, per-call usage and latency, visible
+events, recorded-contract failures, and whether stock/reviews/provenance changed.
+Missing usage stays unknown. Cost is left unknown until calculated from the
+returned models and current account pricing. Review the report's answers and tool
+results for correctness and clarification usefulness: wording checks and recorded
+tool sequences can reject valid live behavior, and passing them cannot prove that
+an answer is correct. Record that review beside the run artifacts, outside the
+checked-in fixtures. Exit status 1 means a recorded-contract failure, changed
+inventory, request limit, or provider failure; inspect the report to distinguish
+these outcomes. Offline runs remain separate from live interpretation quality.
+
+For a model comparison, keep fixture and runtime hashes identical, run the same
+cases more than once, and retain separate correctness and clarification judgments.
+Start with a small pilot and explicit request/output limits; use current pricing
+to bound the paid budget before expanding it. Compare latency and token cost as
+well as quality, and do not generalize lookup results to photo identification or
+source-backed enrichment without evaluating those workflows separately.
 
 Deterministic tests and recorded turns check rules and orchestration; live runs
 measure model and retrieval behavior. Source review is needed to establish factual
