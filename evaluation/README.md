@@ -177,6 +177,23 @@ performance. Inspect global table headings as well as individual rows; compare
 per-amplifier and whole-device current only with matching scope. A genuine quote
 from a neighboring grade cannot establish the requested variant's specification.
 
+The saved-link cases set `linked_part` and seed that URL on disposable stock.
+They exercise the operator association separately from supplier-discovered exact
+identity: an omitted package/shipping suffix can retain shared ratings, while an
+unrelated saved document must still yield no facts. To select these cases:
+
+```sh
+PARTS_BIN_LIVE_EVAL=1 uv run --env-file .env python -m evaluation.live_electrical \
+  --model YOUR_MODEL --workspace /private/tmp/parts-bin-live-electrical \
+  --case opamp_saved_link_missing_suffix --case saved_link_wrong_document
+```
+
+Bounded source selection reserves stress, recommended operating and electrical
+sections before repeated ordering rows. Detected merged cells on selected pages
+retain their bounds as interpretation context. Check that row-specific conditions
+override global defaults and that every fact repeats its inherited conditions;
+retained source context alone does not establish complete extraction.
+
 Keep the resulting report outside the repository. It records source hashes,
 model usage, latency, candidate passages, failure classifications and approval,
 restart, replay and quantity checks. Approval in these disposable databases tests
@@ -228,6 +245,11 @@ the pages before changing expectations; changed source hashes invalidate scores.
 The comparator flags missing values, qualifiers, mismatched value/condition
 pairs and unsupported application ratings. Unlisted equivalent wording and
 quotation interpretation still require visual review.
+Saved-link cases can name an `expectation_case_id` when the independently reviewed
+ratings apply to the same electrical grade. The report retains both case IDs and
+still checks the captured source hash. This association is evaluation metadata;
+it is never supplied to the extraction model. Reviewed equivalent qualifier
+wording belongs in the expectations; missing conditions remain failures.
 
 ```sh
 uv run python -m evaluation.electrical_completeness /path/to/report.json \

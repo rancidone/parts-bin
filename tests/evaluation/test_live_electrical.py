@@ -75,3 +75,16 @@ async def test_provider_authentication_failure_stops_without_retry_or_error_body
     assert 'private-provider-content' not in path.read_text()
     assert report['results'][0]['responses'][0] == {'http_status': 401,
         'latency_ms': report['results'][0]['responses'][0]['latency_ms']}
+
+
+async def test_saved_link_evaluation_passes_association_and_preserves_stock(tmp_path):
+    from unittest.mock import patch
+    case = load_cases(['opamp_saved_link_missing_suffix'])[0]
+    candidate = {'outcome': 'proposal', 'facts': []}
+    with patch('evaluation.live_electrical.source.extract', AsyncMock(return_value=candidate)) as extract:
+        path = await run_electrical(tmp_path, api_key='fake', model='test', case_ids=[case['id']],
+            http_transport=httpx.MockTransport(lambda _: pytest.fail('No provider call expected')),
+            retriever=AsyncMock(return_value=document(case)))
+    assert extract.call_args.kwargs['linked_part'] is True
+    row = json.loads(path.read_text())['results'][0]
+    assert row['linked_part'] and row['inventory_preserved']

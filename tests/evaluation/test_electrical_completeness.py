@@ -1,7 +1,7 @@
 import copy
 import json
 
-from evaluation.electrical_completeness import EXPECTATIONS, check_completeness
+from evaluation.electrical_completeness import EXPECTATIONS, assess_report, check_completeness
 from evaluation.pdf_ocr import transcript, raster_ocr
 from ingestion.errors import EnrichmentError
 import pytest
@@ -117,6 +117,34 @@ def test_opamp_high_temperature_bias_bound_requires_characterization_qualifier()
     assert 'value and qualifier pairing mismatch' in result['issues']['input_bias_current']
     bias['conditions']['qualification'] = 'specified by characterization only'
     assert 'input_bias_current' not in check_completeness(case, candidate, 'operational amplifier')['issues']
+
+
+def test_saved_link_is_scored_against_shared_b_ratings_without_hiding_missing_facts():
+    _, candidate = fixture('opamp_b_operating_and_stress_limits')
+    candidate['facts'] = [fact for fact in candidate['facts'] if fact['name'] != 'quiescent_current']
+    result, = assess_report({'results': [{'case_id': 'opamp_saved_link_missing_suffix',
+                                         'outcome': 'proposal', 'candidate': candidate}]})
+    assert result['expectation_case_id'] == 'opamp_b_operating_and_stress_limits'
+    assert result['source_hash_matches_review']
+    assert result['issues']['quiescent_current'] == ['missing fact']
+    assert result['value_coverage'] == .875
+    candidate['source']['sha256'] = 'different'
+    drifted, = assess_report({'results': [{'case_id': 'opamp_saved_link_missing_suffix',
+                                          'outcome': 'proposal', 'candidate': candidate}]})
+    assert drifted['value_coverage'] is None
+
+
+def test_reviewed_supply_wording_preserves_endpoints_and_rail_convention():
+    case, candidate = fixture('opamp_b_operating_and_stress_limits')
+    for fact in candidate['facts']:
+        if 'supply_convention' in fact['conditions']:
+            fact['conditions']['supply_convention'] = 'VS= ([V+] – [V–])'
+        elif fact['name'] != 'quiescent_current':
+            fact['conditions']['supply_voltage'] = '5 V to 36 V (±2.5 V to ±18 V)'
+    assert check_completeness(case, candidate, 'operational amplifier')['qualifier_coverage'] == 1
+    candidate['facts'][3]['conditions']['supply_voltage'] = '5 V to 36 V (±5 V to ±36 V)'
+    assert 'missing or unreviewed qualifier: supply_voltage' in check_completeness(
+        case, candidate, 'operational amplifier')['issues']['input_offset_voltage']
 
 
 def test_ocr_transcript_keeps_lines_and_separates_recognition_from_truth():

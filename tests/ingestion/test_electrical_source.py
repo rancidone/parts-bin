@@ -215,6 +215,8 @@ async def test_saved_datasheet_extracts_common_ratings_without_requiring_invento
         assert 'Extract ratings shared by the listed devices' in instructions
         assert 'omit only the affected facts' in instructions
         assert 'A clearly unrelated device' in instructions
+        assert 'only that literal designation, not a comma-separated family list' in instructions
+        assert 'retain that exact supplied name' in instructions
         assert 'If the exact identity is absent' not in instructions
         return httpx.Response(200, json={'status': 'completed', 'output': [
             {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
@@ -244,6 +246,32 @@ def test_saved_link_still_requires_real_quotes_and_consistent_manufacturer():
     raw['fields']['part_number']['evidence']['excerpt'] = 'Invented code'
     with pytest.raises(source.EnrichmentError, match='not present'):
         source.validate_candidate(raw, NUMBER, 'Vishay', DOCUMENT, linked_part=True)
+
+
+def test_saved_link_cannot_claim_inventory_suffix_absent_from_identity_quote():
+    text = 'DEVICE-B Vishay operational amplifier'
+    document = source.Document(URL, 'a' * 64, DOCUMENT.retrieved_at, (text,))
+    raw = candidate(number='DEVICE-BI', passage=text, facts=[])
+    raw.pop('facts')
+    raw['fields']['part_number']['evidence']['excerpt'] = 'DEVICE-B'
+    with pytest.raises(source.EnrichmentError, match='Identity evidence must name the claimed identity'):
+        source.validate_candidate(raw, 'DEVICE-BI', 'Vishay', document, linked_part=True)
+    raw['fields']['part_number']['value'] = 'DEVICE-B'
+    assert source.validate_candidate(raw, 'DEVICE-BI', 'Vishay', document,
+                                     linked_part=True)['fields']['part_number']['value'] == 'DEVICE-B'
+
+
+@pytest.mark.parametrize('linked_part', [False, True])
+def test_identity_quote_accepts_a_device_in_a_comma_separated_list(linked_part):
+    text = 'Vishay DEVICE-A, DEVICE-B, DEVICE-C'
+    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, (text,))
+    raw = {'outcome': 'proposal', 'clarification': None, 'mismatch_evidence': None,
+           'fields': {'part_number': {'value': 'DEVICE-B', 'evidence': {'page': 1, 'excerpt': text}},
+                      'manufacturer': {'value': 'Vishay', 'evidence': {'page': 1, 'excerpt': text}},
+                      'package': None, 'description': None}}
+    result = source.validate_candidate(raw, 'DEVICE' if linked_part else 'DEVICE-B',
+                                       'Vishay', document, linked_part=linked_part)
+    assert result['fields']['part_number']['value'] == 'DEVICE-B'
 
 
 async def test_saved_link_does_not_convert_evidenced_mismatch_into_facts():

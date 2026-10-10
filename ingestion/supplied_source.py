@@ -22,7 +22,7 @@ from pdfminer.layout import LTContainer, LTTextLine
 from ingestion.cache import EnrichmentCache
 from ingestion.errors import EnrichmentError
 
-POLICY_VERSION = "supplied-pdf-v17"
+POLICY_VERSION = "supplied-pdf-v22"
 ALLOWED_HOSTS = frozenset({"assets.nexperia.com", "www.nexperia.com", "www.ti.com",
                            "www.vishay.com", "www.coilcraft.com", "omronfs.omron.com",
                            "www.onsemi.com"})
@@ -243,7 +243,8 @@ def validate_candidate(candidate: dict, part_number: str, manufacturer: str | No
         if name in {"part_number", "manufacturer"} and value.casefold() not in excerpt.casefold():
             raise EnrichmentError("Identity evidence must name the claimed identity")
         if name == 'part_number' and not re.search(
-                r'(?<![\w,./\u2010-\u2015\u2212-])' + re.escape(value) + r'(?![\w,./\u2010-\u2015\u2212-])', excerpt, re.I):
+                r'(?<![\w,./\u2010-\u2015\u2212-])' + re.escape(value) +
+                r'(?![\w./\u2010-\u2015\u2212-]|,\S)', excerpt, re.I):
             raise EnrichmentError('Identity evidence must name the exact ordering variant')
         if name == "description" and re.search(r"\d", value):
             raise EnrichmentError("This extraction policy supports qualitative descriptions only")
@@ -257,6 +258,40 @@ def validate_candidate(candidate: dict, part_number: str, manufacturer: str | No
             for name, item in fields.items()}}
 
 
+def specification_windows(document: Document, part_number: str) -> list[tuple[int, int, str]]:
+    """Reserve source sections before repeated ordering codes fill the budget."""
+    heading = re.compile(r'(?im)^\s*(?:\d+(?:\.\d+)*\s+)?'
+        r'(Absolute Maximum Ratings|Recommended Operating Conditions|Electrical Characteristics)[^\n]*$')
+    sections = []
+    for i, text in enumerate(document.pages):
+        for match in heading.finditer(text):
+            if '..' in match.group():  # Contents entries are not governing sections.
+                continue
+            devices = re.findall(r'\b[A-Z][A-Z0-9-]*\d[A-Z0-9-]*\b', match.group(), re.I)
+            specificity = max((len(device) for device in devices
+                if part_number.casefold().startswith(device.casefold())), default=0)
+            sections.append((i, match, specificity))
+    best = max((score for _, match, score in sections
+                if match[1].lower() == 'electrical characteristics'), default=0)
+    windows = []
+    for i, match, score in sections:
+        kind = match[1].lower()
+        if kind == 'electrical characteristics' and best and score != best:
+            continue
+        text = document.pages[i]
+        limit = 1800 if kind == 'electrical characteristics' else 2100
+        end = min(len(text), match.start() + limit)
+        next_heading = re.search(r'(?m)^\d+(?:\.\d+)+\s+[A-Z]', text[match.end():end])
+        if next_heading:
+            end = match.end() + next_heading.start()
+        windows.append((i, match.start(), text[match.start():end]))
+        if kind == 'electrical characteristics':
+            for sub in re.finditer(r'(?im)^(?:FREQUENCY RESPONSE|POWER SUPPLY)\s*$', text):
+                end = min(len(text), sub.start() + 900)
+                windows.append((i, sub.start(), text[sub.start():end]))
+    return windows
+
+
 def select_excerpts(document: Document, part_number: str) -> tuple[list[dict], bool]:
     """Prefer exact identity, ordering and electrical context, keeping page citations.
 
@@ -264,7 +299,7 @@ def select_excerpts(document: Document, part_number: str) -> tuple[list[dict], b
     Selection is retrieval only: it never supplies facts or resolves identity.
     """
     tables, _ = relevant_tables(document.tables, part_number)
-    budget = MAX_EXCERPT_BYTES - (MAX_TABLE_CONTEXT_BYTES if tables else 0)
+    budget = MAX_EXCERPT_BYTES - (MAX_TABLE_CONTEXT_BYTES if document.tables else 0)
     pages = [{'page': i + 1, 'text': text} for i, text in enumerate(document.pages)]
     if sum(len(page['text'].encode('utf-8')) for page in pages) <= budget:
         return pages, False
@@ -322,9 +357,20 @@ def select_excerpts(document: Document, part_number: str) -> tuple[list[dict], b
                 candidates.append((215, table['page'] - 1, start, text[start:end]))
     # Keep the opening description even when ordering-code repetitions would
     # otherwise consume the whole budget. It supplies context, never identity.
-    opening = document.pages[0].encode('utf-8')[:4000].decode('utf-8', errors='ignore') if document.pages else ''
+    sections = specification_windows(document, part_number)
+    opening_budget = 1200 if sections else 4000
+    opening = document.pages[0].encode('utf-8')[:opening_budget].decode('utf-8', errors='ignore') if document.pages else ''
     selected = [(0, 0, opening)] if opening else []
     used = len(opening.encode('utf-8'))
+    section_used = 0
+    for i, start, text in sections:
+        cost = len(text.encode('utf-8'))
+        if any(page == i and text in chosen for page, _, chosen in selected):
+            continue
+        if section_used + cost <= 6000 and used + cost <= budget - 1200:
+            selected.append((i, start, text))
+            section_used += cost
+            used += cost
     # Reserve context for distant methods/notes before filling the remaining
     # budget with identity rows. Select a page at most once in this reservation.
     method_used, method_pages = 0, set()
@@ -354,6 +400,8 @@ def electrical_passages(excerpts: list[dict], *, budget: int = MAX_EXCERPT_BYTES
     for page in excerpts:
         text = page['text']
         for start in range(0, len(text), 1000):
+            if start and start + 200 >= len(text):
+                break  # The preceding window already includes this final tail.
             passage = text[start:start + 1200]
             cost = len(passage.encode('utf-8'))
             if passage.strip() and used + cost <= budget:
@@ -377,7 +425,7 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
                 'source': {'url': document.url, 'sha256': document.sha256, 'retrieved_at': document.retrieved_at},
                 'model': model, 'policy_version': POLICY_VERSION, 'usage': {}}
     excerpts, omitted = select_excerpts(document, part_number)
-    tables, tables_omitted = relevant_tables(document.tables, part_number)
+    tables, tables_omitted = relevant_tables(document.tables, part_number, excerpts=excerpts)
     omitted = omitted or tables_omitted or document.table_context_omitted
     if category is not None:
         passages, passages_omitted = electrical_passages(excerpts,
@@ -400,7 +448,14 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
             'confirmation is required just because the inventory label omits a suffix or the document '
             'lists multiple package or shipping variants. Preserve the inventory label unchanged. '
             'For the internal part_number metadata, quote the actual device designation in the document '
-            'rather than inventing a quote for the inventory label. Extract ratings shared by the listed '
+            'rather than inventing a quote for the inventory label. Set fields.part_number.value to '
+            'that source designation too: the value must occur literally in its evidence excerpt. '
+            'The server preserves the inventory label separately; do not put an absent inventory '
+            'suffix into this internal metadata value. Its identity excerpt must contain '
+            'only that literal designation, not a comma-separated family list. If a manufacturer is '
+            'supplied, retain that exact supplied name when it is present in the source; quote that '
+            'literal name alone without adding a corporate suffix from a copyright notice. '
+            'Extract ratings shared by the listed '
             'devices. When electrical grades differ, omit only the affected facts whose variant cannot '
             'be determined; keep common supported facts. A clearly unrelated device, incompatible '
             'category, or conflicting manufacturer still requires no_match with mismatch evidence. '
@@ -518,7 +573,15 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
             'such as V/µs. Preserve global supply, temperature, common-mode and output voltages, '
             'load resistance and load reference, closed-loop gain, capacitive load, and row-specific '
             'conditions wherever applicable. Quiescent current requires current_scope to distinguish '
-            'per-amplifier from whole-device values. Use the exact variant column, never substitute '
+            'per-amplifier from whole-device values. Repeat inherited global conditions in EACH fact; '
+            'conditions on one fact do not apply to the others. A heading such as VCM = VOUT = VS / 2 '
+            'establishes both common_mode_voltage and output_voltage. A load connected to a rail '
+            'or reference needs both load_resistance and load_reference. Retain footnote restrictions '
+            'such as specified by characterization only in a qualification condition on affected bounds. '
+            'Row conditions override the global defaults, including when a merged temperature cell '
+            'spans several current rows. A typical column does not cancel that explicit row temperature. '
+            'Check the selected cell geometry before applying a default temperature. '
+            'Use the exact variant column, never substitute '
             'an improved grade or another family member. Rail-relative common-mode/output limits '
             'and unsupported noise or stability claims remain absent; do not invent numeric values '
             'for them. Missing test context makes only the affected fact incomplete or absent.'
