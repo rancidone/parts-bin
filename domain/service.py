@@ -149,6 +149,32 @@ class PartsBinService:
                 'facts': self.repository.inventory.specifications(part_id),
                 'pending_review': self.repository.inventory.specification_reviews().get(part_id)}
 
+    def specification_review_page(self, *, part_id: int | None = None,
+                                  part_category: str | None = None, part_number: str | None = None,
+                                  limit: int = 20, offset: int = 0) -> dict:
+        """Discover pending electrical reviews without returning evidence or snapshots."""
+        validate_page(limit, offset)
+        if part_id is not None and (type(part_id) is not int or part_id < 1):
+            raise DomainError(ErrorCode.INVALID_INPUT, 'part_id must be a positive integer')
+        for value in (part_category, part_number):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise DomainError(ErrorCode.INVALID_INPUT, 'Review filters must be non-empty strings')
+        rows = []
+        for identifier, review in sorted(self.repository.inventory.specification_reviews().items()):
+            if part_id is not None and identifier != part_id:
+                continue
+            part = self.get(GetPartRequest(identifier))
+            if part_category is not None and part.part_category != part_category:
+                continue
+            if part_number is not None and part.part_number != part_number:
+                continue
+            rows.append({'part_id': identifier, 'part_category': part.part_category,
+                         'part_number': part.part_number,
+                         'fact_names': [fact['name'] for fact in review['facts']]})
+        following = next_offset(len(rows), limit, offset)
+        return {'reviews': rows[offset:offset + limit], 'count': len(rows),
+                'truncated': following is not None, 'next_offset': following}
+
     def stage_specifications(self, original: Part, facts: list[dict]) -> None:
         checked = specifications.validate_facts(original.part_category, facts, part_number=original.part_number)
         nominal_field = {'resistor': 'resistance', 'capacitor': 'capacitance', 'inductor': 'inductance'}.get(original.part_category.lower())
