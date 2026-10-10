@@ -41,6 +41,57 @@ class TestMergeSpecs:
 
 class TestLookupResolution:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("status_code, outcome", [
+        (404, "no_match"), (401, "failed"), (403, "failed"),
+        (429, "failed"), (500, "failed"), (503, "failed"),
+    ])
+    async def test_product_details_http_outcomes(self, status_code, outcome):
+        original_async_client = httpx.AsyncClient
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+            if request.url.path == "/v1/oauth2/token":
+                return httpx.Response(200, json={"access_token": "test-token"})
+            return httpx.Response(status_code, json={"status": status_code})
+
+        with patch("ingestion.lookup.httpx.AsyncClient", side_effect=lambda *args, **kwargs:
+                   original_async_client(transport=httpx.MockTransport(handler))):
+            result = await fetch_specs_detailed("LM386", {
+                "client_id": "id", "client_secret": "secret",
+            })
+
+        assert result["outcome"] == outcome
+        assert result["chosen_updates"] == {}
+        assert result["durable_provenance"] == []
+        assert len(requests) == 2
+        attempt = result["source_attempts"][0]
+        assert attempt["status"] == outcome
+        if outcome == "failed":
+            assert attempt["error"]["status_code"] == status_code
+
+    @pytest.mark.asyncio
+    async def test_product_not_found_allows_configured_search(self):
+        original_async_client = httpx.AsyncClient
+
+        async def handler(request):
+            if request.url.path == "/v1/oauth2/token":
+                return httpx.Response(200, json={"access_token": "test-token"})
+            return httpx.Response(404)
+
+        with patch("ingestion.lookup.httpx.AsyncClient", side_effect=lambda *args, **kwargs:
+                   original_async_client(transport=httpx.MockTransport(handler))), patch(
+                       "ingestion.lookup.search_datasheet_pdfs", AsyncMock(return_value=[])) as search:
+            result = await fetch_specs_detailed("LM386", {
+                "client_id": "id", "client_secret": "secret",
+            }, search_config={})
+
+        search.assert_awaited_once()
+        assert search.await_args.args[0] == "LM386"
+        assert result["outcome"] == "no_match"
+        assert result["chosen_updates"] == {}
+
+    @pytest.mark.asyncio
     async def test_fetch_specs_detailed_no_credentials_returns_no_match(self):
         result = await fetch_specs_detailed("TLV62565DBVR", digikey_credentials=None)
 

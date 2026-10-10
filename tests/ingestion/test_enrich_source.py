@@ -33,3 +33,23 @@ async def test_operator_composes_sqlite_cache_and_stages_review(tmp_path):
     assert service.get(GetPartRequest(part.id)).package is None
     assert service.get(GetPartRequest(part.id)).quantity == 7
     assert part.id in service.list_pending_reviews()
+
+
+async def test_operator_electrical_mode_uses_same_review_path(tmp_path):
+    from tests.domain.test_datasheet import fact
+
+    database = tmp_path / 'parts.db'
+    service = PartsBinService(SQLitePartsBinRepository(database))
+    part = service.add_part(AddPartRequest(PartFields('resistor', 'passive', 4, value='10k', part_number='EXACT-10K-F')))
+    config = tmp_path / 'config.toml'
+    config.write_text(f'[db]\npath = "{database}"\n')
+    args = argparse.Namespace(config=config, part_id=part.id,
+        source_url='https://www.vishay.com/docs/example.pdf', model='test', refresh=True, electrical=True)
+    with patch('ingestion.datasheet.enrich', AsyncMock(return_value={'outcome': 'proposal', 'facts': [fact()]})) as enrich:
+        result = await enrich_source.run(args)
+    assert result['review_staged'] and result['facts'] == []
+    assert result['pending_review']['facts'] == [fact()]
+    assert enrich.call_args.kwargs['category'] == 'resistor'
+    assert enrich.call_args.kwargs['refresh'] is True
+    assert service.list_pending_reviews() == {}
+    assert service.get(GetPartRequest(part.id)) == part

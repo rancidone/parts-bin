@@ -112,17 +112,21 @@ async def test_interrupted_add_does_not_repeat_paid_enrichment(tmp_path, monkeyp
     assert tool.data["result"]["result"]["enrichment"]["status"] == "interrupted"
 
 
-async def test_interrupted_explicit_lookup_is_not_automatically_repeated(tmp_path, monkeypatch):
+@pytest.mark.parametrize('tool_name,method,args', [
+    ('lookup_part_specs', 'fetch_and_stage_specs', {'part_id': 1}),
+    ('ingest_datasheet', 'ingest_datasheet', {'part_id': 1, 'source_url': 'https://www.vishay.com/docs/example.pdf'}),
+])
+async def test_interrupted_explicit_lookup_is_not_automatically_repeated(tmp_path, monkeypatch, tool_name, method, args):
     runtime, _, store = build_runtime(tmp_path, [ModelTurn(tool_calls=(
-        ToolCall("lookup_part_specs", {"part_id": 1}, "lookup"),))])
+        ToolCall(tool_name, args, "lookup"),))])
     lookup = AsyncMock(side_effect=asyncio.CancelledError)
-    monkeypatch.setattr(runtime.registry.service, "fetch_and_stage_specs", lookup)
+    monkeypatch.setattr(runtime.registry.service, method, lookup)
     with pytest.raises(asyncio.CancelledError):
         await runtime.run("thread", "look up specifications")
     restarted, _, _ = build_runtime(tmp_path, [ModelTurn(tool_calls=(
-        ToolCall("lookup_part_specs", {"part_id": 1}, "automatic_retry"),)), ModelTurn("Lookup interrupted")])
+        ToolCall(tool_name, args, "automatic_retry"),)), ModelTurn("Lookup interrupted")])
     replacement = AsyncMock()
-    monkeypatch.setattr(restarted.registry.service, "fetch_and_stage_specs", replacement)
+    monkeypatch.setattr(restarted.registry.service, method, replacement)
     result = await restarted.run("thread", "", execution_id=saved_execution(store))
     replacement.assert_not_awaited()
     tool = next(e for e in result.events if e.kind == "tool_result")

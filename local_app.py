@@ -9,6 +9,8 @@ from agent_runtime import OpenAIResponsesTransport
 from application import create_services
 from db.conversations import SQLiteConversationRepository
 from db.repository import SQLitePartsBinRepository
+from db.enrichment_cache import SQLiteEnrichmentCache
+from ingestion.datasheet import DatasheetFetcher
 from ingestion.lookup import fetch_specs_detailed
 from server import create_app as create_http_app
 
@@ -42,5 +44,8 @@ def create_app():
                                        base_url=openai.get("base_url", "https://api.openai.com/v1"))
 
     services = create_services(repository, conversations, transport_factory=transport_factory,
-                               spec_fetcher=fetcher, agent_configured=bool(openai.get("api_key")))
+                               spec_fetcher=fetcher,
+                               datasheet_fetcher=DatasheetFetcher(api_key=openai.get('api_key', ''),
+                                   model=openai.get('model', 'gpt-5.6'), cache=SQLiteEnrichmentCache(database)),
+                               agent_configured=bool(openai.get("api_key")))
     return create_http_app(services, ui_dist_path=Path(__file__).parent / "ui" / "dist")

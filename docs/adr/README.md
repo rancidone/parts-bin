@@ -13,6 +13,7 @@ status. Recording them does not select additional services or change behavior.
 - [0008: Target AWS and Terraform without selecting a cloud stack yet](0008-deferred-aws-direction.md)
 
 - [0009: Bound model context independently of retained data](0009-bounded-model-context.md)
+- [0010: Cite supplied electrical evidence by server-owned passages](0010-supplied-electrical-passages.md)
 
 Use one numbered record per decision with **Status**, **Context**, **Decision**,
 and **Consequences**. Do not append implementation progress, test counts, or

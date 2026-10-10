@@ -45,6 +45,16 @@ test('approval keeps evidence open and identifies the exact target', () => {
   assert.ok(html.includes('Rated power 250 mW at 25 °C.'))
 })
 
+test('approval displays every supporting source passage and its page', () => {
+  const supported = { ...fact, evidence: { ...fact.evidence,
+    supporting_passages: [{ page: 3, excerpt: 'Rating requires <70 °C and characteristic U.' }] } }
+  const html = renderToStaticMarkup(createElement(SpecificationReview, { partId: 1,
+    review: { facts: [supported], snapshot: { metadata: part } } }))
+  assert.ok(html.includes('Supporting source passage · page 3'))
+  assert.ok(html.includes('Rating requires &lt;70 °C and characteristic U.'))
+  assert.ok(html.includes('Rated power 250 mW at 25 °C.'))
+})
+
 test('assertions remain labeled and passages are escaped', () => {
   const assertion = { ...fact, evidence: { kind: 'user_assertion', excerpt: '<script>untrusted()</script>' } }
   const html = render({ facts: [assertion], part_id: 1 })

@@ -128,8 +128,15 @@ schema, and restoring a snapshot loses subsequent writes.
 
 Chat exposes supported fields through `get_specification_contract`. Assertions
 can be proposed and approved in chat but remain labeled as user assertions.
-For sourced ratings, inspect the exact variant and supporting document, then
-prepare facts using [the validated contract](../domain/specifications.py).
+For sourced ratings, provide an exact inventory target and an approved manufacturer
+PDF URL in chat. `ingest_datasheet` retrieves the source and stages supported
+electrical facts. It uses the configured OpenAI model and can incur a paid call.
+Stock without an exact ordering code needs clarification first. Inspect every
+proposed value, qualifier, condition and source passage; authentic quotations do
+not by themselves prove that the model interpreted a table correctly.
+
+For operator-inspected evidence, prepare facts using
+[the validated contract](../domain/specifications.py).
 
 Stage an inspected JSON array on an isolated inventory copy first:
 
@@ -140,8 +147,10 @@ uv run python -m ingestion.review_specifications PART_ID /path/to/candidate.json
 
 This stages a review; it does not retrieve or authenticate evidence. Inspect with
 `get_specifications`, then request `apply_specification_review` for approval or
-`reject_specification_review` to discard it. Supplier metadata lookup does not yet
-extract electrical facts automatically. See [the specification decisions](adr/0007-reviewed-electrical-facts.md).
+`reject_specification_review` to discard it. Pending facts do not confirm electrical
+requirements. Approval preserves evidence and quantity; user assertions remain
+assertions. `lookup_part_specs` retrieves base metadata. See
+[the specification decisions](adr/0007-reviewed-electrical-facts.md).
 
 ## Supplied-source retries
 
@@ -151,6 +160,20 @@ The supplied-source command stages metadata from a supplied manufacturer PDF:
 uv run python -m ingestion.enrich_source PART_ID SOURCE_URL --model MODEL
 ```
 
+Add `--electrical` to stage electrical facts instead of metadata. The chat tool
+uses the same extraction and fact review path. Approved hosts are listed in
+[the source policy](../ingestion/supplied_source.py); unsupported hosts and
+oversized, image-only or unparsable documents fail without a proposal. A family
+datasheet that does not establish the exact ordering variant needs clarification.
+The extractor leaves unsupported fields unknown and retains only bounded evidence,
+not the PDF. Resolve an existing electrical review before another extraction.
+Electrical evidence can include several source passages; review every cited row,
+heading and footnote before approving. Matching depends on stored conditions, so
+reject proposals that omit a source's applicable temperature, test environment,
+min/max bound, load pairing or reference-only qualifier. The
+[disposable live runner](../evaluation/README.md#supplied-source-extraction-exercise)
+evaluates source interpretation separately from approval mechanics.
+
 Its disposable cache shares the local inventory database. Never delete that
 database to clear a cache. A failed or interrupted attempt blocks retries,
 including `--refresh`, for five minutes from its start. Afterward, retry explicitly;
@@ -159,3 +182,5 @@ failure is not a no-match result.
 `--refresh` downloads again; an unchanged hash can reuse the extraction without a
 model call. A failed refresh clears the prior result, so retry may incur another
 charge. Cache expiry does not affect staged or accepted evidence.
+An interrupted chat extraction requires an explicit new user turn to retry;
+resuming its execution does not repeat an uncertain paid stage.

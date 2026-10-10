@@ -163,6 +163,24 @@ def test_bad_pdf_is_rejected_by_isolated_parser():
         source.parse_pdf_bounded(b"not a PDF")
 
 
+def test_pdf_table_lines_keep_variant_and_rating_on_same_row():
+    from pdfminer.layout import LTAnno, LTContainer, LTPage, LTTextBoxHorizontal, LTTextLineHorizontal
+
+    layout = LTPage(1, (0, 0, 300, 300))
+    for x, cells in [(0, [('Variant', 200), ('TYPE-A', 180), ('TYPE-B', 160)]),
+                     (100, [('Power at 25 °C', 200), ('0.25 W', 180), ('0.125 W', 160)])]:
+        column = LTTextBoxHorizontal()
+        for text, y in cells:
+            line = LTTextLineHorizontal(0.1)
+            LTContainer.add(line, LTAnno(text))
+            line.set_bbox((x, y, x + 80, y + 10))
+            column.add(line)
+        layout.add(column)
+    with patch.object(source, 'extract_pages', return_value=[layout]):
+        assert source.parse_pdf(b'%PDF-test') == (
+            'Variant\tPower at 25 °C\nTYPE-A\t0.25 W\nTYPE-B\t0.125 W\n',)
+
+
 def part(service):
     return service.add_part(AddPartRequest(PartFields(part_category="transistor", profile="discrete_ic",
         quantity=7, part_number="PBSS5350T")))
