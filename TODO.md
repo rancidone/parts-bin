@@ -6,13 +6,9 @@ Design rationale belongs in [docs/design/](docs/design/).
 
 ## Next: local chat and lookup
 
-- Restore the current conversation after reload, replay persisted events without
-  duplicates, and expose explicit execution resume. Handle interrupted streams
-  and photo resubmission without automatically repeating uncertain paid work.
-- Resolve approval controls after decisions, prevent overlapping submissions,
-  and distinguish running, awaiting-review, interrupted, and completed work.
-- Replace source-string UI checks with behavioral tests for streaming, reconnect,
-  errors, duplicate delivery, and approval interaction.
+- Add conversation selection and browser-level regression tests around reconnect,
+  photo resubmission, approval rendering, and interactions across multiple tabs.
+  Preserve historical provider identity and keep recovery explicit.
 - Evaluate natural-language inventory lookup through the existing narrow tool
   contract. Exercise value notation, exact ordering suffixes, package ambiguity,
   stock availability, and useful clarification. Keep committed inventory separate
