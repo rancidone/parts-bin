@@ -18,38 +18,25 @@ Design rationale belongs in [docs/design/](docs/design/).
 Cloud experiments are deferred while these local workflows and evidence-backed
 lookup are improved.
 
-## Resistor requirements search
+## Electrical requirements and enrichment
 
-- Deliver one local workflow: accept evidenced resistor specifications through
-  review, then answer "Find four 10 kΩ resistors with tolerance of 1% or better,
-  rated for at least 0.25 W under the stated conditions." Use the existing SQLite
-  repository and agent runtime; add no external search service.
-- Define typed resistance, tolerance, and rated-power facts with normalized units,
-  applicable conditions, and field provenance. Preserve existing inventory and
-  leave missing historical specifications unknown. Prevent uncertain or differing
-  specification variants from being silently merged into the same stock.
-- Extend staging and approval to these facts, preserving exact identity and
-  quantity. Start with supplied-source evidence to isolate extraction and review
-  from supplier discovery; do not infer ratings from descriptions or model memory.
-- Extend the narrow search contract with validated resistor requirements and
-  applicable conditions. Return bounded matches with supporting facts and evidence;
-  identify incomplete candidates separately. Keep pending proposals out of
-  confirmed matches.
-- Exercise unit equivalence, inclusive comparison boundaries, combined constraints,
-  unknown facts, insufficient stock, variant identity, and search before/after
-  approval. Test natural-language interpretation separately from deterministic
-  matching; evaluate live extraction quality separately from recorded fixtures.
+- Extend supplied-source extraction to the electrical fact/review contract. Start
+  with the resistor query: four 10 kΩ parts, tolerance at most 1%, and rated power
+  at least 0.25 W under the stated conditions. Evaluate representative capacitor,
+  BJT, MOSFET, inductor, transformer, and switch sources independently; these are
+  initial categories, not an exhaustive taxonomy.
+- Measure live extraction and natural-language interpretation separately from
+  deterministic matching. Verify exact variants, qualifiers, missing facts, useful
+  clarification, and source passages before accepting results.
+- Extend specification and condition definitions from representative requests,
+  including operating ranges, derating, additional component categories, and
+  explicit variant identity for stock without an ordering code. Preserve evidence
+  and distinguish assertions, pending proposals, and accepted source facts.
+- Measure candidate-read costs and result sizes before adding indexed specification
+  queries or pagination; use the existing local repository first.
 
 ## Enrichment simplification
 
-- Define searchable category-specific specifications for resistors, transistors,
-  and audio ICs. Let agents discover supported fields and translate natural-language
-  requirements into validated numeric, range, categorical, and stock constraints.
-  Exercise unit conversion, limit qualifiers, missing evidence, combined filters,
-  boundary values, and match explanations. Keep pending proposals separate from
-  committed matches; compare indexed document storage with relational queries
-  over typed facts and JSON before choosing a backend. See
-  [flexible part modeling](docs/design/flexible-part-model-and-identity.md).
 - Exercise source-backed extraction against the representative
   [acceptance cases](evaluation/enrichment/acceptance.json). Start with a supplied
   datasheet to separate extraction quality from source discovery.

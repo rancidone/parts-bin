@@ -26,7 +26,7 @@ from domain.repositories import PartsBinRepository
 from tools import PartsBinToolRegistry
 
 SCENARIOS_PATH = Path(__file__).with_name("scenarios.json")
-MUTATIONS_REQUIRING_APPROVAL = frozenset({"update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review"})
+MUTATIONS_REQUIRING_APPROVAL = frozenset({"update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review", "apply_specification_review", "reject_specification_review"})
 MUTATING_TOOLS = MUTATIONS_REQUIRING_APPROVAL | frozenset({"add_part", "add_stock"})
 
 

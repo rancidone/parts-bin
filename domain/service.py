@@ -13,7 +13,8 @@ from .models import (
 )
 from .normalization import normalize_part_payload, part_identity, validate_fields, clean_text
 
-from .search import values_match
+from .search import values_match, nominal_value
+from . import specifications
 
 SpecFetcher = Callable[[str], Awaitable[dict[str, Any]]]
 _EDITABLE = EDITABLE_PART_FIELDS
@@ -35,9 +36,12 @@ class PartsBinService:
     def approval_snapshot(self, part_ids: tuple[int, ...]) -> dict:
         """Bind an approval to committed targets and their staged evidence."""
         reviews = self.list_pending_reviews()
+        specification_reviews = self.repository.inventory.specification_reviews()
         parts = {part_id: self.repository.inventory.get(part_id) for part_id in part_ids}
         return {str(part_id): {"part": None if part is None else vars(part),
-                              "review": reviews.get(part_id)} for part_id, part in parts.items()}
+                              "review": reviews.get(part_id),
+                              "specifications": self.repository.inventory.specifications(part_id),
+                              "specification_review": specification_reviews.get(part_id)} for part_id, part in parts.items()}
 
     @staticmethod
     def should_enrich(part: Mapping[str, Any]) -> bool:
@@ -75,6 +79,62 @@ class PartsBinService:
             if matched:
                 matches.append(part)
         return matches
+
+    def search_specifications(self, request: SearchPartsRequest, requirements: list[dict], *, limit: int = 20) -> dict:
+        category = request.filters.get('part_category')
+        if not isinstance(category, str):
+            raise DomainError(ErrorCode.INVALID_INPUT, 'Specification search requires one explicit category')
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise DomainError(ErrorCode.INVALID_INPUT, 'Result limit must be between one and one hundred')
+        checked = specifications.validate_requirements(category, requirements)
+        matches, incomplete = [], []
+        for part in self.search(request):
+            eligible, missing, supporting = specifications.evaluate(
+                category, self.repository.inventory.specifications(part.id), checked)
+            if not eligible:
+                continue
+            if missing:
+                incomplete.append({'part': vars(part), 'missing_or_unqualified': missing})
+            else:
+                matches.append({'part': vars(part), 'supporting_facts': supporting})
+        return {'matches': matches[:limit], 'incomplete': incomplete[:limit],
+                'match_count': len(matches), 'incomplete_count': len(incomplete),
+                'truncated': len(matches) > limit or len(incomplete) > limit}
+
+    def get_specifications(self, part_id: int) -> dict:
+        part = self.get(GetPartRequest(part_id))
+        return {'part_id': part_id, 'part_number': part.part_number,
+                'facts': self.repository.inventory.specifications(part_id),
+                'pending_review': self.repository.inventory.specification_reviews().get(part_id)}
+
+    def stage_specifications(self, original: Part, facts: list[dict]) -> None:
+        checked = specifications.validate_facts(original.part_category, facts, part_number=original.part_number)
+        nominal_field = {'resistor': 'resistance', 'capacitor': 'capacitance', 'inductor': 'inductance'}.get(original.part_category.lower())
+        for fact in checked:
+            if fact['name'] == nominal_field and original.value is not None:
+                stored = nominal_value(original.value, original.part_category)
+                proposed = specifications.numeric_value(fact['value'], specifications.definition(original.part_category, fact['name']).unit)
+                if stored is not None and stored != proposed:
+                    raise DomainError(ErrorCode.CONFLICT, 'Proposed nominal specification conflicts with committed value')
+        existing = self.repository.inventory.specifications(original.id)
+        if not self.repository.inventory.stage_specifications(original, checked, existing):
+            raise DomainError(ErrorCode.CONFLICT, 'Identity, specifications, or pending specification review changed')
+
+    def apply_specification_review(self, part_id: int) -> dict:
+        part = self.get(GetPartRequest(part_id))
+        review = self.repository.inventory.specification_reviews().get(part_id)
+        if review is None:
+            raise DomainError(ErrorCode.REVIEW_NOT_FOUND, 'Pending specification review not found')
+        specifications.validate_facts(part.part_category, review['facts'], part_number=part.part_number)
+        try:
+            self.repository.inventory.apply_specification_review(part_id)
+        except RepositoryConflict as exc:
+            raise DomainError(ErrorCode.CONFLICT, 'Specification review target changed') from exc
+        return self.get_specifications(part_id)
+
+    def reject_specification_review(self, part_id: int) -> None:
+        self.get(GetPartRequest(part_id))
+        self.repository.inventory.reject_specification_review(part_id)
 
     def list(self) -> list[Part]:
         return self.search(SearchPartsRequest())
@@ -131,6 +191,9 @@ class PartsBinService:
         return matches[0] if matches else None
 
     def _increment_duplicate(self, duplicate: Part, fields: Mapping[str, Any]) -> None:
+        if (self.repository.inventory.specifications(duplicate.id) or
+                duplicate.id in self.repository.inventory.specification_reviews()):
+            raise DomainError(ErrorCode.CONFLICT, 'Reviewed specification variants require an explicit add_stock target')
         quantity = fields.get("quantity")
         if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity <= 0:
             raise DomainError(ErrorCode.INVALID_INPUT, "quantity must be a positive integer")
@@ -265,6 +328,12 @@ class PartsBinService:
             identity = part_identity(replacements.get(part.id, vars(part)))
             identities.setdefault(identity, []).append(part.id)
         for part_id, fields in updates:
+            current = self.get(GetPartRequest(part_id))
+            identity_fields = ('part_category', 'profile', 'value', 'package', 'part_number', 'manufacturer')
+            if any(fields.get(key, getattr(current, key)) != getattr(current, key) for key in identity_fields):
+                if (self.repository.inventory.specifications(part_id) or
+                        part_id in self.repository.inventory.specification_reviews()):
+                    raise DomainError(ErrorCode.CONFLICT, 'Electrical evidence is bound to this identity; create a distinct record')
             collisions = identities.get(part_identity(fields), [])
             if len(collisions) > 1:
                 raise DomainError(ErrorCode.CONFLICT, "Update conflicts with an existing inventory record",

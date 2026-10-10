@@ -20,7 +20,7 @@ def registry(tmp_path):
 @pytest.mark.asyncio
 async def test_registry_is_schema_first_and_search_is_compact(registry):
     names = [tool["name"] for tool in registry.list_tools()]
-    assert names == ["search_parts", "get_part", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part", "lookup_part_specs", "list_pending_reviews", "apply_review", "reject_review", "get_provenance"]
+    assert names == ["search_parts", "get_part", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part", "lookup_part_specs", "list_pending_reviews", "apply_review", "reject_review", "get_provenance", "get_specification_contract", "get_specifications", "stage_specification_review", "apply_specification_review", "reject_specification_review"]
     added = await registry.execute("add_part", {**vars(_fields()), "quantity": 2})
     assert added["ok"] is True
     found = await registry.execute("search_parts", {"filters": {"part_category": "resistor"}})
@@ -87,6 +87,8 @@ async def test_registry_completes_every_inventory_workflow(tmp_path):
         "search_parts", "get_part", "add_part", "add_stock", "update_part",
         "bulk_update_parts", "delete_part", "lookup_part_specs",
         "list_pending_reviews", "apply_review", "reject_review", "get_provenance",
+        "get_specification_contract", "get_specifications", "stage_specification_review",
+        "apply_specification_review", "reject_specification_review",
     ]
 
 
@@ -152,3 +154,32 @@ async def test_search_nominal_value_and_stock_before_result_limit(registry):
     assert invalid['error']['code'] == 'invalid_input'
     unsupported = await registry.execute('search_parts', {'filters': {'tolerance': '1%'}})
     assert unsupported['error']['code'] == 'invalid_input'
+
+
+@pytest.mark.asyncio
+async def test_specification_discovery_assertion_review_and_search(registry):
+    discovery = await registry.execute('get_specification_contract', {'category': 'switch'})
+    assert discovery['result']['fields']['rated_current']['unit'] == 'A'
+    assert not (await registry.execute('get_specification_contract', {'category': 'connector'}))['result']['supported']
+    part = registry.service.add_part(AddPartRequest(_fields()))
+    proposed = {'name': 'tolerance', 'value': '1 %', 'basis': 'maximum', 'conditions': {},
+                'evidence': {'kind': 'user_assertion', 'excerpt': 'These resistors are marked 1%.'}}
+    assert (await registry.execute('stage_specification_review', {'part_id': part.id, 'facts': [proposed]}))['ok']
+    assert (await registry.execute('apply_specification_review', {'part_id': part.id}))['error']['code'] == 'approval_required'
+    args = {'part_id': part.id}
+    assert (await registry.execute('apply_specification_review', args,
+        context=ToolExecutionContext(ApprovalReceipt.issue('apply_specification_review', args))))['ok']
+    query = {key: value for key, value in proposed.items() if key != 'evidence'} | {'comparison': 'lte'}
+    result = await registry.execute('search_parts', {'filters': {'part_category': 'resistor'}, 'requirements': [query]})
+    assert result['result']['matches'] == []  # Approved assertions are still assertions.
+    assert result['result']['incomplete_count'] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fact', [
+    {}, {'name': 'tolerance', 'value': '1 %', 'basis': 'maximum', 'conditions': {}, 'evidence': {}},
+    {'name': 'tolerance', 'value': '1 %', 'basis': 'maximum', 'conditions': {}, 'evidence': {'kind': 'source', 'excerpt': 'invented source'}},
+])
+async def test_nested_fact_schema_rejects_invalid_or_model_invented_source(registry, fact):
+    response = await registry.execute('stage_specification_review', {'part_id': 1, 'facts': [fact]})
+    assert response['error']['code'] == 'invalid_input'

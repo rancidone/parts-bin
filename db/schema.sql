@@ -55,3 +55,14 @@ CREATE TABLE IF NOT EXISTS part_pending_field_review (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_part_pending_field_review
     ON part_pending_field_review (part_id, field_name);
+
+-- Reviewed electrical facts are authoritative, separate from disposable caches.
+CREATE TABLE IF NOT EXISTS part_specifications (
+    part_id INTEGER PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+    facts_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS part_specification_reviews (
+    part_id INTEGER PRIMARY KEY REFERENCES parts(id) ON DELETE CASCADE,
+    facts_json TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL
+);

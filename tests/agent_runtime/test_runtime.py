@@ -105,3 +105,24 @@ async def test_approved_ic_correction_executes_without_model_repeating_call(tmp_
     assert (part.quantity, part.package, part.part_category) == (10, "DIP", "operational amplifier")
     assert transport.requests[-1].user_text == "I have 10 not 100 and they are DIP"
     assert transport.requests[-1].exchanges[-1]["result"]["ok"]
+
+
+@pytest.mark.asyncio
+async def test_electrical_review_includes_concrete_facts_in_approval_event(tmp_path):
+    from domain import AddPartRequest, PartFields
+    runtime, _, store = build_runtime(tmp_path, [
+        ModelTurn(tool_calls=(ToolCall('apply_specification_review', {'part_id': 1}, 'spec-review'),)),
+        ModelTurn('The assertion has been saved as a user assertion.'),
+    ])
+    service = runtime.registry.service
+    part = service.add_part(AddPartRequest(PartFields('resistor', 'passive', 4, value='10k')))
+    proposed = {'name': 'tolerance', 'value': '1 %', 'basis': 'maximum', 'conditions': {},
+                'evidence': {'kind': 'user_assertion', 'excerpt': 'I said these are 1% resistors.'}}
+    service.stage_specifications(part, [proposed])
+    pending = await runtime.run('spec-chat', 'Accept the tolerance assertion.')
+    event = next(event for event in pending.events if event.kind == 'approval_request')
+    assert event.data['specification_review']['facts'] == [proposed]
+    result = await runtime.run('spec-chat', '', approval_response=ApprovalResponse(event.data['request_id'], True))
+    assert result.status == 'completed'
+    assert service.get_specifications(part.id)['facts'] == [proposed]
+    assert any(event.kind == 'approval_decision' for event in store.events('spec-chat'))
