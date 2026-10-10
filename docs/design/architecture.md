@@ -79,6 +79,15 @@ event ordering, and atomic delivery deduplication; the gateway and runtime consu
 only the contract. Preserve existing event sequences and historical provider
 identity when changing adapters.
 
+Supplied-source enrichment consumes [a separate cache contract](../../ingestion/cache.py).
+The enrichment workflow owns identity, freshness durations, and cooldown timing;
+the adapter owns atomic cache claims and serialization. The operator command
+explicitly constructs [the SQLite cache](../../db/enrichment_cache.py), reusing the
+local database file and existing cache rows without a migration. Sharing a file
+does not give disposable cache rows authority over inventory, accepted evidence,
+conversations, approvals, or mutation outcomes. Keep this contract separate from
+the inventory unit of work; cache loss must not erase accepted provenance.
+
 Scenario evaluation must seed and inspect state through the injected repositories
 used by the runtime. A local storage factory can allocate isolated SQLite files;
 the scenario runner must not open another database behind an adapter's back.

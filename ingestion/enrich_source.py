@@ -10,9 +10,10 @@ import tomllib
 import httpx
 
 from domain import GetPartRequest, PartsBinService
+from db.enrichment_cache import SQLiteEnrichmentCache
 from db.repository import SQLitePartsBinRepository
 from domain.errors import DomainError
-from ingestion.supplied_source import EnrichmentError, ResultCache, enrich, review_result
+from ingestion.supplied_source import EnrichmentError, enrich, review_result
 
 
 async def run(args: argparse.Namespace) -> dict:
@@ -30,7 +31,7 @@ async def run(args: argparse.Namespace) -> dict:
     openai = config.get("agent", {}).get("openai", {})
     candidate = await enrich(part.part_number, part.manufacturer, args.source_url,
         api_key=openai.get("api_key", ""), model=args.model,
-        cache=ResultCache(db_path), refresh=args.refresh)
+        cache=SQLiteEnrichmentCache(db_path), refresh=args.refresh)
     result = review_result(candidate)
     if result["chosen_updates"]:
         service.stage_enrichment(part, result["chosen_updates"], result["durable_provenance"])
