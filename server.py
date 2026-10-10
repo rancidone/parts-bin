@@ -20,7 +20,7 @@ from agent_runtime import (
 from application import ApplicationServices
 from inventory_export import export_csv
 from domain import (
-    ApplyReviewRequest, DeletePartRequest, DomainError, FetchSpecsRequest,
+    AdjustStockRequest, ApplyReviewRequest, DeletePartRequest, DomainError, FetchSpecsRequest,
     ProvenanceRequest, RejectReviewRequest, UpdatePartRequest,
 )
 from fastapi import APIRouter, Body, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -186,6 +186,16 @@ async def update_inventory_part(request: Request, part_id: int, body: dict) -> d
         raise HTTPException(status_code=422, detail="part object required")
     try:
         return {"part": vars(_services(request).domain.update_part(UpdatePartRequest(part_id, fields)))}
+    except DomainError as exc:
+        raise _domain_error(exc) from exc
+
+
+@router.post("/inventory/{part_id}/quantity")
+async def adjust_inventory_quantity(request: Request, part_id: int, body: dict) -> dict:
+    if set(body) != {"delta"}:
+        raise HTTPException(status_code=422, detail="delta is required and must be the only field")
+    try:
+        return {"part": vars(_services(request).domain.adjust_stock(AdjustStockRequest(part_id, body["delta"])))}
     except DomainError as exc:
         raise _domain_error(exc) from exc
 

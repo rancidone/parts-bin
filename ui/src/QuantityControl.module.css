@@ -1,0 +1,8 @@
+.container { display: grid; gap: 4px; }
+.control { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.control button { width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); font: inherit; font-size: 1rem; cursor: pointer; }
+.control button:hover:enabled { border-color: var(--accent); color: var(--accent); }
+.control button:disabled { opacity: .4; cursor: default; }
+.control button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.quantity { font-size: .85rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.error { color: #c0392b; font-size: .8rem; white-space: normal; max-width: 260px; }

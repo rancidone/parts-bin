@@ -1,4 +1,7 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { PartEditor } from './PartEditor'
+import { QuantityControl } from './QuantityControl'
+import { useQuantities } from './quantityContext'
 import { FieldReviewEditor } from './FieldReviewEditor'
 import { downloadCSV } from './csv'
 import type { FieldProvenance, FieldReview, Part, PendingReview } from './types'
@@ -7,6 +10,7 @@ import styles from './Inventory.module.css'
 type SortKey = 'part_category' | 'value' | 'package' | 'quantity'
 
 export function Inventory({ active, selectedPartId, onClearSelection }: { active: boolean; selectedPartId: number | null; onClearSelection: () => void }) {
+  const { quantities, busy: adjustingQuantity, remember } = useQuantities()
   const [parts, setParts] = useState<Part[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -17,7 +21,6 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
   const [pending, setPending] = useState<Map<number, PendingReview>>(new Map())
   const [accepting, setAccepting] = useState<Set<number>>(new Set())
   const [editing, setEditing] = useState<number | null>(null)
-  const [draft, setDraft] = useState<Part | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
   const [deleting, setDeleting] = useState<Set<number>>(new Set())
   const [rowStatus, setRowStatus] = useState<Map<number, string>>(new Map())
@@ -25,18 +28,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
   const [loadingProvenance, setLoadingProvenance] = useState<Set<number>>(new Set())
   const [provenanceByPart, setProvenanceByPart] = useState<Map<number, FieldProvenance[]>>(new Map())
 
-  function toDraft(part: Part): Part {
-    return {
-      ...part,
-      value: part.value ?? '',
-      package: part.package ?? '',
-      part_number: part.part_number ?? '',
-      manufacturer: part.manufacturer ?? '',
-      description: part.description ?? '',
-    }
-  }
-
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -46,7 +38,9 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
       ])
       if (!partsResp.ok) throw new Error(partsResp.statusText)
       if (!pendingResp.ok) throw new Error(pendingResp.statusText)
-      setParts(await partsResp.json())
+      const loadedParts: Part[] = await partsResp.json()
+      setParts(loadedParts)
+      remember(loadedParts)
       const pendingData = await pendingResp.json()
       setPending(new Map(
         Object.entries((pendingData.reviews ?? {}) as Record<string, PendingReview>)
@@ -57,9 +51,9 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
     } finally {
       setLoading(false)
     }
-  }
+  }, [remember])
 
-  useEffect(() => { if (active) load() }, [active])
+  useEffect(() => { if (active) void load() }, [active, load])
 
   async function refreshPart(id: number) {
     setRefreshing(prev => new Set(prev).add(id))
@@ -148,6 +142,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
       if (!resp.ok) throw new Error(resp.statusText)
       const { part } = await resp.json()
       setParts(prev => prev.map(p => p.id === id ? part : p))
+      remember([part])
       setPending(prev => { const next = new Map(prev); next.delete(id); return next })
       setRowStatus(prev => new Map(prev).set(id, 'Saved accepted review fields.'))
     } finally {
@@ -171,21 +166,14 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
 
   function beginEdit(part: Part) {
     setEditing(part.id ?? null)
-    setDraft(toDraft(part))
     setError(null)
   }
 
   function cancelEdit() {
     setEditing(null)
-    setDraft(null)
   }
 
-  function updateDraft<K extends keyof Part>(key: K, value: Part[K]) {
-    setDraft(prev => prev ? { ...prev, [key]: value } : prev)
-  }
-
-  async function saveEdit(id: number) {
-    if (!draft) return
+  async function saveEdit(id: number, draft: Part) {
     setSavingEdit(true)
     setError(null)
     try {
@@ -212,6 +200,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
       }
       const { part } = await resp.json()
       setParts(prev => prev.map(p => p.id === id ? part : p))
+      remember([part])
       setPending(prev => { const next = new Map(prev); next.delete(id); return next })
       setRowStatus(prev => new Map(prev).set(id, 'Saved manual edit.'))
       cancelEdit()
@@ -266,12 +255,13 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
 
   const displayed = useMemo(() => {
     const q = filter.toLowerCase()
-    const filtered = selectedPartId !== null ? parts.filter(p => p.id === selectedPartId) : q
-      ? parts.filter(p =>
+    const currentParts = parts.map(part => ({ ...part, quantity: (part.id != null ? quantities.get(part.id) : undefined) ?? part.quantity }))
+    const filtered = selectedPartId !== null ? currentParts.filter(p => p.id === selectedPartId) : q
+      ? currentParts.filter(p =>
           [p.part_category, p.value, p.package, p.part_number, p.manufacturer, p.description]
             .some(v => v?.toLowerCase().includes(q))
         )
-      : parts
+      : currentParts
 
     return [...filtered].sort((a, b) => {
       const av = String(a[sortKey] ?? '')
@@ -281,7 +271,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         : av.localeCompare(bv)
       return sortAsc ? cmp : -cmp
     })
-  }, [parts, filter, sortKey, sortAsc, selectedPartId])
+  }, [parts, filter, sortKey, sortAsc, selectedPartId, quantities])
 
   function SortHeader({ col, label }: { col: SortKey; label: string }) {
     const isActive = sortKey === col
@@ -400,112 +390,24 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                 const status = p.id != null ? rowStatus.get(id) : undefined
                 const provenance = p.id != null ? provenanceByPart.get(id) : undefined
                 const showProvenance = p.id != null && expandedProvenance.has(id)
-                const isEditing = editing === id && draft != null
+                const isEditing = editing === id
                 return (
                   <Fragment key={p.id ?? i}>
                     <tr key={p.id ?? i} className={`${styles.row} ${review ? styles.rowPending : ''}`}>
-                      <td className={styles.td}>
-                        {isEditing ? (
-                          <input
-                            className={styles.cellInput}
-                            value={draft.part_category}
-                            onChange={e => updateDraft('part_category', e.target.value)}
-                          />
-                        ) : p.part_category}
-                      </td>
-                      <td className={styles.td}>
-                        {isEditing ? (
-                          <input
-                            className={styles.cellInput}
-                            value={draft.value ?? ''}
-                            onChange={e => updateDraft('value', e.target.value)}
-                          />
-                        ) : (p.value ?? '—')}
-                      </td>
-                      <td className={styles.td}>
-                        {isEditing ? (
-                          <input
-                            className={styles.cellInput}
-                            value={draft.package ?? ''}
-                            onChange={e => updateDraft('package', e.target.value)}
-                          />
-                        ) : (p.package ?? '—')}
-                      </td>
-                      <td className={styles.td}>
-                        {isEditing ? (
-                          <input
-                            className={styles.cellInput}
-                            type="number"
-                            min={0}
-                            value={draft.quantity}
-                            onChange={e => updateDraft('quantity', Number(e.target.value))}
-                          />
-                        ) : p.quantity}
-                      </td>
-                      <td className={styles.td}>
-                        {isEditing ? (
-                          <input
-                            className={styles.cellInput}
-                            value={draft.part_number ?? ''}
-                            onChange={e => updateDraft('part_number', e.target.value)}
-                          />
-                        ) : (p.part_number ?? '—')}
-                      </td>
-                      <td className={styles.td}>
-                        {isEditing ? (
-                          <input
-                            className={styles.cellInput}
-                            value={draft.manufacturer ?? ''}
-                            onChange={e => updateDraft('manufacturer', e.target.value)}
-                          />
-                        ) : (p.manufacturer ?? '—')}
-                      </td>
-                      <td className={styles.td}>
-                        {isEditing ? (
-                          <div className={styles.editDescription}>
-                            <select
-                              className={styles.cellInput}
-                              value={draft.profile}
-                              onChange={e => updateDraft('profile', e.target.value)}
-                            >
-                              <option value="passive">passive</option>
-                              <option value="discrete_ic">discrete_ic</option>
-                            </select>
-                            <input
-                              className={styles.cellInput}
-                              value={draft.description ?? ''}
-                              onChange={e => updateDraft('description', e.target.value)}
-                            />
-                          </div>
-                        ) : (p.description ?? '—')}
-                      </td>
+                      <td className={styles.td}>{p.part_category}</td>
+                      <td className={styles.td}>{p.value ?? '—'}</td>
+                      <td className={styles.td}>{p.package ?? '—'}</td>
+                      <td className={styles.td}><QuantityControl part={p} disabled={isEditing || deleting.has(id) || accepting.has(id)} /></td>
+                      <td className={styles.td}>{p.part_number ?? '—'}</td>
+                      <td className={styles.td}>{p.manufacturer ?? '—'}</td>
+                      <td className={styles.td}>{p.description ?? '—'}</td>
                       <td className={styles.tdAction}>
                         <div className={styles.actionGroup}>
-                          {isEditing ? (
+                          {!isEditing && (
                             <>
                               <button
                                 className={styles.rowIconBtn}
-                                disabled={savingEdit}
-                                onClick={() => saveEdit(id)}
-                                title="Save edit"
-                                aria-label="Save edit"
-                              >
-                                {savingEdit ? '…' : '✓'}
-                              </button>
-                              <button
-                                className={styles.rowIconBtn}
-                                disabled={savingEdit}
-                                onClick={cancelEdit}
-                                title="Cancel edit"
-                                aria-label="Cancel edit"
-                              >
-                                ×
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                className={styles.rowIconBtn}
+                                disabled={adjustingQuantity.has(id) || deleting.has(id) || accepting.has(id) || savingEdit}
                                 onClick={() => beginEdit(p)}
                                 title="Edit part"
                                 aria-label="Edit part"
@@ -514,7 +416,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                               </button>
                               <button
                                 className={`${styles.rowIconBtn} ${styles.rowDeleteBtn}`}
-                                disabled={deleting.has(id)}
+                                disabled={deleting.has(id) || adjustingQuantity.has(id)}
                                 onClick={() => deleteRow(id)}
                                 title="Delete part"
                                 aria-label="Delete part"
@@ -546,6 +448,9 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                         </div>
                       </td>
                     </tr>
+                    {isEditing && <tr><td colSpan={8} className={styles.td}>
+                      <PartEditor key={id} part={p} saving={savingEdit} onSave={draft => void saveEdit(id, draft)} onCancel={cancelEdit} />
+                    </td></tr>}
                     {review && p.id != null && !isEditing && (
                       <FieldReviewEditor
                         key={`review-${id}`}

@@ -59,6 +59,11 @@ The UI uses hash routes: `/#/` for chat, `/#/inventory` for inventory, and
 `/#/inventory/42` for part 42. These links support browser Back, Forward,
 bookmarks, and reloads without colliding with the inventory API routes.
 
+Use − / + on part cards or inventory rows to save a one-unit stock change.
+These controls adjust the current stored count and preserve pending spec reviews.
+For an exact count or metadata changes, choose Edit part in inventory, then use
+the labeled form and Save changes. Cancel discards the form edits.
+
 Ask the chat to find stock by description, manufacturer, or a fragment of a part
 number, such as `PBSS5350T`. Candidate search keeps distinct ordering suffixes
 and quantities separate. Markings are discoverable when recorded in a description

@@ -5,6 +5,7 @@ from .models import (
     AddPartRequest,
     AddPartsRequest,
     AddStockRequest,
+    AdjustStockRequest,
     ApplyReviewRequest,
     BulkUpdateRequest,
     DeletePartRequest,
@@ -24,6 +25,7 @@ from .models import (
 from .service import PartsBinService, update_fields_with_provenance
 
 __all__ = [
+    "AdjustStockRequest",
     "AddPartRequest", "AddPartsRequest", "AddStockRequest", "ApplyReviewRequest",
     "BulkUpdateRequest", "DeletePartRequest", "DomainError", "ErrorCode",
     "FetchSpecsRequest", "GetPartRequest", "Part", "PartFields",

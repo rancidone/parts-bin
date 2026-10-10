@@ -3,7 +3,7 @@ from db.repository import SQLitePartsBinRepository
 
 from domain import (
     AddPartRequest, AddStockRequest, BulkUpdateRequest, DomainError,
-    ErrorCode, GetPartRequest, PartFields, PartsBinService,
+    ErrorCode, GetPartRequest, PartFields, PartsBinService, ProvenanceRequest,
     UpdatePartRequest,
 )
 
@@ -250,3 +250,29 @@ def test_invalid_value_types_are_rejected_before_storage(tmp_path, value):
         service.add_part(AddPartRequest(fields(value=value)))
     assert error.value.code == ErrorCode.INVALID_INPUT
     assert service.list() == []
+
+
+def test_adjust_stock_serializes_competing_changes_and_preserves_review(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from domain import AdjustStockRequest
+
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    part = service.add_part(AddPartRequest(fields(quantity=1)))
+    service.repository.inventory.save_pending_review(part.id, {'description': 'pending'}, [])
+    reviews = service.list_pending_reviews()
+    provenance = service.provenance(ProvenanceRequest(part.id))
+
+    def decrement(_):
+        try:
+            return service.adjust_stock(AdjustStockRequest(part.id, -1)).quantity
+        except DomainError as error:
+            return error.code
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = list(workers.map(decrement, range(2)))
+    assert results.count(0) == 1
+    assert results.count(ErrorCode.INVALID_INPUT) == 1
+    assert service.get(GetPartRequest(part.id)).quantity == 0
+    assert service.adjust_stock(AdjustStockRequest(part.id, 1)).quantity == 1
+    assert service.list_pending_reviews() == reviews
+    assert service.provenance(ProvenanceRequest(part.id)) == provenance
