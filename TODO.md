@@ -34,14 +34,19 @@ electrical lookup are improved.
 
 ## Source discovery and extraction evaluation
 
-- Evaluate live supplied-source extraction against the representative
-  [acceptance cases](evaluation/enrichment/acceptance.json). Separate extraction
-  quality from source discovery, and evaluate lookup of newly extracted electrical
-  facts separately from deterministic matching. Review exact variants, qualifiers,
-  missing facts, useful clarification, source passages, latency, and cost.
-- Select a bounded retrieval/model approach using those measurements. Remove
-  source paths that do not justify their maintenance burden. Distinguish failed
-  retrieval from no matching part.
+- Resolve the remaining supplied-source [acceptance cases](evaluation/enrichment/acceptance.json):
+  extract the exact NE555P package with a supporting ordering-table passage, and
+  distinguish a mismatched datasheet from unresolved identity when the model
+  excerpt omits the requested part. Preserve unknown fields until supported.
+  Recheck clarification and photo identification when changing prompts or models,
+  using small, explicitly bounded live experiments.
+- Evaluate lookup of newly extracted electrical facts separately from
+  deterministic matching. Review exact variants, operating versus absolute
+  limits, conditions, source passages, quantity preservation through approval,
+  latency, and cost. Mocked extraction checks do not establish live quality.
+- Measure automatic source discovery separately from supplied-source extraction
+  before choosing integrations. Remove source paths that do not justify their
+  maintenance burden; distinguish retrieval failure from no matching part.
 - Keep local OCR photos in memory instead of writing temporary image files,
   following the [storage boundaries](docs/adr/0005-storage-and-retention.md).
 
