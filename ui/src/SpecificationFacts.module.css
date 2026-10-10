@@ -1,0 +1,35 @@
+.results, .card { --spec-muted: #646466; --spec-pass: #21633e; --spec-incomplete: #805719; }
+.results { display: flex; flex-direction: column; gap: 10px; width: 580px; max-width: 100%; }
+.overview { margin: 0 0 2px; line-height: 1.5; }
+.overview span { color: var(--spec-muted); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.cardHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+.identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.identity strong { font-size: .95rem; }
+.identity span { font-size: .78rem; color: var(--spec-muted); }
+.stock { white-space: nowrap; font-size: .8rem; font-weight: 500; }
+.confirmed, .incomplete { display: inline-block; font-size: .75rem; margin-top: 10px; padding: 3px 7px; border-radius: 5px; }
+.confirmed { color: var(--spec-pass); background: rgb(71 163 106 / .12); }
+.incomplete { color: var(--spec-incomplete); background: rgb(190 137 52 / .12); }
+.facts { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
+.fact { border-top: 1px solid var(--border); padding-top: 10px; }
+.factHeading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 10px; line-height: 1.5; }
+.factHeading > span:first-child { text-transform: capitalize; }
+.basis, .conditions, .note { color: var(--spec-muted); font-size: .8rem; line-height: 1.5; }
+.conditions { margin-top: 3px; overflow-wrap: anywhere; }
+.note { margin: 8px 0 0; }
+.assertion { color: var(--spec-incomplete); }
+.evidence { margin-top: 6px; font-size: .8rem; }
+.evidence summary { cursor: pointer; color: var(--accent); width: fit-content; padding: 3px 0; }
+.evidenceBody { margin-top: 6px; padding: 8px 10px; border-left: 2px solid var(--border); }
+.evidence a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.evidence blockquote { margin: 6px 0 0; color: var(--spec-muted); line-height: 1.5; overflow-wrap: anywhere; }
+.evidence summary:focus-visible, .evidence a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+@media (max-width: 480px) {
+  .card { padding: 12px; }
+  .cardHeader { flex-wrap: wrap; gap: 8px; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .results, .card { --spec-muted: #b0b0b0; --spec-pass: #8bd5aa; --spec-incomplete: #e9c484; }
+}

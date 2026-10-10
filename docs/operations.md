@@ -175,6 +175,9 @@ passage authenticity. Inspect the proposal with `get_specifications`, compare it
 against the source, and request `apply_specification_review` in chat for the
 approval controls. Use `reject_specification_review` to discard a proposal. Chat
 shows original values, bases, conditions, passages, and source links during review.
+Search results keep identity, stock, match status, and qualified ratings together
+in each card. Expand **View source evidence** to inspect passages; approval
+reviews open those passages by default.
 
 Search with explicit requirements and stock, for example four resistors at 10 kΩ,
 tolerance at most 1%, and rated power at least 0.25 W under the source's stated
