@@ -13,7 +13,9 @@ readiness certificate, or test report.
 - [Enrichment](design/enrichment.md): source-backed proposals and the decision to
   stop maintaining a bulk supplier catalog.
 - [Source retrieval](design/source-retrieval-and-extraction.md): trust boundaries
-  and unresolved evidence-retention choices.
+  and evidence limitations.
+- [Storage and retention](design/storage-and-retention.md): ephemeral photos,
+  compact provenance, reusable enrichment, and proposed expiry defaults.
 - [Configuration](design/configuration.md): explicit runtimes and secret ownership.
 - [Cloud hosting](design/cloud-hosting.md): AWS/serverless direction and open choices.
 - [Part identity](design/flexible-part-model-and-identity.md): a design question,

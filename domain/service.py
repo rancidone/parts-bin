@@ -156,6 +156,23 @@ class PartsBinService:
     def list_pending_reviews(self) -> dict[int, dict]:
         return persistence.list_pending_reviews(self.db_path)
 
+    def stage_enrichment(self, original: Part, updates: Mapping[str, Any], provenance: list[dict]) -> None:
+        """Stage evidenced metadata only if identity and existing review are unchanged."""
+        allowed = {"part_number", "manufacturer", "package", "description"}
+        if not updates or set(updates) - allowed:
+            raise DomainError(ErrorCode.INVALID_INPUT, "Enrichment may propose metadata only")
+        if updates.get("part_number", original.part_number) != original.part_number:
+            raise DomainError(ErrorCode.CONFLICT, "Enrichment must preserve exact part identity")
+        by_field = {record["field_name"]: record for record in provenance}
+        for name, value in updates.items():
+            if (not isinstance(value, str) or not value.strip() or name not in by_field
+                    or by_field[name].get("field_value") != value
+                    or not by_field[name].get("evidence")):
+                raise DomainError(ErrorCode.INVALID_INPUT, "Enrichment requires evidence for each proposed field")
+        if not persistence.stage_enrichment_if_unchanged(
+                self.db_path, original.id, vars(original), dict(updates), provenance):
+            raise DomainError(ErrorCode.CONFLICT, "Part metadata or pending review changed during enrichment")
+
     def apply_review(self, request: ApplyReviewRequest) -> Part:
         self.get(GetPartRequest(request.part_id))
         review = self.list_pending_reviews().get(request.part_id)
