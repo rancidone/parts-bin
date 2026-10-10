@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { PartCard } from './PartCard'
 import { useAgent } from './useAgent'
-import type { AgentEvent, Part, RuntimeName } from './types'
+import type { AgentEvent, Part } from './types'
 import styles from './Chat.module.css'
 
-const runtimeLabels: Record<RuntimeName, string> = { codex: 'Codex', openai: 'OpenAI API', local: 'Local' }
-
 export function Chat() {
-  const { events, runtime, setRuntime, threadId, pending, submit, decide } = useAgent()
+  const { events, pending, submit, decide } = useAgent()
   const [text, setText] = useState('')
   const [photo, setPhoto] = useState<File>()
   const [photoPreview, setPhotoPreview] = useState<string>()
@@ -41,13 +39,6 @@ export function Chat() {
     </div>
     <form className={styles.inputBar} onSubmit={send}>
       {photoPreview && <div className={styles.photoPreview}><img src={photoPreview} alt="attachment" /><button type="button" className={styles.removePhoto} onClick={clearPhoto}>✕</button></div>}
-      <div className={styles.runtimeRow}>
-        <label htmlFor="runtime">Runtime</label>
-        <select id="runtime" value={runtime} disabled={Boolean(threadId)} onChange={event => setRuntime(event.target.value as RuntimeName)}>
-          {Object.entries(runtimeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-        {threadId && <span className={styles.runtimeLocked}>Selected for this conversation</span>}
-      </div>
       <div className={styles.inputRow}>
         <button type="button" className={styles.attachBtn} onClick={() => fileRef.current?.click()} title="Attach photo">📎</button>
         <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={choosePhoto} hidden />

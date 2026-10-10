@@ -13,6 +13,10 @@ class RuntimeSelectionError(ValueError):
     """Raised when code attempts to switch a thread to a different runtime."""
 
 
+class UnsupportedRuntimeError(ValueError):
+    """Historical conversations can be read but not executed by a new provider."""
+
+
 class ConversationStore:
     def __init__(self, database: str | Path):
         self.database = str(database)
@@ -31,11 +35,6 @@ class ConversationStore:
                     PRIMARY KEY(thread_id, sequence),
                     FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id)
                 );
-                CREATE TABLE IF NOT EXISTS agent_codex_sessions (
-                    thread_id TEXT PRIMARY KEY,
-                    codex_session_id TEXT NOT NULL,
-                    FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id)
-                );
             """)
 
     def _connection(self) -> sqlite3.Connection:
@@ -47,6 +46,8 @@ class ConversationStore:
         with self._connection() as conn:
             row = conn.execute("SELECT runtime FROM agent_threads WHERE thread_id = ?", (thread_id,)).fetchone()
             if row is None:
+                if runtime != "openai":
+                    raise UnsupportedRuntimeError("Only OpenAI conversations can be created.")
                 conn.execute("INSERT INTO agent_threads(thread_id, runtime) VALUES (?, ?)", (thread_id, runtime))
             elif row["runtime"] != runtime:
                 raise RuntimeSelectionError(f"Thread {thread_id!r} is bound to {row['runtime']!r}, not {runtime!r}")
@@ -76,16 +77,3 @@ class ConversationStore:
             ).fetchall()
         return [ConversationEvent(row["kind"], thread_id, row["runtime"], json.loads(row["data_json"]), row["sequence"])
                 for row in rows]
-
-    def codex_session(self, thread_id: str) -> str | None:
-        with self._connection() as conn:
-            row = conn.execute("SELECT codex_session_id FROM agent_codex_sessions WHERE thread_id = ?", (thread_id,)).fetchone()
-        return None if row is None else str(row["codex_session_id"])
-
-    def set_codex_session(self, thread_id: str, session_id: str) -> None:
-        with self._connection() as conn:
-            conn.execute(
-                "INSERT INTO agent_codex_sessions(thread_id, codex_session_id) VALUES (?, ?) "
-                "ON CONFLICT(thread_id) DO UPDATE SET codex_session_id = excluded.codex_session_id",
-                (thread_id, session_id),
-            )

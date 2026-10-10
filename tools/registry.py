@@ -1,6 +1,6 @@
 """The single typed, transport-neutral Parts Bin tool registry.
 
-This module deliberately knows about the domain service, but not FastAPI, MCP,
+This module deliberately knows about the domain service, but not FastAPI,
 LLM clients, prompts, or persistence.  Its JSON schemas are the contract that
 other transports consume.
 """
@@ -34,8 +34,6 @@ _FIELDS = {
     "description": {"type": ["string", "null"]},
 }
 _EDITABLE_FIELDS = {name: schema for name, schema in _FIELDS.items()}
-_PART_PROPERTIES = {"id": {"type": "integer"}, **{k: v for k, v in _FIELDS.items()}}
-_PART_SCHEMA = {"type": "object", "additionalProperties": False, "properties": _PART_PROPERTIES}
 
 
 def _fields_schema(*, required: list[str] | None = None, min_properties: int | None = None) -> dict[str, Any]:
@@ -87,19 +85,6 @@ class PartsBinToolRegistry:
 
     def list_tools(self) -> list[dict[str, Any]]:
         return [tool.copy() for tool in _TOOL_DEFINITIONS]
-
-    def list_resources(self) -> list[dict[str, str]]:
-        return [
-            {"uri": "parts-bin://field-definitions", "name": "Parts Bin field definitions", "mimeType": "application/json"},
-            {"uri": "parts-bin://normalization-rules", "name": "Parts Bin normalization rules", "mimeType": "application/json"},
-        ]
-
-    def read_resource(self, uri: str) -> dict[str, Any]:
-        if uri == "parts-bin://field-definitions":
-            return {"fields": _FIELDS, "editable_fields": sorted(_EDITABLE_FIELDS)}
-        if uri == "parts-bin://normalization-rules":
-            return {"value": "passive values are normalized by category; EIA notation is expanded", "examples": {"10K": "10k", "2R2": "2.2r", "100nF": "100n"}}
-        raise DomainError(ErrorCode.INVALID_INPUT, "Unknown resource", details={"uri": uri})
 
     async def execute(self, name: str, arguments: Mapping[str, Any] | None = None, *, context: ToolExecutionContext | None = None) -> ToolResult:
         args = dict(arguments or {})

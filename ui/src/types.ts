@@ -48,13 +48,12 @@ export const DISPLAY_PART_FIELDS: { key: keyof Part; label: string }[] = [
   { key: 'description', label: 'Description' },
 ]
 
-export type RuntimeName = 'codex' | 'openai' | 'local'
 export type AgentEventKind = 'user_message' | 'assistant_text' | 'tool_call' | 'tool_result' | 'approval_request' | 'approval_decision' | 'error' | 'completed'
 
 export interface AgentEvent {
   kind: AgentEventKind
   thread_id: string
-  runtime: RuntimeName
+  runtime: string // Historical provider identity on persisted events.
   sequence: number
   data: Record<string, unknown>
 }

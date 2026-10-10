@@ -1,4 +1,4 @@
-"""The single server-side approval coordinator used by every runtime."""
+"""The single server-side approval coordinator for agent mutations."""
 
 from __future__ import annotations
 

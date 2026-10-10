@@ -1,10 +1,8 @@
-import json
 
 import pytest
 
 from domain import AddPartRequest, PartFields, PartsBinService
 from tools import ApprovalReceipt, PartsBinToolRegistry, ToolExecutionContext
-from tools.mcp_server import MCPServer, serve_stdio
 
 
 def _fields(**overrides):
@@ -40,35 +38,12 @@ async def test_registry_rejects_unknown_fields_and_requires_server_approval(regi
     assert approved["result"]["deleted"] is True
 
 
-@pytest.mark.asyncio
-async def test_mcp_projection_matches_registry_and_returns_json(registry):
-    server = MCPServer(registry)
-    listed = await server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-    assert listed["result"]["tools"] == registry.list_tools()
-    response = await server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_pending_reviews", "arguments": {}}})
-    assert response["result"]["isError"] is False
-    json.loads(response["result"]["content"][0]["text"])
-    resources = await server.handle({"jsonrpc": "2.0", "id": 3, "method": "resources/list"})
-    assert [item["uri"] for item in resources["result"]["resources"]] == ["parts-bin://field-definitions", "parts-bin://normalization-rules"]
+
+
 
 
 @pytest.mark.asyncio
-async def test_mcp_initialize_negotiates_requested_protocol_version(registry):
-    response = await MCPServer(registry).handle({
-        "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"protocolVersion": "2025-03-26"},
-    })
-    assert response["result"]["protocolVersion"] == "2025-03-26"
-
-    unsupported = await MCPServer(registry).handle({
-        "jsonrpc": "2.0", "id": 2, "method": "initialize",
-        "params": {"protocolVersion": "2025-11-25"},
-    })
-    assert unsupported["result"]["protocolVersion"] == "2025-06-18"
-
-
-@pytest.mark.asyncio
-async def test_standalone_stdio_client_completes_every_inventory_workflow(tmp_path, capsys):
+async def test_registry_completes_every_inventory_workflow(tmp_path):
     async def fetcher(_part_number):
         return {
             "chosen_updates": {"manufacturer": "Acme"},
@@ -83,15 +58,10 @@ async def test_standalone_stdio_client_completes_every_inventory_workflow(tmp_pa
 
     service = PartsBinService(tmp_path / "parts.db", spec_fetcher=fetcher)
     registry = PartsBinToolRegistry(service, approval_checker=lambda _name, _args: True)
-    server = MCPServer(registry)
     requests = []
 
     def call(name, arguments):
-        request_id = len(requests) + 1
-        requests.append({
-            "jsonrpc": "2.0", "id": request_id, "method": "tools/call",
-            "params": {"name": name, "arguments": arguments},
-        })
+        requests.append((name, arguments))
 
     call("add_part", {"part_category": "resistor", "profile": "passive", "quantity": 2, "value": "10K", "package": "0402"})
     call("get_part", {"part_id": 1})
@@ -108,11 +78,10 @@ async def test_standalone_stdio_client_completes_every_inventory_workflow(tmp_pa
     call("reject_review", {"part_id": 2, "fields": ["manufacturer"]})
     call("delete_part", {"part_id": 1})
 
-    await serve_stdio(server, [json.dumps(request) for request in requests])
-    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert len(responses) == len(requests)
-    failures = [response for response in responses if response.get("result", {}).get("isError") is not False]
-    assert not failures, failures
+    for name, arguments in requests:
+        receipt = ApprovalReceipt.issue(name, arguments)
+        response = await registry.execute(name, arguments, context=ToolExecutionContext(receipt))
+        assert response["ok"], response
     assert [tool["name"] for tool in registry.list_tools()] == [
         "search_parts", "get_part", "add_part", "add_stock", "update_part",
         "bulk_update_parts", "delete_part", "lookup_part_specs",
@@ -120,21 +89,6 @@ async def test_standalone_stdio_client_completes_every_inventory_workflow(tmp_pa
     ]
 
 
-@pytest.mark.asyncio
-async def test_mcp_approval_is_server_supplied_not_client_controlled(registry):
-    server = MCPServer(registry)
-    part = registry.service.add_part(AddPartRequest(_fields()))
-    rejected = await server.handle({
-        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "delete_part", "arguments": {"part_id": part.id, "approval": True}},
-    })
-    assert rejected["result"]["isError"] is True
-    approved = await server.handle({
-        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-        "params": {"name": "delete_part", "arguments": {"part_id": part.id}},
-    })
-    assert approved["result"]["isError"] is False
-    assert approved["result"]["structuredContent"]["result"]["deleted"] is True
 
 
 @pytest.mark.asyncio

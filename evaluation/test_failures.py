@@ -25,7 +25,7 @@ def test_approved_failure_promotes_reviewed_candidate(tmp_path):
     capture = tmp_path / "failure.json"
     candidate = tmp_path / "candidate.json"
     scenarios = tmp_path / "scenarios.json"
-    capture_failure(capture, runtime="local", failure_code="tool_loop", events=[])
+    capture_failure(capture, runtime="openai", failure_code="tool_loop", events=[])
     candidate.write_text(json.dumps({"id": "reviewed_failure", "starting_database": {"parts": []}, "conversation": [{"user": "synthetic"}], "tool_constraints": {}, "expected_final_state": {}, "recorded_turns": [{"text": "done"}]}))
     scenarios.write_text(json.dumps({"version": 1, "scenarios": []}))
     assert promote_failure(capture, candidate, approved_by="operator", scenarios_path=scenarios) == "reviewed_failure"

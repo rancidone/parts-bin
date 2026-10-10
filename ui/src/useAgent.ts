@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import type { AgentEvent, RuntimeName } from './types'
+import type { AgentEvent } from './types'
 
 async function readEventStream(response: Response, receive: (event: AgentEvent) => void) {
   const reader = response.body?.getReader()
@@ -29,7 +29,7 @@ async function readEventStream(response: Response, receive: (event: AgentEvent) 
 export function useAgent() {
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [threadId, setThreadId] = useState<string | null>(null)
-  const [runtime, setRuntime] = useState<RuntimeName>('codex')
+  const runtime = 'openai'
   const [pending, setPending] = useState(false)
   const localSequence = useRef(0)
   const submitting = useRef(false)
@@ -42,7 +42,7 @@ export function useAgent() {
   async function ensureThread() {
     if (threadId) return threadId
     const response = await fetch('/agent/threads', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runtime }),
+      method: 'POST',
     })
     if (!response.ok) throw new Error(await response.text())
     const created = await response.json() as { thread_id: string }
@@ -91,5 +91,5 @@ export function useAgent() {
     } finally { setPending(false) }
   }
 
-  return { events, runtime, setRuntime, threadId, pending, submit, decide }
+  return { events, threadId, pending, submit, decide }
 }

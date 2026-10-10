@@ -7,8 +7,8 @@ typed domain service.
 
 from __future__ import annotations
 
-import asyncio
 import json
+import os
 import tomllib
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -16,10 +16,8 @@ from time import perf_counter
 
 import log
 from agent_runtime import (
-    AgentGateway, ApprovalEngine, ApprovalResponse, CodexAppServerRuntime,
-    CodexExecTransport, ConversationStore, ImageInput,
-    LocalOpenAICompatibleRuntime, LocalOpenAICompatibleTransport,
-    OpenAIResponsesRuntime, OpenAIResponsesTransport, PartsBinMCPClient,
+    AgentGateway, ApprovalEngine, ApprovalResponse, ConversationStore, ImageInput,
+    OpenAIResponsesRuntime, OpenAIResponsesTransport, UnsupportedRuntimeError,
 )
 from agent_runtime.telemetry import AgentTelemetry
 from db.persistence import export_csv, init_db, list_all
@@ -27,14 +25,14 @@ from domain import (
     ApplyReviewRequest, DeletePartRequest, DomainError, FetchSpecsRequest,
     PartsBinService, ProvenanceRequest, RejectReviewRequest, UpdatePartRequest,
 )
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from ingestion.lookup import fetch_specs_detailed
 
 
-_CONFIG_PATH = Path(__file__).parent / "config.toml"
+_CONFIG_PATH = Path(os.environ.get("PARTS_BIN_CONFIG", Path(__file__).parent / "config.toml"))
 _UI_DIST_PATH = Path(__file__).parent / "ui" / "dist"
 
 
@@ -56,10 +54,6 @@ _DIGIKEY_CREDS: dict | None = (
     {"client_id": _cfg["digikey"]["client_id"], "client_secret": _cfg["digikey"]["client_secret"]}
     if _cfg.get("digikey", {}).get("client_id") else None
 )
-_JLCPARTS_DB_PATH = _cfg.get("jlcparts", {}).get("db_path") or None
-_JLCPARTS_MIN_FREE_BYTES = int(_cfg.get("jlcparts", {}).get("min_free_bytes", 4 * 1024**3))
-_JLCPARTS_MAX_SQLITE_BYTES = _cfg.get("jlcparts", {}).get("max_sqlite_bytes")
-_jlcparts_dl_status = "idle"
 
 app = FastAPI(title="Parts Bin")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -69,7 +63,7 @@ init_db(_DB_PATH)
 def _domain_service() -> PartsBinService:
     async def fetcher(part_number: str) -> dict:
         return await fetch_specs_detailed(
-            part_number, _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH,
+            part_number, _DIGIKEY_CREDS,
             search_config=_search_cfg,
         )
     return PartsBinService(_DB_PATH, spec_fetcher=fetcher)
@@ -80,37 +74,19 @@ def _domain_error(exc: DomainError) -> HTTPException:
     return HTTPException(status_code=status, detail={"code": exc.code.value, "message": exc.message, "details": exc.details})
 
 
-def _make_agent_runtime(runtime: str):
+def _make_agent_runtime():
     from tools import PartsBinToolRegistry
-    from tools.mcp_server import MCPServer
 
-    registry = PartsBinToolRegistry(_domain_service())
-    common = {"registry": registry, "store": _conversation_store, "approvals": _approval_engine, "telemetry": _agent_telemetry}
-    if runtime == "openai":
-        config = _openai_cfg
-        if not config.get("api_key"):
-            raise RuntimeError("OpenAI runtime is not configured (agent.openai.api_key)")
-        return OpenAIResponsesRuntime(OpenAIResponsesTransport(
-            api_key=config["api_key"], model=config.get("model", "gpt-5.6"),
-            base_url=config.get("base_url", "https://api.openai.com/v1"),
-        ), **common)
-    if runtime == "local":
-        config = _agent_cfg.get("local", {})
-        if not config.get("base_url"):
-            raise RuntimeError("Local runtime is not configured (agent.local.base_url)")
-        return LocalOpenAICompatibleRuntime(LocalOpenAICompatibleTransport(
-            model=config.get("model", "local"), base_url=config["base_url"],
-            api_key=config.get("api_key") or None,
-        ), supports_native_tools=bool(config.get("supports_native_tools", True)), **common)
-    if runtime == "codex":
-        transport = CodexExecTransport(
-            command=_agent_cfg.get("codex", {}).get("command", ""),
-            model=_agent_cfg.get("codex", {}).get("model"),
-            get_session=_conversation_store.codex_session,
-            set_session=_conversation_store.set_codex_session,
-        )
-        return CodexAppServerRuntime(transport, mcp_client=PartsBinMCPClient(MCPServer(registry)), **common)
-    raise ValueError(f"Unknown runtime: {runtime}")
+    if not _openai_cfg.get("api_key"):
+        raise RuntimeError("OpenAI API is not configured (agent.openai.api_key)")
+    return OpenAIResponsesRuntime(
+        OpenAIResponsesTransport(
+            api_key=_openai_cfg["api_key"], model=_openai_cfg.get("model", "gpt-5.6"),
+            base_url=_openai_cfg.get("base_url", "https://api.openai.com/v1"),
+        ),
+        registry=PartsBinToolRegistry(_domain_service()), store=_conversation_store,
+        approvals=_approval_engine, telemetry=_agent_telemetry,
+    )
 
 
 _conversation_store = ConversationStore(_agent_cfg.get("conversation_db_path", str(_DB_PATH)))
@@ -156,17 +132,18 @@ async def _agent_image(photo: UploadFile | None) -> ImageInput | None:
 
 
 @app.post("/agent/threads")
-async def create_agent_thread(body: dict) -> dict:
-    runtime = body.get("runtime")
-    if runtime not in {"codex", "openai", "local"}:
-        raise HTTPException(status_code=422, detail="runtime must be codex, openai, or local")
-    return {"thread_id": _agent_gateway.create_thread(runtime), "runtime": runtime}
+async def create_agent_thread(body: dict | None = Body(default=None)) -> dict:
+    if body:
+        raise HTTPException(status_code=422, detail="Thread creation does not accept a runtime selection or other options")
+    return {"thread_id": _agent_gateway.create_thread()}
 
 
 @app.get("/agent/threads/{thread_id}/events")
 async def resume_agent_thread(thread_id: str, after: int = 0) -> StreamingResponse:
     try:
         events = _agent_gateway.events(thread_id, after=max(after, 0))
+    except UnsupportedRuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown conversation thread") from exc
     return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -178,6 +155,8 @@ async def submit_agent_message(thread_id: str, message: str = Form(default=""), 
         raise HTTPException(status_code=422, detail="message or photo required")
     try:
         events = _agent_gateway.submit_stream(thread_id, message.strip() or "Identify this part.", image=await _agent_image(photo))
+    except UnsupportedRuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown conversation thread") from exc
     return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -190,6 +169,8 @@ async def respond_to_agent_approval(thread_id: str, body: dict) -> StreamingResp
         raise HTTPException(status_code=422, detail="request_id and approved boolean are required")
     try:
         events = _agent_gateway.approval_stream(thread_id, ApprovalResponse(request_id, approved))
+    except UnsupportedRuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown conversation thread") from exc
     return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -197,11 +178,7 @@ async def respond_to_agent_approval(thread_id: str, body: dict) -> StreamingResp
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "runtimes": {
-        "codex": bool(_agent_cfg.get("codex", {}).get("command")),
-        "openai": bool(_openai_cfg.get("api_key")),
-        "local": bool(_agent_cfg.get("local", {}).get("base_url")),
-    }}
+    return {"status": "ok", "agent_configured": bool(_openai_cfg.get("api_key"))}
 
 
 @app.get("/inventory")
@@ -250,10 +227,8 @@ async def inventory_csv():
 @app.post("/inventory/{part_id}/refresh")
 async def refresh_part(part_id: int) -> dict:
     started = perf_counter()
-    async def fetcher(part_number: str) -> dict:
-        return await fetch_specs_detailed(part_number, _DIGIKEY_CREDS, jlcparts_db_path=_JLCPARTS_DB_PATH)
     try:
-        result = await PartsBinService(_DB_PATH, spec_fetcher=fetcher).fetch_and_stage_specs(FetchSpecsRequest(part_id))
+        result = await _domain_service().fetch_and_stage_specs(FetchSpecsRequest(part_id))
     except DomainError as exc:
         raise _domain_error(exc) from exc
     _logger.info("refresh proposed", extra={"part_id": part_id, "latency_ms": round((perf_counter() - started) * 1000, 1)})
@@ -278,42 +253,6 @@ async def dismiss_review(part_id: int) -> dict:
     except DomainError as exc:
         raise _domain_error(exc) from exc
     return {"ok": True}
-
-
-@app.get("/jlcparts/status")
-async def jlcparts_status() -> dict:
-    if not _JLCPARTS_DB_PATH:
-        return {"status": "not_configured"}
-    path = Path(_JLCPARTS_DB_PATH)
-    if _jlcparts_dl_status in {"downloading", "error"}:
-        return {"status": _jlcparts_dl_status, "path": str(path)}
-    if path.exists():
-        return {"status": "ready", "path": str(path), "size_mb": round(path.stat().st_size / 1_048_576, 1)}
-    return {"status": "missing", "path": str(path)}
-
-
-async def _run_jlcparts_download() -> None:
-    global _jlcparts_dl_status
-    _jlcparts_dl_status = "downloading"
-    try:
-        from ingestion.jlcparts_download import download_if_missing
-        await download_if_missing(_JLCPARTS_DB_PATH, min_free_bytes=_JLCPARTS_MIN_FREE_BYTES, max_sqlite_bytes=_JLCPARTS_MAX_SQLITE_BYTES)
-        _jlcparts_dl_status = "idle"
-    except Exception as exc:
-        _logger.error("jlcparts download failed", extra={"error": str(exc)})
-        _jlcparts_dl_status = "error"
-
-
-@app.post("/jlcparts/download")
-async def jlcparts_download(background_tasks: BackgroundTasks) -> dict:
-    global _jlcparts_dl_status
-    if not _JLCPARTS_DB_PATH:
-        raise HTTPException(status_code=422, detail="jlcparts.db_path not configured")
-    if _jlcparts_dl_status == "downloading":
-        return {"status": "already_downloading"}
-    background_tasks.add_task(_run_jlcparts_download)
-    _jlcparts_dl_status = "downloading"
-    return {"status": "started"}
 
 
 def _ui_index_path() -> Path:

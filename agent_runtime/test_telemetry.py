@@ -21,7 +21,7 @@ class Turns:
         return next(self.turns)
 
 
-async def test_agent_telemetry_is_cross_runtime_safe_and_complete(tmp_path):
+async def test_agent_telemetry_redacts_private_content(tmp_path):
     captured = CapturedTelemetry()
     telemetry = AgentTelemetry(captured.emit)
     store = ConversationStore(tmp_path / "events.db")
@@ -29,8 +29,8 @@ async def test_agent_telemetry_is_cross_runtime_safe_and_complete(tmp_path):
     runtime = OpenAIResponsesRuntime(Turns([
         ModelTurn(tool_calls=(ToolCall("search_parts", {"filters": {"part_number": "private-part"}}),)), ModelTurn("private answer"),
     ]), registry=registry, store=store, approvals=ApprovalEngine(), telemetry=telemetry)
-    gateway = AgentGateway(store, lambda _: runtime, telemetry=telemetry)
-    thread = gateway.create_thread("openai")
+    gateway = AgentGateway(store, lambda: runtime, telemetry=telemetry)
+    thread = gateway.create_thread()
     await gateway.submit(thread, "private prompt")
     encoded = repr(captured.items)
     assert "private-part" not in encoded and "private prompt" not in encoded and "private answer" not in encoded

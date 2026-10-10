@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "status": "draft_for_review",
+  "purpose": "Acceptance criteria for replacing catalog-based enrichment. evaluation.enrichment_check performs offline structural checks; source and semantic review remain manual.",
+  "global_requirements": [
+    "Every proposed factual field must have supporting source evidence.",
+    "User assertions must remain distinguishable from independently verified facts.",
+    "Unknown fields may remain unset; clarification must target missing information.",
+    "Enrichment must not change quantity or silently overwrite committed inventory.",
+    "Retrieval failure must be distinguishable from a successful search with no matching part.",
+    "Equivalent descriptions and package aliases are acceptable when supported by evidence."
+  ],
+  "cases": [
+    {
+      "id": "legacy_transistor_incomplete_identity",
+      "input": "2N2222",
+      "expected_behavior": "Offer candidate identification and request manufacturer or markings before claiming an exact manufacturer, package, or pinout.",
+      "must_not": ["Invent a manufacturer", "Silently substitute a related part", "Treat one candidate datasheet as proof of the user's physical part"],
+      "source_status": "No exact manufacturer source selected; this case evaluates uncertainty handling."
+    },
+    {
+      "id": "exact_timer_package",
+      "input": "Texas Instruments NE555P",
+      "accepted_aliases": {"package": ["PDIP (P), 8 pins", "PDIP, 8 pins"]},
+      "expected_fields": {
+        "manufacturer": "Texas Instruments",
+        "part_number": "NE555P",
+        "package": "PDIP-8",
+        "description": "Timer IC"
+      },
+      "source": {
+        "url": "https://www.ti.com/lit/ds/symlink/ne555.pdf",
+        "reviewed_on": "2026-10-10",
+        "locator": "Package Option Addendum, NE555P row; PDF page 21 in the reviewed copy",
+        "evidence_summary": "The ordering table maps NE555P to PDIP (P), eight pins. The document describes the xx555 timer family."
+      },
+      "must_not": ["Choose another package from the family datasheet", "Drop the P suffix"]
+    },
+    {
+      "id": "exact_pnp_transistor",
+      "input": "Nexperia PBSS5350T",
+      "expected_output_file": "pbss5350t.expected.json",
+      "must_not": ["Drop the T suffix", "Substitute the NPN complement PBSS4350T", "Describe 3 A as continuous collector current"]
+    },
+    {
+      "id": "ambiguous_argb_led",
+      "input": "ARGB LED",
+      "expected_behavior": "Ask for a product link or markings, or clarify whether the item is a component, strip, or lighting assembly.",
+      "must_not": ["Invent an exact part number", "Invent a manufacturer", "Assume voltage", "Assume protocol", "Assume pinout"],
+      "source_status": "No exact part identified; this case evaluates clarification."
+    },
+    {
+      "id": "user_asserted_transistor_package",
+      "input": "2N2222 in TO-92, manufacturer unknown",
+      "user_assertions": {"part_number": "2N2222", "package": "TO-92"},
+      "expected_behavior": "Preserve the supplied package as user-provided, investigate identity, and request markings or a source when necessary. Leave manufacturer and pinout unresolved without evidence.",
+      "must_not": ["Treat the package assertion as independently verified", "Silently rename the part", "Overwrite the user's assertion with a candidate's package"],
+      "source_status": "No exact manufacturer source selected; this case evaluates provenance and uncertainty."
+    }
+  ]
+}

@@ -1,12 +1,12 @@
-"""Transport-neutral data types for Parts Bin agent runtimes."""
+"""Data types for Parts Bin conversations and OpenAI model turns."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 
-RuntimeName = Literal["codex", "openai", "local"]
+RuntimeName = str  # Persisted provider identity, including historical read-only threads.
 EventKind = Literal[
     "user_message", "assistant_text", "tool_call", "tool_result",
     "approval_request", "approval_decision", "error", "completed",
@@ -30,11 +30,11 @@ class ToolCall:
 
 @dataclass(frozen=True)
 class ModelTurn:
-    """One model response, normalized across provider response formats."""
+    """One model response with native function calls."""
 
     text: str = ""
     tool_calls: tuple[ToolCall, ...] = ()
-    protocol_events: tuple[tuple[str, dict[str, Any]], ...] = ()
+    response_output: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
