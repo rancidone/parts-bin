@@ -11,8 +11,6 @@ electrical lookup are improved.
 
 - Extend specification and condition definitions from representative source-backed
   requests, including operating ranges, derating, and additional categories.
-  Define op-amp specifications explicitly, distinguishing operating limits from
-  absolute maxima and evaluating exact variants and missing facts.
 - Define identity for connectors, modules, kits, and unmarked stock from concrete
   ingestion failures. Consider typed category attributes and explicit variant
   identity without inventing ordering codes or merging uncertain stock. Rehearse

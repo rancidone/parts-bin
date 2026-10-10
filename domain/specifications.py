@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 from .errors import DomainError, ErrorCode
 from .specification_conditions import same_conditions
+from .search import search_category
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,16 @@ SPECIFICATIONS = {
         'rated_voltage': SpecificationDefinition('V', 'rated'),
         'rated_current': SpecificationDefinition('A', 'rated'),
     },
+    'operational amplifier': {
+        'minimum_supply_voltage': SpecificationDefinition('V', 'operating_minimum'),
+        'maximum_supply_voltage': SpecificationDefinition('V', 'operating_maximum'),
+        'absolute_maximum_supply_voltage': SpecificationDefinition('V', 'absolute_maximum'),
+        'input_offset_voltage': SpecificationDefinition('V', 'maximum_magnitude'),
+        'input_bias_current': SpecificationDefinition('A', 'maximum_magnitude'),
+        'gain_bandwidth_product': SpecificationDefinition('Hz', 'typical'),
+        'slew_rate': SpecificationDefinition('V/s', 'typical'),
+        'quiescent_current': SpecificationDefinition('A', 'typical'),
+    },
 }
 
 # SI prefixes are case-sensitive. Ratio and percent have no prefixes.
@@ -77,11 +88,21 @@ MINIMUM_SOURCE_CONDITIONS = {
         'capacitance': (('measurement_frequency',), ('measurement_temperature',)),
         'rated_voltage': (('current_type', 'voltage_type'), ('rating_temperature',)),
     },
+    'operational amplifier': {
+        'minimum_supply_voltage': (('supply_convention',), ('ambient_temperature',)),
+        'maximum_supply_voltage': (('supply_convention',), ('ambient_temperature',)),
+        'absolute_maximum_supply_voltage': (('supply_convention',), ('ambient_temperature',)),
+        'input_offset_voltage': (('supply_voltage',), ('ambient_temperature',), ('common_mode_voltage',)),
+        'input_bias_current': (('supply_voltage',), ('ambient_temperature',), ('common_mode_voltage',)),
+        'gain_bandwidth_product': (('supply_voltage',), ('ambient_temperature',)),
+        'slew_rate': (('supply_voltage',), ('ambient_temperature',), ('closed_loop_gain',)),
+        'quiescent_current': (('supply_voltage',), ('ambient_temperature',), ('current_scope',)),
+    },
 }
 
 
 def missing_qualifiers(category: str, fact: dict) -> list[str]:
-    groups = MINIMUM_SOURCE_CONDITIONS.get(category.lower(), {}).get(fact['name'], ())
+    groups = MINIMUM_SOURCE_CONDITIONS.get(search_category(category), {}).get(fact['name'], ())
     return [group[0] for group in groups if not any(key in fact['conditions'] for key in group)]
 
 
@@ -91,18 +112,20 @@ def invalid(message: str) -> None:
 
 
 def definition(category: str, name: str) -> SpecificationDefinition:
-    item = SPECIFICATIONS.get(category.lower(), {}).get(name)
+    item = SPECIFICATIONS.get(search_category(category), {}).get(name)
     if item is None:
         invalid(f'Unsupported specification {name!r} for category {category!r}')
     return item
 
 
 def contract(category: str) -> dict:
-    fields = SPECIFICATIONS.get(category.lower(), {})
+    fields = SPECIFICATIONS.get(search_category(category), {})
     return {'category': category, 'supported': bool(fields),
             'fields': {name: asdict(item) for name, item in fields.items()},
             'comparisons': ['eq', 'gte', 'lte'],
-            'minimum_source_conditions': MINIMUM_SOURCE_CONDITIONS.get(category.lower(), {}),
+            'minimum_source_conditions': MINIMUM_SOURCE_CONDITIONS.get(search_category(category), {}),
+            **({'value_policy': 'Supply values are total positive-to-negative rail voltages. Check both operating endpoints to establish supply suitability; an absolute maximum is a stress rating. Offset voltage and bias current are worst-case magnitudes, retaining current direction where sourced. Typical bandwidth, slew rate and quiescent current are not guarantees. Preserve per-amplifier versus whole-device current scope and all applicable table conditions.'}
+               if search_category(category) == 'operational amplifier' else {}),
             'conditions_policy': 'Match complete condition mappings. Explicit Celsius/humidity intervals and center ± tolerance compare by equal endpoints; omitted conditions are incomplete. Preserve original conditions and evidence.',
             'evidence_policy': 'Only accepted source evidence confirms requirements. User assertions remain incomplete.'}
 
@@ -120,7 +143,12 @@ def numeric_value(raw: str, unit: str) -> Decimal:
         if symbol.endswith(label):
             symbol = symbol[:-len(label)] + 'Ω'
             break
-    if unit in {'%', 'ratio'}:
+    if unit == 'V/s':
+        rate = re.fullmatch(r'([pnuµμmkMG]?)V/([pnuµμmkMG]?)s', symbol)
+        if rate is None:
+            invalid('Expected V/s with supported SI prefixes on voltage and time')
+        exponent = _PREFIXES[rate[1]] - _PREFIXES[rate[2]]
+    elif unit in {'%', 'ratio'}:
         if symbol != unit:
             invalid(f'Expected {unit} unit')
         exponent = 0

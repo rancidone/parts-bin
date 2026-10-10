@@ -205,8 +205,56 @@ async def test_unsupported_category_is_rejected_before_retrieval(tmp_path):
     with patch.object(source, 'retrieve_pdf', AsyncMock()) as retrieve:
         with pytest.raises(source.EnrichmentError, match='category'):
             await source.enrich(NUMBER, 'Vishay', URL, api_key='fake', model='test',
-                cache=SQLiteEnrichmentCache(tmp_path / 'cache.db'), category='op amp')
+                cache=SQLiteEnrichmentCache(tmp_path / 'cache.db'), category='audio amplifier')
     retrieve.assert_not_awaited()
+
+
+async def test_opamp_extraction_review_keeps_operating_stress_and_typical_facts_distinct(tmp_path):
+    # Synthetic source/transport exercise; this does not measure live extraction.
+    passage = f'{NUMBER} Vishay operational amplifier. Recommended total supply 3 to 36 V; stress limit 40 V; slew rate typical 0.5 V/µs.'
+    heading = 'Ambient -40 to 85 °C for supply ratings. Slew measured at 5 V, 25 °C, gain 1, load 10 kΩ to mid-supply.'
+    document = source.Document(URL, 'a' * 64, DOCUMENT.retrieved_at, (passage, heading))
+    supply = [{'name': 'supply_convention', 'value': 'total rail-to-rail'},
+              {'name': 'ambient_temperature', 'value': '-40 to 85 °C'}]
+    facts = [raw_fact('minimum_supply_voltage', '3 V', 'operating_minimum', supply),
+             raw_fact('maximum_supply_voltage', '36 V', 'operating_maximum', supply),
+             raw_fact('absolute_maximum_supply_voltage', '40 V', 'absolute_maximum', supply),
+             raw_fact('slew_rate', '0.5 V/µs', 'typical', [
+                 {'name': 'supply_voltage', 'value': '5 V'},
+                 {'name': 'ambient_temperature', 'value': '25 °C'},
+                 {'name': 'closed_loop_gain', 'value': '1 ratio'},
+                 {'name': 'load_resistance', 'value': '10 kΩ'},
+                 {'name': 'load_reference', 'value': 'mid-supply'}])]
+    for item in facts:
+        item['evidence']['passage_ids'] = [1, 2]
+    result = await extract(candidate(passage=passage, facts=facts), 'op amp', document)
+    assert set(result['extraction_assessment']['missing_fields']) == {
+        'input_offset_voltage', 'input_bias_current', 'gain_bandwidth_product', 'quiescent_current'}
+    assert result['extraction_assessment']['incomplete_fields'] == {}
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    part = service.add_part(AddPartRequest(PartFields('op_amp', 'discrete_ic', 4, part_number=NUMBER)))
+    service.stage_specifications(part, result['facts'])
+    restarted = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    restarted.apply_specification_review(part.id)
+    assert restarted.get_specifications(part.id)['facts'] == result['facts']
+    stored = restarted.get(GetPartRequest(part.id))
+    assert {key: value for key, value in vars(stored).items() if key != 'updated_at'} == {
+        key: value for key, value in vars(part).items() if key != 'updated_at'}
+    assert result['facts'][-1]['conditions']['load_reference'] == 'mid-supply'
+
+
+async def test_opamp_ambiguous_identity_cannot_stage_facts():
+    raw = {'outcome': 'needs_clarification', 'clarification': 'Which grade and shipping suffix?',
+           'mismatch_evidence': None, 'fields': {},
+           'facts': [raw_fact('maximum_supply_voltage', '36 V', 'operating_maximum')]}
+    with pytest.raises(source.EnrichmentError, match='Unresolved identity'):
+        await extract(raw, 'op amp')
+
+
+async def test_opamp_stress_rating_cannot_be_extracted_as_operating_limit():
+    raw = candidate(facts=[raw_fact('maximum_supply_voltage', '40 V', 'absolute_maximum')])
+    with pytest.raises(source.EnrichmentError, match='requires basis operating_maximum'):
+        await extract(raw, 'op amp')
 
 
 async def test_multiple_source_passages_survive_validation_and_review(tmp_path):

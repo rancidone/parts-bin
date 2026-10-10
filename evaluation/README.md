@@ -169,6 +169,14 @@ Use `--case CASE_ID` to select cases. Retrieval failures make no model request,
 and provider HTTP failures stop the run without automatic retries. The runner
 does not use the application's inventory or configuration.
 
+The op-amp cases exercise exact B/BA grades, operating supply endpoints versus
+stress ratings, typical versus guaranteed parameters, and missing facts. Supply
+requirements must check both operating endpoints with the same source conditions.
+Typical bandwidth, slew rate and quiescent current do not establish guaranteed
+performance. Inspect global table headings as well as individual rows; compare
+per-amplifier and whole-device current only with matching scope. A genuine quote
+from a neighboring grade cannot establish the requested variant's specification.
+
 Keep the resulting report outside the repository. It records source hashes,
 model usage, latency, candidate passages, failure classifications and approval,
 restart, replay and quantity checks. Approval in these disposable databases tests
