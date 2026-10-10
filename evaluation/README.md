@@ -25,6 +25,14 @@ factories must supply isolated disposable stores; seeding writes fixture invento
 Consult the callable contracts in [runner.py](runner.py) before updating a live
 factory. Do not reconstruct a store from a local filename inside a runtime factory.
 
+For natural-language lookup, evaluate requests such as “Find four 10 kΩ
+resistors”, “Do I have 0.1 µF capacitors?”, and exact ordering codes with meaningful
+suffixes. Include uncertain packages, insufficient stock, and requirements such
+as tolerance or power that the basic search tool cannot confirm. The tool supports
+nominal-value equivalence and `minimum_quantity` per committed record; it does not
+combine separate stock records or inspect pending reviews. Deterministic domain
+and tool tests verify matching independently of live model interpretation.
+
 See [evaluation decisions](../docs/design/evaluation.md) for the distinction
 between deterministic checks, live quality measurements, and source review.
 

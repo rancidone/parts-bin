@@ -54,6 +54,7 @@ class Part:
 @dataclass(frozen=True)
 class SearchPartsRequest:
     filters: Mapping[str, Any] = field(default_factory=dict)
+    minimum_quantity: int = 0
 
 
 @dataclass(frozen=True)

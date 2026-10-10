@@ -134,3 +134,21 @@ async def test_approved_edit_is_found_by_equivalent_value_notation(registry):
     assert found['result']['count'] == 1
     assert found['result']['parts'][0]['id'] == part_id
     assert found['result']['parts'][0]['quantity'] == 5
+
+
+@pytest.mark.asyncio
+async def test_search_nominal_value_and_stock_before_result_limit(registry):
+    for value, package, quantity in [('10k', '0402', 3), ('10000r', '0603', 4), ('10k', '0805', 5)]:
+        registry.service.add_part(AddPartRequest(_fields(value=value, package=package, quantity=quantity)))
+    found = await registry.execute('search_parts', {
+        'filters': {'part_category': 'resistor', 'value': '10 kΩ'},
+        'minimum_quantity': 4, 'limit': 1,
+    })
+    assert found['ok']
+    assert found['result']['count'] == 2
+    assert found['result']['truncated'] is True
+    assert [part['quantity'] for part in found['result']['parts']] == [4]
+    invalid = await registry.execute('search_parts', {'minimum_quantity': True})
+    assert invalid['error']['code'] == 'invalid_input'
+    unsupported = await registry.execute('search_parts', {'filters': {'tolerance': '1%'}})
+    assert unsupported['error']['code'] == 'invalid_input'

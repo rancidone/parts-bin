@@ -163,7 +163,7 @@ class PartsBinToolRegistry:
     async def _dispatch(self, name: str, args: dict[str, Any], *, enrich: bool = True) -> Any:
         if name == "search_parts":
             limit = args.get("limit", 20)
-            rows = self.service.search(SearchPartsRequest(args.get("filters", {})))
+            rows = self.service.search(SearchPartsRequest(args.get("filters", {}), args.get("minimum_quantity", 0)))
             return {"parts": [_compact_part(row) for row in rows[:limit]], "count": len(rows), "truncated": len(rows) > limit}
         if name == "get_part":
             return _compact_part(self.service.get(GetPartRequest(args["part_id"])))
@@ -269,7 +269,7 @@ def _matches(value: Any, rule: dict[str, Any]) -> bool:
 
 
 _TOOL_DEFINITIONS = [
-    _tool("search_parts", "Search committed inventory using exact typed filters.", {"filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},),
+    _tool("search_parts", "Search committed inventory. Passive values compare equivalent nominal units (10 kΩ = 10000r, 0.1 µF = 100nF). Package and full part number match exactly; omit an uncertain package and ask for clarification. minimum_quantity is available stock per record. No tolerance, power, or other electrical suitability constraints are supported.", {"filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}}, "minimum_quantity": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},),
     _tool("get_part", "Get one committed part by id.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
     _tool("add_part", "Add one distinct part.", _FIELDS, required=["part_category", "profile", "quantity"]),
     _tool("add_stock", "Add positive stock to one part.", {"part_id": {"type": "integer", "minimum": 1}, "quantity": {"type": "integer", "minimum": 1}}, required=["part_id", "quantity"]),

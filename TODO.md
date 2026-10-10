@@ -32,7 +32,7 @@ lookup are improved.
   quantity. Start with supplied-source evidence to isolate extraction and review
   from supplier discovery; do not infer ratings from descriptions or model memory.
 - Extend the narrow search contract with validated resistor requirements and
-  minimum stock. Return bounded matches with supporting facts and evidence;
+  applicable conditions. Return bounded matches with supporting facts and evidence;
   identify incomplete candidates separately. Keep pending proposals out of
   confirmed matches.
 - Exercise unit equivalence, inclusive comparison boundaries, combined constraints,
