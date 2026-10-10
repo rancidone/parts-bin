@@ -22,7 +22,7 @@ def _equal(raw, expected, unit=None):
             return numeric_value(raw, unit) == numeric_value(expected, unit)
         except DomainError:
             return False
-    return ' '.join(raw.casefold().split()) == ' '.join(expected.casefold().split())
+    return ' '.join(raw.casefold().split()).rstrip('.') == ' '.join(expected.casefold().split()).rstrip('.')
 
 
 def check_completeness(case, candidate, category):

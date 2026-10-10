@@ -117,6 +117,11 @@ def test_opamp_high_temperature_bias_bound_requires_characterization_qualifier()
     assert 'value and qualifier pairing mismatch' in result['issues']['input_bias_current']
     bias['conditions']['qualification'] = 'specified by characterization only'
     assert 'input_bias_current' not in check_completeness(case, candidate, 'operational amplifier')['issues']
+    bias['conditions']['qualification'] = 'Specified by characterization only.'
+    assert 'input_bias_current' not in check_completeness(case, candidate, 'operational amplifier')['issues']
+    bias['conditions']['qualification'] = 'Specified by production testing.'
+    assert 'value and qualifier pairing mismatch' in check_completeness(
+        case, candidate, 'operational amplifier')['issues']['input_bias_current']
 
 
 def test_saved_link_is_scored_against_shared_b_ratings_without_hiding_missing_facts():
