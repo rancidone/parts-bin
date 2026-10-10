@@ -8,7 +8,7 @@ from .errors import DomainError, ErrorCode
 from .models import (
     AddPartRequest, AddPartsRequest, AddStockRequest, ApplyReviewRequest, BulkUpdateRequest,
     DeletePartRequest, FetchSpecsRequest, GetPartRequest, Part, PartFields,
-    ProvenanceRequest, RejectReviewRequest, SearchPartsRequest,
+    ProvenanceRequest, RejectReviewRequest, SearchPartsRequest, SearchCandidatesRequest,
     UpdatePartRequest, EDITABLE_PART_FIELDS,
 )
 from .normalization import normalize_part_payload, part_identity, validate_fields, clean_text
@@ -79,6 +79,21 @@ class PartsBinService:
             if matched:
                 matches.append(part)
         return matches
+
+    def search_candidates(self, request: SearchCandidatesRequest) -> list[Part]:
+        """Literal text discovery only; candidates do not establish stock identity.
+
+        Markings are searchable when recorded in a description or part number.
+        Search committed fields only, leaving pending proposals and stock untouched.
+        """
+        if not isinstance(request.query, str) or not 1 <= len(request.query.strip()) <= 200:
+            raise DomainError(ErrorCode.INVALID_INPUT, "Candidate query must contain one to two hundred characters")
+        query = request.query.strip().casefold()
+        parts = self.search(SearchPartsRequest(request.filters, request.minimum_quantity))
+        return sorted((part for part in parts if any(
+            query in (text or "").casefold()
+            for text in (part.description, part.manufacturer, part.part_number)
+        )), key=lambda part: part.id)
 
     def search_specifications(self, request: SearchPartsRequest, requirements: list[dict], *, limit: int = 20) -> dict:
         category = request.filters.get('part_category')
