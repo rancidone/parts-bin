@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "inventory_lookup_value_notation",
+      "starting_database": {
+        "parts": [
+          {"part_category": "capacitor", "profile": "passive", "quantity": 6, "value": "100nF", "package": "0603"},
+          {"part_category": "capacitor", "profile": "passive", "quantity": 9, "value": "100nF", "package": "0402"},
+          {"part_category": "capacitor", "profile": "passive", "quantity": 4, "value": "1uF", "package": "0603"}
+        ]
+      },
+      "conversation": [{"user": "Do I have any 0.1 µF 0603 capacitors?"}],
+      "allowed_approvals": {},
+      "tool_constraints": {
+        "required_sequence": ["search_parts"],
+        "forbidden": ["add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part"],
+        "max_calls": 1,
+        "expected_search_results": [{"part_ids": [1], "count": 1, "truncated": false}]
+      },
+      "expected_final_state": {"parts_count": 3, "reviews": {}},
+      "answer_assertions": {"contains_all": ["6", "0603", "0.1 µf"]},
+      "recorded_turns": [
+        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "capacitor", "value": "0.1 µF", "package": "0603"}}}]},
+        {"text": "Yes. One committed 0603 inventory record has 6 capacitors at 100 nF, equivalent to 0.1 µF."}
+      ]
+    },
+    {
+      "id": "inventory_lookup_exact_ordering_suffix",
+      "starting_database": {
+        "parts": [
+          {"part_category": "transistor", "profile": "discrete_ic", "quantity": 8, "part_number": "PBSS5350T,215", "package": "SOT-23"},
+          {"part_category": "transistor", "profile": "discrete_ic", "quantity": 20, "part_number": "PBSS5350T", "package": "SOT-23"},
+          {"part_category": "transistor", "profile": "discrete_ic", "quantity": 4, "part_number": "PBSS5350T,115", "package": "SOT-23"}
+        ]
+      },
+      "conversation": [{"user": "How many PBSS5350T,215 transistors do I have?"}],
+      "allowed_approvals": {},
+      "tool_constraints": {
+        "required_sequence": ["search_parts"],
+        "forbidden": ["lookup_part_specs", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part"],
+        "max_calls": 1,
+        "expected_search_results": [{"part_ids": [1], "count": 1, "truncated": false}]
+      },
+      "expected_final_state": {"parts_count": 3, "reviews": {}},
+      "answer_assertions": {"contains_all": ["pbss5350t,215", "8"]},
+      "recorded_turns": [
+        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_number": "PBSS5350T,215"}}}]},
+        {"text": "You have 8 PBSS5350T,215 transistors in committed inventory."}
+      ]
+    },
+    {
+      "id": "inventory_lookup_ambiguous_package",
+      "starting_database": {
+        "parts": [
+          {"part_category": "resistor", "profile": "passive", "quantity": 5, "value": "10000r", "package": "0402"},
+          {"part_category": "resistor", "profile": "passive", "quantity": 7, "value": "10k", "package": "0603"},
+          {"part_category": "resistor", "profile": "passive", "quantity": 2, "value": "10 kΩ", "package": "0805"}
+        ]
+      },
+      "conversation": [{"user": "Find four 10 kΩ resistors."}],
+      "allowed_approvals": {},
+      "tool_constraints": {
+        "required_sequence": ["search_parts"],
+        "forbidden": ["add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part"],
+        "max_calls": 1,
+        "expected_search_results": [{"part_ids": [1, 2], "count": 2, "truncated": false}]
+      },
+      "expected_final_state": {"parts_count": 3, "reviews": {}},
+      "answer_assertions": {"contains_all": ["which", "0402", "0603"]},
+      "recorded_turns": [
+        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10 kΩ"}, "minimum_quantity": 4}}]},
+        {"text": "I found enough stock in both 0402 and 0603 packages. Which package do you need?"}
+      ]
+    },
+    {
+      "id": "inventory_lookup_insufficient_stock",
+      "starting_database": {
+        "parts": [
+          {"part_category": "resistor", "profile": "passive", "quantity": 2, "value": "10k", "package": "0402"},
+          {"part_category": "resistor", "profile": "passive", "quantity": 3, "value": "10000 ohms", "package": "0603"}
+        ]
+      },
+      "conversation": [{"user": "Do I have four 10 kΩ resistors available?"}],
+      "allowed_approvals": {},
+      "tool_constraints": {
+        "required_sequence": ["search_parts", "search_parts"],
+        "forbidden": ["add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part"],
+        "max_calls": 2,
+        "expected_search_results": [
+          {"part_ids": [], "count": 0, "truncated": false},
+          {"part_ids": [1, 2], "count": 2, "truncated": false}
+        ]
+      },
+      "expected_final_state": {"parts_count": 2, "reviews": {}},
+      "answer_assertions": {"contains_all": ["no single", "0402", "0603"]},
+      "recorded_turns": [
+        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10 kΩ"}, "minimum_quantity": 4}}]},
+        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10 kΩ"}}}]},
+        {"text": "No single inventory record has four available. The committed stock is split between 2 in 0402 and 3 in 0603."}
+      ]
+    },
+    {
+      "id": "inventory_lookup_pending_enrichment_is_not_committed",
+      "starting_database": {
+        "parts": [
+          {"part_category": "capacitor", "profile": "passive", "quantity": 10, "value": "220nF", "package": "0603"},
+          {"part_category": "capacitor", "profile": "passive", "quantity": 12, "value": "100nF", "package": "0402"}
+        ],
+        "pending_reviews": [
+          {"part_id": 1, "fields": {"value": "0.1uF"}}
+        ]
+      },
+      "conversation": [{"user": "Do I have 0.1 µF capacitors in 0603?"}],
+      "allowed_approvals": {},
+      "tool_constraints": {
+        "required_sequence": ["search_parts", "list_pending_reviews"],
+        "forbidden": ["apply_review", "reject_review", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part"],
+        "max_calls": 2,
+        "expected_search_results": [{"part_ids": [], "count": 0, "truncated": false}]
+      },
+      "expected_final_state": {
+        "parts_count": 2,
+        "part_assertions": {"1": {"value": "220n", "package": "0603", "quantity": 10}},
+        "reviews": {
+          "1": {
+            "fields": {"value": {"accepted": true, "value": "0.1uF"}},
+            "provenance": [
+              {"field_name": "value", "field_value": "0.1uF", "source_tier": "supplier", "source_kind": "recorded_fixture", "source_locator": "fixture://supplier", "extraction_method": "recorded", "confidence_marker": "medium", "conflict_status": "conflict", "normalization_method": null, "evidence": "recorded"}
+            ],
+            "outcome": "saved"
+          }
+        }
+      },
+      "answer_assertions": {"contains_all": ["no committed", "pending", "review"]},
+      "recorded_turns": [
+        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "capacitor", "value": "0.1 µF", "package": "0603"}}}]},
+        {"tool_calls": [{"name": "list_pending_reviews", "arguments": {}}]},
+        {"text": "There is no committed 0.1 µF 0603 match. One 0603 capacitor has that value only as a pending review, so I did not count it as inventory."}
+      ]
+    }
+  ]
+}
