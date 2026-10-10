@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { SpecificationReview, SpecificationResult } from './SpecificationFacts'
 import { PartCard } from './PartCard'
 import { PartResults } from './PartResults'
@@ -83,7 +85,9 @@ export function Chat() {
 function EventBubble({ event, decide, disabled, decision }: { event: AgentEvent; decide: (requestId: string, approved: boolean) => Promise<boolean>; disabled: boolean; decision?: boolean }) {
   const data = event.data
   if (event.kind === 'user_message') return <div className={styles.userBubble}>{String(data.text ?? '')}{Boolean(data.image) && <span className={styles.attachment}>Photo attached</span>}</div>
-  if (event.kind === 'assistant_text') return <div className={styles.assistantBubble}>{String(data.text ?? '')}</div>
+  if (event.kind === 'assistant_text') return <div className={`${styles.assistantBubble} ${styles.markdown}`}><Markdown remarkPlugins={[remarkGfm]} components={{
+    table: ({ children }) => <div className={styles.tableScroll} tabIndex={0} role="region" aria-label="Response table"><table>{children}</table></div>,
+  }}>{String(data.text ?? '')}</Markdown></div>
   if (event.kind === 'tool_call') return <div className={styles.activity}>Using <strong>{String(data.name)}</strong></div>
   if (event.kind === 'tool_result') return <ToolResult result={data.result} name={String(data.name)} />
   if (event.kind === 'approval_request') return <div className={styles.approval}><div><strong>{decision === undefined ? 'Approval required' : 'Review decision'}</strong><br />{String(data.effect ?? data.tool)}</div>{data.specification_review && typeof data.specification_review === 'object' && 'facts' in data.specification_review ? <SpecificationReview review={data.specification_review as Parameters<typeof SpecificationReview>[0]['review']} partId={String(data.target)} /> : null}{decision !== undefined ? <div className={styles.activity}>{decision ? 'Approved' : 'Declined'}</div> : <div className={styles.clarificationActions}><button className={styles.inlineActionBtn} disabled={disabled} onClick={() => void decide(String(data.request_id), true)}>Approve</button><button className={styles.inlineActionBtn} disabled={disabled} onClick={() => void decide(String(data.request_id), false)}>Decline</button></div>}</div>
