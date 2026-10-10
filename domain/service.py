@@ -10,6 +10,7 @@ from .models import (
     CategorySummary, DeletePartRequest, FetchSpecsRequest, GetPartRequest, Part, PartFields,
     ProvenanceRequest, RejectReviewRequest, SearchPartsRequest, SearchCandidatesRequest,
     UpdatePartRequest, IngestDatasheetRequest, EDITABLE_PART_FIELDS,
+    CheckInventoryRequest,
 )
 from .normalization import normalize_part_payload, part_identity, validate_fields, clean_text
 
@@ -127,6 +128,47 @@ class PartsBinService:
         return {"candidates": rows[offset:offset + limit], "count": len(rows),
                 "truncated": following is not None, "next_offset": following,
                 "match_kind": "candidate"}
+
+    def check_inventory(self, request: CheckInventoryRequest, *, limit: int = 20, offset: int = 0) -> dict:
+        """Check independent BOM lines without reserving or consuming stock.
+
+        A quantity is covered only by one matching stock record. Distinct
+        ordering codes or packages are never assumed to be interchangeable.
+        """
+        if not 1 <= len(request.items) <= 100:
+            raise DomainError(ErrorCode.INVALID_INPUT, "Check one to one hundred inventory items")
+        validate_page(limit, offset)
+        if limit > 20:
+            raise DomainError(ErrorCode.INVALID_INPUT, "Inventory check pages contain at most twenty items")
+        results = []
+        for index, item in enumerate(request.items):
+            filters = dict(item.filters)
+            if any(not isinstance(value, str) or not value.strip() for value in filters.values()):
+                raise DomainError(ErrorCode.INVALID_INPUT, "Inventory check filters must be non-empty strings")
+            if not filters.get("part_number") and not (filters.get("part_category") and filters.get("value")):
+                raise DomainError(ErrorCode.INVALID_INPUT, "Each item needs a part number or a category and value")
+            if item.quantity is not None and (type(item.quantity) is not int or item.quantity < 1):
+                raise DomainError(ErrorCode.INVALID_INPUT, "Requested quantity must be a positive integer")
+            parts = self.search(SearchPartsRequest(filters))
+            available = max((part.quantity for part in parts), default=0)
+            if not parts:
+                status = "missing"
+            elif available == 0:
+                status = "out_of_stock"
+            elif item.quantity is None:
+                status = "in_stock"
+            else:
+                status = "sufficient" if available >= item.quantity else "insufficient"
+            # Put the most stocked record first so a covering record is visible
+            # even when the compact response omits additional variants.
+            ordered = sorted(parts, key=lambda part: (-part.quantity, part.id))
+            results.append({"index": index, "filters": filters, "requested_quantity": item.quantity,
+                            "status": status, "max_available_quantity": available,
+                            "shortage": None if item.quantity is None else max(0, item.quantity - available),
+                            "match_count": len(parts), "parts": ordered[:1],
+                            "truncated": len(parts) > 1})
+        return {"items": results[offset:offset + limit], "count": len(results),
+                "next_offset": next_offset(len(results), limit, offset), "stock_reserved": False}
 
     def search_specifications(self, request: SearchPartsRequest, requirements: list[dict], *, limit: int = 20, offset: int = 0) -> dict:
         category = request.filters.get('part_category')

@@ -74,6 +74,17 @@ class SearchCandidatesRequest:
 
 
 @dataclass(frozen=True)
+class InventoryCheckItem:
+    filters: Mapping[str, str]
+    quantity: int | None = None
+
+
+@dataclass(frozen=True)
+class CheckInventoryRequest:
+    items: tuple[InventoryCheckItem, ...]
+
+
+@dataclass(frozen=True)
 class GetPartRequest:
     part_id: int
 

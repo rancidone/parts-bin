@@ -993,6 +993,195 @@
         "max_calls": 7,
         "check_last_specification_result": true
       }
+    },
+    {
+      "id": "inventory_lookup_pasted_bom",
+      "starting_database": {
+        "parts": [
+          {
+            "part_category": "transistor",
+            "profile": "discrete_ic",
+            "part_number": "PBSS5350T,215",
+            "quantity": 4
+          },
+          {
+            "part_category": "operational amplifier",
+            "profile": "discrete_ic",
+            "part_number": "LM358N",
+            "quantity": 0
+          },
+          {
+            "part_category": "operational amplifier",
+            "profile": "discrete_ic",
+            "part_number": "NE5532P",
+            "quantity": 6
+          }
+        ]
+      },
+      "conversation": [
+        {
+          "user": "Which of these BOM items do I have?\nRef,MPN,Qty\nQ1,\"PBSS5350T,215\",2\nQ2,\"PBSS5350T,215\",3\nQ3,\"PBSS5350T,115\",1\nU1,LM358N,2\nU2,NE5532P,3"
+        }
+      ],
+      "allowed_approvals": {},
+      "inventory_unchanged": true,
+      "tool_constraints": {
+        "required_sequence": [
+          "check_inventory"
+        ],
+        "max_calls": 4
+      },
+      "expected_final_state": {
+        "parts_count": 3,
+        "reviews": {}
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "pbss5350t,215",
+          "pbss5350t,115",
+          "lm358n",
+          "ne5532p",
+          "short",
+          "missing"
+        ],
+        "contains_any": [
+          "out of stock",
+          "out_of_stock",
+          "zero stock"
+        ]
+      },
+      "recorded_turns": [
+        {
+          "tool_calls": [
+            {
+              "name": "check_inventory",
+              "arguments": {
+                "items": [
+                  {
+                    "filters": {
+                      "part_number": "PBSS5350T,215"
+                    },
+                    "quantity": 5
+                  },
+                  {
+                    "filters": {
+                      "part_number": "PBSS5350T,115"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "LM358N"
+                    },
+                    "quantity": 2
+                  },
+                  {
+                    "filters": {
+                      "part_number": "NE5532P"
+                    },
+                    "quantity": 3
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "text": "PBSS5350T,215: Q1 and Q2 require 5 total, 4 available, short 1. PBSS5350T,115: missing, short 1. LM358N: out of stock, short 2. NE5532P: 6 available, sufficient for 3. No stock reserved."
+        }
+      ]
+    },
+    {
+      "id": "inventory_lookup_pasted_part_numbers",
+      "starting_database": {
+        "parts": [
+          {
+            "part_category": "transistor",
+            "profile": "discrete_ic",
+            "part_number": "PBSS5350T,215",
+            "quantity": 4
+          },
+          {
+            "part_category": "operational amplifier",
+            "profile": "discrete_ic",
+            "part_number": "LM358N",
+            "quantity": 0
+          },
+          {
+            "part_category": "operational amplifier",
+            "profile": "discrete_ic",
+            "part_number": "NE5532P",
+            "quantity": 6
+          }
+        ]
+      },
+      "conversation": [
+        {
+          "user": "PBSS5350T,215\nPBSS5350T,115\nLM358N\nNE5532P"
+        }
+      ],
+      "allowed_approvals": {},
+      "inventory_unchanged": true,
+      "tool_constraints": {
+        "required_sequence": [
+          "check_inventory"
+        ],
+        "max_calls": 4
+      },
+      "expected_final_state": {
+        "parts_count": 3,
+        "reviews": {}
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "pbss5350t,215",
+          "pbss5350t,115",
+          "lm358n",
+          "ne5532p",
+          "missing"
+        ],
+        "contains_any": [
+          "out of stock",
+          "out_of_stock",
+          "zero stock"
+        ]
+      },
+      "recorded_turns": [
+        {
+          "tool_calls": [
+            {
+              "name": "check_inventory",
+              "arguments": {
+                "items": [
+                  {
+                    "filters": {
+                      "part_number": "PBSS5350T,215"
+                    }
+                  },
+                  {
+                    "filters": {
+                      "part_number": "PBSS5350T,115"
+                    }
+                  },
+                  {
+                    "filters": {
+                      "part_number": "LM358N"
+                    }
+                  },
+                  {
+                    "filters": {
+                      "part_number": "NE5532P"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "text": "PBSS5350T,215: 4 in stock. PBSS5350T,115: missing. LM358N: out of stock (0). NE5532P: 6 in stock. Required quantities were not supplied."
+        }
+      ]
     }
   ]
 }

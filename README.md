@@ -77,6 +77,14 @@ or part number; unrecorded markings need clarification. Partial matches identify
 candidates and do not establish interchangeable stock or electrical suitability.
 Exact ordering-code lookup remains available separately.
 
+Paste a BOM (including CSV or tab-separated rows) or a list of part numbers into
+chat to compare it with inventory. Include required quantities when known. Chat
+reports exact matches, missing items, zero stock, and quantity shortages, keeping
+ordering suffixes and package variants separate. Generic passive rows need a
+category and value with units; ambiguous rows need clarification. Repeated
+requirements are combined before checking. Availability checks do not reserve
+stock or change inventory, and nominal matches do not verify electrical ratings.
+
 Inventory and candidate searches return bounded pages ordered by part ID. Follow
 `next_offset` with the same search arguments and limit until it is null. Counts
 cover the full search. Specification searches page confirmed matches and incomplete

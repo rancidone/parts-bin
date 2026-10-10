@@ -20,7 +20,7 @@ def registry(tmp_path):
 @pytest.mark.asyncio
 async def test_registry_is_schema_first_and_search_is_compact(registry):
     names = [tool["name"] for tool in registry.list_tools()]
-    assert names == ["list_categories", "search_parts", "search_candidates", "get_part", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part", "lookup_part_specs", "list_pending_reviews", "apply_review", "reject_review", "get_provenance", "get_specification_contract", "get_specifications", "list_pending_specification_reviews", "ingest_datasheet", "stage_specification_review", "apply_specification_review", "reject_specification_review"]
+    assert names == ["list_categories", "search_parts", "search_candidates", "check_inventory", "get_part", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part", "lookup_part_specs", "list_pending_reviews", "apply_review", "reject_review", "get_provenance", "get_specification_contract", "get_specifications", "list_pending_specification_reviews", "ingest_datasheet", "stage_specification_review", "apply_specification_review", "reject_specification_review"]
     added = await registry.execute("add_part", {**vars(_fields()), "quantity": 2})
     assert added["ok"] is True
     found = await registry.execute("search_parts", {"filters": {"part_category": "resistor"}})
@@ -129,7 +129,7 @@ async def test_registry_completes_every_inventory_workflow(tmp_path):
         response = await registry.execute(name, arguments, context=ToolExecutionContext(receipt))
         assert response["ok"], response
     assert [tool["name"] for tool in registry.list_tools()] == [
-        "list_categories", "search_parts", "search_candidates", "get_part", "add_part", "add_stock", "update_part",
+        "list_categories", "search_parts", "search_candidates", "check_inventory", "get_part", "add_part", "add_stock", "update_part",
         "bulk_update_parts", "delete_part", "lookup_part_specs",
         "list_pending_reviews", "apply_review", "reject_review", "get_provenance",
         "get_specification_contract", "get_specifications", "list_pending_specification_reviews", "ingest_datasheet", "stage_specification_review",

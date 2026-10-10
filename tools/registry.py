@@ -18,6 +18,7 @@ from domain import (
     DeletePartRequest, DomainError, FetchSpecsRequest, GetPartRequest,
     PartFields, PartsBinService, ProvenanceRequest, RejectReviewRequest,
     SearchPartsRequest, SearchCandidatesRequest, UpdatePartRequest, IngestDatasheetRequest, ErrorCode,
+    CheckInventoryRequest, InventoryCheckItem,
 )
 from domain.repositories import StoredOperation
 from domain.specifications import contract
@@ -178,6 +179,12 @@ class PartsBinToolRegistry:
                 args["query"], args.get("filters", {}), args.get("minimum_quantity", 0)),
                 limit=args.get("limit", 20), offset=args.get("offset", 0))
             return {**page, "candidates": [_compact_part(row) for row in page["candidates"]]}
+        if name == "check_inventory":
+            result = self.service.check_inventory(CheckInventoryRequest(tuple(
+                InventoryCheckItem(item["filters"], item.get("quantity")) for item in args["items"])),
+                limit=args.get("limit", 20), offset=args.get("offset", 0))
+            return {**result, "items": [{**item, "parts": [_compact_part(part) for part in item["parts"]]}
+                                       for item in result["items"]]}
         if name == 'get_specification_contract':
             return contract(args['category'])
         if name == 'get_specifications':
@@ -340,6 +347,17 @@ _TOOL_DEFINITIONS = [
         "minimum_quantity": {"type": "integer", "minimum": 0},
         "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100},
     }, required=["query"]),
+    _tool("check_inventory", "Check a pasted BOM or list against committed inventory, up to 100 input items. Extract each exact ordering code (preserve suffixes), or category/value and explicitly supplied package for generic passives. Supply quantity only when stated. Consolidate repeated identical requirements and sum their explicit quantities before calling; checks are independent and do not allocate or reserve stock. Returns one result per item in input order: missing, out_of_stock, in_stock, sufficient, or insufficient. Sufficiency and shortage use the largest single matching record, never a sum of different packages or ordering variants. Returns the most stocked record per item plus full match_count. Use search_parts pagination to inspect omitted variants when an item is truncated. Pages contain up to 20 items; start at offset 0 and follow next_offset with unchanged items and limit until null. count covers all input items; index refers to the original input. Restart if inventory changes. Pending reviews are excluded; nominal matches do not establish electrical suitability. Do not substitute related parts or count candidate substring matches as exact matches.", {
+        "offset": {"type": "integer", "minimum": 0},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+        "items": {"type": "array", "minItems": 1, "maxItems": 100, "items": {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "filters": {"type": "object", "additionalProperties": False, "properties": {
+                    key: {"type": "string", "minLength": 1} for key in ("part_number", "part_category", "value", "package")}},
+                "quantity": {"type": "integer", "minimum": 1}},
+            "required": ["filters"]}},
+    }, required=["items"]),
     _tool("get_part", "Get one committed part by id.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
     _tool("add_part", "Add one distinct part. Set enrich=false for assortment/kit contents, generic stock, or when the user requests no manufacturer lookup. Omitted or true uses automatic enrichment for eligible discrete/IC parts; passive parts skip automatic lookup. Skipping preserves supplied fields and allows an explicit lookup_part_specs request later.", {**_FIELDS, "enrich": {"type": "boolean"}}, required=["part_category", "profile", "quantity"]),
     _tool("add_stock", "Add positive stock to one part.", {"part_id": {"type": "integer", "minimum": 1}, "quantity": {"type": "integer", "minimum": 1}}, required=["part_id", "quantity"]),
