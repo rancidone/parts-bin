@@ -18,6 +18,13 @@ works. A new chat request checks the provider and may incur charges. For an
 isolated live smoke test, follow [the test's environment requirements](../tests/e2e/test_agent_runtime_smoke.py).
 For model or lookup failures, see [evaluation](../evaluation/README.md).
 
+Inventory Refresh first requests a single DigiKey product. If that lookup cannot
+resolve the identifier, it performs a bounded supplier keyword search and shows
+possible identities for clarification. Search results can include unrelated
+parts and do not establish the identity of your stock. Confirm the full marking
+and manufacturer, edit the inventory identifier through the normal review flow,
+then retry. Candidate discovery does not stage variant metadata or change stock.
+
 ## Interrupted requests
 
 **Refresh history** reads saved events without repeating work. **Resume request**

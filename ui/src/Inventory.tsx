@@ -80,8 +80,12 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         }))
         setRowStatus(prev => new Map(prev).set(id, refreshStatusMessage(data.outcome, true)))
       } else {
-        setPending(prev => { const next = new Map(prev); next.delete(id); return next })
-        setRowStatus(prev => new Map(prev).set(id, refreshStatusMessage(data.outcome, false)))
+        const candidates = (data.lookup_candidates ?? []) as { part_number: string; manufacturer: string | null }[]
+        const message = refreshStatusMessage(data.outcome, false)
+        const choices = candidates.map(candidate =>
+          `${candidate.part_number}${candidate.manufacturer ? ` (${candidate.manufacturer})` : ''}`,
+        ).join(', ')
+        setRowStatus(prev => new Map(prev).set(id, choices ? `${message} Search candidates: ${choices}.` : message))
       }
     } catch (e) {
       setRowStatus(prev => new Map(prev).set(id, String(e)))
@@ -291,6 +295,8 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
   function refreshStatusMessage(outcome: string, hasProposals: boolean): string {
     if (hasProposals) return 'Fetched proposed source-backed updates for review.'
     switch (outcome) {
+      case 'needs_clarification':
+        return 'Supplier search found possible matches. Confirm the full part marking and manufacturer, then edit the part number and retry.'
       case 'incomplete':
         return 'Lookup finished, but it did not expose any new writable metadata.'
       case 'no_match':
