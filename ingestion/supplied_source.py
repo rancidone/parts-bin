@@ -22,7 +22,7 @@ from pdfminer.layout import LTContainer, LTTextLine
 from ingestion.cache import EnrichmentCache
 from ingestion.errors import EnrichmentError
 
-POLICY_VERSION = "supplied-pdf-v12"
+POLICY_VERSION = "supplied-pdf-v13"
 ALLOWED_HOSTS = frozenset({"assets.nexperia.com", "www.nexperia.com", "www.ti.com",
                            "www.vishay.com", "www.coilcraft.com", "omronfs.omron.com",
                            "www.onsemi.com"})
@@ -514,7 +514,7 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
                    if block.get("type") == "output_text")
     try:
         raw = json.loads(text)
-        facts = []
+        facts, rejected = [], []
         if category is not None:
             from ingestion.electrical_source import validate_source_facts
             if not isinstance(raw, dict) or 'facts' not in raw:
@@ -523,7 +523,7 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
             proposed = raw.pop('facts')
             if raw.get('outcome') != 'proposal' and proposed != []:
                 raise EnrichmentError('Unresolved identity must not propose electrical facts')
-            facts = validate_source_facts(proposed, category, part_number, document, passages)
+            facts = validate_source_facts(proposed, category, part_number, document, passages, rejected=rejected)
         result = validate_candidate(raw, part_number, manufacturer, document)
         if result['outcome'] == 'no_match' and result['mismatch_evidence'] is None:
             result = {'outcome': 'needs_clarification',
@@ -542,6 +542,9 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
     except (json.JSONDecodeError, TypeError, KeyError) as exc:
         raise EnrichmentError("Invalid structured extraction") from exc
     result['extraction_assessment'] = assessment(result, document, part_number, category, omitted)
+    if rejected:
+        result['extraction_assessment']['rejected_fields'] = rejected
+        result['extraction_assessment']['reasons'].append('Some proposed facts failed server validation; valid facts remain available for review.')
     return {**result, "source": {"url": document.url, "sha256": document.sha256,
             "retrieved_at": document.retrieved_at}, "model": model,
             "policy_version": POLICY_VERSION, "usage": payload.get("usage", {})}

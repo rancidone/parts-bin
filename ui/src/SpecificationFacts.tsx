@@ -3,7 +3,7 @@ import styles from './SpecificationFacts.module.css'
 
 type Fact = { name: string; value: string; basis: string; conditions: Record<string, string>; evidence: { kind: string; excerpt: string; url?: string; page?: number; supporting_passages?: { page: number; excerpt: string }[] } }
 type Review = { facts: Fact[]; snapshot: { metadata: { part_number: string | null; package: string | null; part_category: string } } }
-type Assessment = { confidence_score: number; score_explanation: string; missing_fields: string[]; incomplete_fields?: Record<string, string[]>; reasons: string[]; relevant_pages: { page: number; reason: string; url: string }[] }
+type Assessment = { confidence_score: number; rejected_fields?: { name: string; reason: string }[]; score_explanation: string; missing_fields: string[]; incomplete_fields?: Record<string, string[]>; reasons: string[]; relevant_pages: { page: number; reason: string; url: string }[] }
 type Result = { extraction_assessment?: Assessment | null; clarification?: string | null; matches?: { part: Part; supporting_facts: Fact[] }[]; incomplete?: { part: Part; missing_or_unqualified: string[] }[]; facts?: Fact[]; part_id?: number; pending_review?: Review | null; truncated?: boolean; match_count?: number; incomplete_count?: number }
 
 const label = (text: string) => text.replaceAll('_', ' ')
@@ -56,11 +56,12 @@ export function SpecificationResult({ value }: { value: Result }) {
   const searching = value.matches !== undefined
   return <section className={styles.results} aria-label={searching ? 'Specification search results' : 'Electrical specifications'}>
     {value.extraction_assessment && <section className={styles.card} aria-label="PDF extraction assessment">
-      <strong>Extraction confidence · {Math.round(value.extraction_assessment.confidence_score * 100)}% field coverage</strong>
+      <strong>Extraction coverage · {Math.round(value.extraction_assessment.confidence_score * 100)}% field coverage</strong>
       <p className={styles.note}>{value.extraction_assessment.score_explanation}</p>
       {value.clarification && <p>{value.clarification}</p>}
       {value.extraction_assessment.missing_fields.length > 0 && <p>Missing or unqualified: {value.extraction_assessment.missing_fields.map(label).join(', ')}.</p>}
       {Object.entries(value.extraction_assessment.incomplete_fields ?? {}).map(([name, qualifiers]) => <p key={name}>{label(name)} needs: {qualifiers.map(label).join(', ')}.</p>)}
+      {value.extraction_assessment.rejected_fields?.map(field => <p key={field.name}>{label(field.name)} was omitted: {field.reason}.</p>)}
       {value.extraction_assessment.reasons.map(reason => <p className={styles.note} key={reason}>{reason}</p>)}
       <details open={value.extraction_assessment.confidence_score < 1}><summary>Inspect relevant PDF pages</summary>
         {value.extraction_assessment.relevant_pages.map(page => <p key={page.page}><a href={page.url} target="_blank" rel="noreferrer">Page {page.page} · {page.reason}</a></p>)}

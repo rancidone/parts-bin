@@ -1,0 +1,1011 @@
+{
+  "version": 1,
+  "purpose": "Independent rendered manufacturer source expectations. Never include these in model input. Comparisons flag review discrepancies; they do not certify evidence semantics.",
+  "cases": [
+    {
+      "id": "bjt_exact_gain_variant",
+      "source": {
+        "url": "https://www.onsemi.com/pdf/datasheet/bc337-fsc-d.pdf",
+        "sha256": "f5d3b8fb14d85faf7e961533a7a658f85cb553884891a239c48cebe5637458eb"
+      },
+      "layout_class": "ruled_tables",
+      "facts": {
+        "polarity": {
+          "values": [
+            "NPN"
+          ],
+          "basis": "nominal",
+          "conditions": [],
+          "pages": [
+            1
+          ]
+        },
+        "collector_emitter_voltage": {
+          "values": [
+            "45 V"
+          ],
+          "basis": "absolute_maximum",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "continuous_collector_current": {
+          "values": [
+            "800 mA"
+          ],
+          "basis": "absolute_maximum_continuous",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "dc_current_gain": {
+          "values": [
+            "160 ratio"
+          ],
+          "basis": "minimum",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "collector_current"
+              ],
+              "values": [
+                "100 mA"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "collector_emitter_voltage"
+              ],
+              "values": [
+                "1 V"
+              ],
+              "unit": "V"
+            }
+          ],
+          "pages": [
+            2
+          ]
+        }
+      },
+      "unsupported_fact_names": [
+        "pulsed_collector_current"
+      ],
+      "review_note": "Literal BU suffix and gain group are separate from a transistor marking. Gain classification references the page-2 hFE1 test conditions."
+    },
+    {
+      "id": "bjt_40_gain_variant",
+      "source": {
+        "url": "https://www.onsemi.com/pdf/datasheet/bc337-fsc-d.pdf",
+        "sha256": "f5d3b8fb14d85faf7e961533a7a658f85cb553884891a239c48cebe5637458eb"
+      },
+      "layout_class": "ruled_tables",
+      "facts": {
+        "polarity": {
+          "values": [
+            "NPN"
+          ],
+          "basis": "nominal",
+          "conditions": [],
+          "pages": [
+            1
+          ]
+        },
+        "collector_emitter_voltage": {
+          "values": [
+            "45 V"
+          ],
+          "basis": "absolute_maximum",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "continuous_collector_current": {
+          "values": [
+            "800 mA"
+          ],
+          "basis": "absolute_maximum_continuous",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "dc_current_gain": {
+          "values": [
+            "250 ratio"
+          ],
+          "basis": "minimum",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "collector_current"
+              ],
+              "values": [
+                "100 mA"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "collector_emitter_voltage"
+              ],
+              "values": [
+                "1 V"
+              ],
+              "unit": "V"
+            }
+          ],
+          "pages": [
+            2
+          ]
+        }
+      },
+      "unsupported_fact_names": [
+        "pulsed_collector_current"
+      ],
+      "review_note": "Literal BU suffix and gain group are separate from a transistor marking. Gain classification references the page-2 hFE1 test conditions."
+    },
+    {
+      "id": "mosfet_current_and_gate_conditions",
+      "source": {
+        "url": "https://www.vishay.com/docs/91328/irlz44.pdf",
+        "sha256": "8dd82ac7164a38ee0019e0a289c7ae5e0db234c8c0c5bb8a406300b47a3e9c54"
+      },
+      "layout_class": "ruled_tables",
+      "facts": {
+        "channel_type": {
+          "values": [
+            "N-channel"
+          ],
+          "basis": "nominal",
+          "conditions": [],
+          "pages": [
+            1
+          ]
+        },
+        "drain_source_voltage": {
+          "values": [
+            "60 V"
+          ],
+          "basis": "absolute_maximum",
+          "conditions": [
+            {
+              "names": [
+                "case_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "continuous_drain_current": {
+          "values": [
+            "50 A"
+          ],
+          "basis": "absolute_maximum_continuous",
+          "conditions": [
+            {
+              "names": [
+                "case_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "gate_source_voltage"
+              ],
+              "values": [
+                "5 V"
+              ],
+              "unit": "V"
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "pulsed_drain_current": {
+          "values": [
+            "200 A"
+          ],
+          "basis": "absolute_maximum_pulsed",
+          "conditions": [
+            {
+              "names": [
+                "case_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "pulse_limit",
+                "pulse_width_limit",
+                "junction_temperature_limit",
+                "pulse_width"
+              ],
+              "values": [
+                "Pulse width limited by maximum junction temperature (figure 11)",
+                "limited by maximum junction temperature",
+                "maximum junction temperature, see figure 11"
+              ]
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "on_resistance": {
+          "values": [
+            "0.028 Ω"
+          ],
+          "basis": "maximum",
+          "conditions": [
+            {
+              "names": [
+                "junction_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "gate_source_voltage"
+              ],
+              "values": [
+                "5 V"
+              ],
+              "unit": "V"
+            },
+            {
+              "names": [
+                "drain_current"
+              ],
+              "values": [
+                "31 A"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "pulse_width",
+                "pulse_duration",
+                "pulse_width_max"
+              ],
+              "values": [
+                "≤ 300 µs",
+                "<= 300 µs",
+                "300 µs maximum",
+                "300 µs"
+              ]
+            },
+            {
+              "names": [
+                "duty_cycle",
+                "duty_cycle_max"
+              ],
+              "values": [
+                "≤ 2 %",
+                "<= 2 %",
+                "2 % maximum",
+                "2 %"
+              ]
+            }
+          ],
+          "pages": [
+            2
+          ]
+        },
+        "gate_threshold_voltage": {
+          "values": [
+            "1 V",
+            "2 V"
+          ],
+          "basis": "threshold",
+          "conditions": [
+            {
+              "names": [
+                "junction_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "drain_current"
+              ],
+              "values": [
+                "250 µA"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "drain_source_voltage",
+                "voltage_relation"
+              ],
+              "values": [
+                "VDS = VGS",
+                "VDS=VGS"
+              ]
+            },
+            {
+              "names": [
+                "bound"
+              ],
+              "values": [
+                "minimum",
+                "maximum"
+              ]
+            }
+          ],
+          "pages": [
+            2
+          ],
+          "paired_conditions": [
+            {
+              "value": "1 V",
+              "conditions": {
+                "bound": "minimum"
+              }
+            },
+            {
+              "value": "2 V",
+              "conditions": {
+                "bound": "maximum"
+              }
+            }
+          ]
+        }
+      },
+      "unsupported_fact_names": [],
+      "review_note": "Threshold value and bound must agree (1 V minimum or 2 V maximum), requiring manual review. Note b applies to RDS(on), not the absolute pulsed-current note a."
+    },
+    {
+      "id": "mosfet_halogen_free_variant",
+      "source": {
+        "url": "https://www.vishay.com/docs/91328/irlz44.pdf",
+        "sha256": "8dd82ac7164a38ee0019e0a289c7ae5e0db234c8c0c5bb8a406300b47a3e9c54"
+      },
+      "layout_class": "ruled_tables",
+      "facts": {
+        "channel_type": {
+          "values": [
+            "N-channel"
+          ],
+          "basis": "nominal",
+          "conditions": [],
+          "pages": [
+            1
+          ]
+        },
+        "drain_source_voltage": {
+          "values": [
+            "60 V"
+          ],
+          "basis": "absolute_maximum",
+          "conditions": [
+            {
+              "names": [
+                "case_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "continuous_drain_current": {
+          "values": [
+            "50 A"
+          ],
+          "basis": "absolute_maximum_continuous",
+          "conditions": [
+            {
+              "names": [
+                "case_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "gate_source_voltage"
+              ],
+              "values": [
+                "5 V"
+              ],
+              "unit": "V"
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "pulsed_drain_current": {
+          "values": [
+            "200 A"
+          ],
+          "basis": "absolute_maximum_pulsed",
+          "conditions": [
+            {
+              "names": [
+                "case_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "pulse_limit",
+                "pulse_width_limit",
+                "junction_temperature_limit",
+                "pulse_width"
+              ],
+              "values": [
+                "Pulse width limited by maximum junction temperature (figure 11)",
+                "limited by maximum junction temperature",
+                "maximum junction temperature, see figure 11"
+              ]
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "on_resistance": {
+          "values": [
+            "0.028 Ω"
+          ],
+          "basis": "maximum",
+          "conditions": [
+            {
+              "names": [
+                "junction_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "gate_source_voltage"
+              ],
+              "values": [
+                "5 V"
+              ],
+              "unit": "V"
+            },
+            {
+              "names": [
+                "drain_current"
+              ],
+              "values": [
+                "31 A"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "pulse_width",
+                "pulse_duration",
+                "pulse_width_max"
+              ],
+              "values": [
+                "≤ 300 µs",
+                "<= 300 µs",
+                "300 µs maximum",
+                "300 µs"
+              ]
+            },
+            {
+              "names": [
+                "duty_cycle",
+                "duty_cycle_max"
+              ],
+              "values": [
+                "≤ 2 %",
+                "<= 2 %",
+                "2 % maximum",
+                "2 %"
+              ]
+            }
+          ],
+          "pages": [
+            2
+          ]
+        },
+        "gate_threshold_voltage": {
+          "values": [
+            "1 V",
+            "2 V"
+          ],
+          "basis": "threshold",
+          "conditions": [
+            {
+              "names": [
+                "junction_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "drain_current"
+              ],
+              "values": [
+                "250 µA"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "drain_source_voltage",
+                "voltage_relation"
+              ],
+              "values": [
+                "VDS = VGS",
+                "VDS=VGS"
+              ]
+            },
+            {
+              "names": [
+                "bound"
+              ],
+              "values": [
+                "minimum",
+                "maximum"
+              ]
+            }
+          ],
+          "pages": [
+            2
+          ],
+          "paired_conditions": [
+            {
+              "value": "1 V",
+              "conditions": {
+                "bound": "minimum"
+              }
+            },
+            {
+              "value": "2 V",
+              "conditions": {
+                "bound": "maximum"
+              }
+            }
+          ]
+        }
+      },
+      "unsupported_fact_names": [],
+      "review_note": "Threshold value and bound must agree (1 V minimum or 2 V maximum), requiring manual review. Note b applies to RDS(on), not the absolute pulsed-current note a."
+    },
+    {
+      "id": "inductor_saturation_and_rms",
+      "source": {
+        "url": "https://www.coilcraft.com/getmedia/31b05c96-4c4c-4498-8dbb-fe092de76bad/lps4018.pdf",
+        "sha256": "0165e2a53524b2518b7367b6613b3b4ccc4ffc4ed8cdab5e267101581584eeac"
+      },
+      "layout_class": "borderless_columns",
+      "facts": {
+        "inductance": {
+          "values": [
+            "22 µH"
+          ],
+          "basis": "nominal",
+          "conditions": [
+            {
+              "names": [
+                "measurement_frequency",
+                "test_frequency"
+              ],
+              "values": [
+                "100 kHz"
+              ],
+              "unit": "Hz"
+            },
+            {
+              "names": [
+                "measurement_voltage",
+                "test_voltage",
+                "test_signal"
+              ],
+              "values": [
+                "0.1 Vrms"
+              ]
+            },
+            {
+              "names": [
+                "measurement_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "tolerance": {
+          "values": [
+            "20 %"
+          ],
+          "basis": "maximum",
+          "conditions": [
+            {
+              "names": [
+                "measurement_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "dc_resistance": {
+          "values": [
+            "0.360 Ω"
+          ],
+          "basis": "maximum",
+          "conditions": [
+            {
+              "names": [
+                "measurement_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "measurement_method"
+              ],
+              "values": [
+                "micro-ohmmeter"
+              ]
+            }
+          ],
+          "pages": [
+            1
+          ]
+        },
+        "saturation_current": {
+          "values": [
+            "0.74 A",
+            "0.80 A",
+            "0.83 A"
+          ],
+          "basis": "saturation",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "inductance_drop"
+              ],
+              "values": [
+                "10 %",
+                "20 %",
+                "30 %"
+              ],
+              "unit": "%"
+            }
+          ],
+          "pages": [
+            1
+          ],
+          "paired_conditions": [
+            {
+              "value": "0.74 A",
+              "conditions": {
+                "inductance_drop": "10 %"
+              }
+            },
+            {
+              "value": "0.80 A",
+              "conditions": {
+                "inductance_drop": "20 %"
+              }
+            },
+            {
+              "value": "0.83 A",
+              "conditions": {
+                "inductance_drop": "30 %"
+              }
+            }
+          ]
+        },
+        "rated_current": {
+          "values": [
+            "0.65 A",
+            "0.90 A"
+          ],
+          "basis": "rated",
+          "conditions": [
+            {
+              "names": [
+                "temperature_rise"
+              ],
+              "values": [
+                "20 °C",
+                "40 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "reference_only"
+              ],
+              "values": [
+                "true",
+                "yes",
+                "reference only"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            1
+          ],
+          "paired_conditions": [
+            {
+              "value": "0.65 A",
+              "conditions": {
+                "temperature_rise": "20 °C"
+              }
+            },
+            {
+              "value": "0.90 A",
+              "conditions": {
+                "temperature_rise": "40 °C"
+              }
+            }
+          ]
+        }
+      },
+      "unsupported_fact_names": [],
+      "review_note": "Pair Isat 0.74/0.80/0.83 A with 10/20/30% drop, and Irms 0.65/0.90 A with 20/40 °C rise. Measurement voltage is Vrms. Endpoints and RMS qualifiers require manual review."
+    },
+    {
+      "id": "transformer_ratio_and_missing_ratings",
+      "source": {
+        "url": "https://www.coilcraft.com/getmedia/f080b1aa-a575-4b78-94e5-0976b1d2673a/ta7618.pdf",
+        "sha256": "7391ea78475920dd46f2b98271d3f197d56b2ad89845be3590ab61078487413b"
+      },
+      "layout_class": "borderless_columns",
+      "facts": {
+        "turns_ratio": {
+          "values": [
+            "0.25 ratio"
+          ],
+          "basis": "nominal",
+          "conditions": [
+            {
+              "names": [
+                "orientation",
+                "ratio_orientation"
+              ],
+              "values": [
+                "primary/secondary",
+                "primary:secondary",
+                "primary to secondary",
+                "primary : secondary",
+                "primary:secondary (1:4)"
+              ]
+            }
+          ],
+          "pages": [
+            1
+          ]
+        }
+      },
+      "unsupported_fact_names": [
+        "primary_rated_voltage",
+        "secondary_rated_voltage",
+        "rated_apparent_power",
+        "minimum_frequency",
+        "maximum_frequency"
+      ],
+      "review_note": "3–5.5 V input and 5 V, 0.4 A output describe the converter application. 5000 Vrms isolation is not an operating rating."
+    },
+    {
+      "id": "capacitor_voltage_conditions",
+      "source": {
+        "url": "https://www.vishay.com/docs/26015/mkp1848cdclink.pdf",
+        "sha256": "a5e1b850908b1390c0b3b1ce0c36191fee8da8d522703892b85bd4477b062d14"
+      },
+      "layout_class": "ruled_merged_cells",
+      "facts": {
+        "capacitance": {
+          "values": [
+            "1 µF"
+          ],
+          "basis": "nominal",
+          "conditions": [
+            {
+              "names": [
+                "measurement_frequency"
+              ],
+              "values": [
+                "1 kHz"
+              ],
+              "unit": "Hz"
+            },
+            {
+              "names": [
+                "measurement_temperature"
+              ],
+              "values": [
+                "room temperature"
+              ]
+            }
+          ],
+          "pages": [
+            3,
+            16
+          ]
+        },
+        "tolerance": {
+          "values": [
+            "5 %"
+          ],
+          "basis": "maximum",
+          "conditions": [],
+          "pages": [
+            1
+          ]
+        },
+        "rated_voltage": {
+          "values": [
+            "500 V"
+          ],
+          "basis": "rated",
+          "conditions": [
+            {
+              "names": [
+                "current_type",
+                "voltage_type"
+              ],
+              "values": [
+                "DC"
+              ]
+            },
+            {
+              "names": [
+                "rating_temperature"
+              ],
+              "values": [
+                "85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            3
+          ]
+        },
+        "dielectric": {
+          "values": [
+            "Polypropylene",
+            "Polypropylene film"
+          ],
+          "basis": "nominal",
+          "conditions": [],
+          "pages": [
+            1
+          ]
+        }
+      },
+      "unsupported_fact_names": [],
+      "review_note": "Vertically merged 500 V nominal DC cell governs the exact row. 600 V at 70 °C and 350 V at 105 °C are different operating ratings."
+    }
+  ]
+}

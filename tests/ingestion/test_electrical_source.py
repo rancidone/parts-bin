@@ -111,7 +111,7 @@ async def test_categories_independently_preserve_source_qualifiers(category, nam
     assert fact['evidence']['excerpt'] == passage
 
 
-@pytest.mark.parametrize('change', ['basis', 'unit', 'quote', 'page', 'duplicate', 'condition', 'quantity', 'variant'])
+@pytest.mark.parametrize('change', ['basis', 'quote', 'page', 'duplicate', 'condition', 'quantity', 'variant'])
 async def test_invalid_electrical_proposals_are_rejected(change):
     raw = candidate()
     if change == 'basis':
@@ -279,3 +279,11 @@ def test_passages_are_verbatim_and_keep_multibyte_budget():
     assert omitted
     assert sum(len(item['text'].encode()) for item in passages) <= source.MAX_EXCERPT_BYTES
     assert all(len(item['text']) <= 1200 and item['text'] in '🪿' * 5000 for item in passages)
+
+
+async def test_invalid_electrical_field_does_not_discard_valid_source_facts():
+    raw = candidate()
+    raw['facts'][2]['value'] = '250 V'
+    result = await extract(raw)
+    assert [fact['name'] for fact in result['facts']] == ['resistance', 'tolerance']
+    assert result['extraction_assessment']['rejected_fields'][0]['name'] == 'rated_power'

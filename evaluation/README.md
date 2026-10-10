@@ -219,3 +219,34 @@ the document and fixture; record correctness, latency, and usage with the exerci
 Structured extraction uses a strict schema because its fields are explicit and
 unsupported values are null. This differs from optional inventory patch tools.
 See the official [structured-output guide](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+## Independent PDF completeness and OCR experiments
+
+`enrichment/electrical_expectations.json` contains expectations independently
+reviewed from rendered source pages. Keep this file out of model inputs. Recheck
+the pages before changing expectations; changed source hashes invalidate scores.
+The comparator flags missing values, qualifiers, mismatched value/condition
+pairs and unsupported application ratings. Unlisted equivalent wording and
+quotation interpretation still require visual review.
+
+```sh
+uv run python -m evaluation.electrical_completeness /path/to/report.json \
+  --output /path/to/completeness-review.json
+```
+
+The command exits 2 to require review. Its scores compare source expectations,
+whereas the application assessment measures supported-field coverage with
+minimum qualifiers. These denominators differ, and neither score certifies
+correctness. Keep run reports, source captures and completed reviews outside the
+repository. Distinguish fresh model runs from offline replay of recorded responses.
+
+`evaluation.pdf_ocr.raster_ocr` renders explicitly selected pages at 150 or 300 DPI
+and invokes an installed Tesseract executable. It is evaluation-only: at most
+three pages, bounded pixels/text/output and a per-page timeout. Preserve the
+original source hash and page numbering when passing transcripts into extraction;
+record raster hashes and recognition measurements beside the candidate. Compare
+with an image-only baseline and independently reviewed source expectations.
+Rasterizing clean digital pages tests controlled text recovery, not real scan
+quality or automatic page discovery. Recognition confidence does not measure
+cell association, unit meaning or electrical correctness. The production path
+continues to direct image-only sources to visual review.
