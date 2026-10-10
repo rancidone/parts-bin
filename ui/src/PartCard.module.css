@@ -43,3 +43,14 @@
   border-radius: 4px;
   padding: 1px 7px;
 }
+
+.openBtn {
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: .8rem;
+  cursor: pointer;
+}

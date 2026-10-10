@@ -128,6 +128,17 @@
   background: var(--bg);
 }
 
+.partLink {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
 .error {
   color: #c0392b;
 }

@@ -7,6 +7,7 @@ type Surface = 'chat' | 'inventory'
 
 export default function App() {
   const [surface, setSurface] = useState<Surface>('chat')
+  const [selectedPartId, setSelectedPartId] = useState<number | null>(null)
 
   return (
     <div className={styles.app}>
@@ -28,8 +29,8 @@ export default function App() {
         </div>
       </nav>
       <main className={styles.main}>
-        <div style={{ display: surface === 'chat' ? 'contents' : 'none' }}><Chat /></div>
-        <div style={{ display: surface === 'inventory' ? 'contents' : 'none' }}><Inventory active={surface === 'inventory'} /></div>
+        <div style={{ display: surface === 'chat' ? 'contents' : 'none' }}><Chat onOpenPart={id => { setSelectedPartId(id); setSurface('inventory') }} /></div>
+        <div style={{ display: surface === 'inventory' ? 'contents' : 'none' }}><Inventory active={surface === 'inventory'} selectedPartId={selectedPartId} onClearSelection={() => setSelectedPartId(null)} /></div>
       </main>
     </div>
   )
