@@ -5,8 +5,7 @@ what they already have through text, photos, and an inventory UI.
 
 The project favors local-first operation and independent deployments owned by
 the operator. The cloud direction is AWS serverless with Terraform; see the
-[cloud decisions](docs/design/cloud-hosting.md) for rationale and open choices.
-A design decision is not a claim that its implementation is available.
+[cloud direction](docs/adr/0008-deferred-aws-direction.md) for rationale and open choices.
 
 ## Local setup
 
@@ -26,8 +25,7 @@ mkdir -p data
 Skip the copy if you already have local configuration. Edit `config.toml` to
 configure the OpenAI API agent; use
 [config.example.toml](config.example.toml) for configuration keys. Keep credentials
-out of version control. See [configuration decisions](docs/design/configuration.md)
-and [operations](docs/operations.md) for guidance.
+out of version control. See [operations](docs/operations.md) for recovery and diagnostics.
 
 Run the API and UI in separate terminals:
 
@@ -37,7 +35,7 @@ uv run uvicorn local_app:create_app --factory --host 127.0.0.1 --port 8000
 
 The local factory loads configuration and constructs SQLite-backed services.
 The HTTP adapter can also be constructed with injected services; see
-[application assembly](application.py) and [architecture](docs/design/architecture.md#http-and-worker-execution).
+[application assembly](application.py) and [hosting boundaries](docs/adr/0001-domain-and-storage-boundaries.md).
 
 ```sh
 npm run dev --prefix ui -- --host 127.0.0.1
@@ -68,7 +66,7 @@ npm run build --prefix ui
 ```
 
 See [evaluation guidance](evaluation/README.md) for focused checks and their
-limitations. Run checks to obtain results; documentation does not certify them.
+limitations.
 
 ## Project understanding
 

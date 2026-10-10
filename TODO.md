@@ -2,7 +2,7 @@
 
 This is a planning list, not implementation evidence. Remove entries when the
 work no longer needs tracking; use code, tests, and run output to inspect behavior.
-Design rationale belongs in [docs/design/](docs/design/).
+Decisions and rationale belong in [ADRs](docs/adr/README.md).
 
 ## Next: local chat and lookup
 
@@ -28,6 +28,10 @@ lookup are improved.
 - Measure live extraction and natural-language interpretation separately from
   deterministic matching. Verify exact variants, qualifiers, missing facts, useful
   clarification, and source passages before accepting results.
+- Define identity for connectors, modules, kits, and unmarked stock from concrete
+  ingestion failures. Consider typed category attributes and explicit variant
+  identity without inventing ordering codes or merging uncertain stock. Rehearse
+  any migration on copies while preserving IDs, quantities, and provenance.
 - Extend specification and condition definitions from representative requests,
   including operating ranges, derating, additional component categories, and
   explicit variant identity for stock without an ordering code. Preserve evidence
@@ -48,7 +52,7 @@ lookup are improved.
 - Add reusable enrichment results and in-flight deduplication with bounded paid
   stages. Keep accepted provenance independent of cache expiry; exercise refresh,
   transient failure, and interrupted-job retry behavior.
-- Apply the [storage boundaries](docs/design/storage-and-retention.md): keep photos
+- Apply the [storage boundaries](docs/adr/0005-storage-and-retention.md): keep photos
   out of durable history/queues and discard retrieved documents after extraction.
 
 ## Durable ingestion experiment
@@ -66,7 +70,7 @@ lookup are improved.
   cancellation, concurrent requests, worker replacement, and retry behavior.
   Keep model/tool context distinct from user-visible conversation events.
 - Record the orchestration, persistence, and ingress tradeoffs in
-  [cloud hosting decisions](docs/design/cloud-hosting.md), using run artifacts for
+  [cloud hosting decisions](docs/adr/0008-deferred-aws-direction.md), using run artifacts for
   correctness, latency, and cost evidence. Do not select services by implication.
 
 ## Cloud work
@@ -89,5 +93,5 @@ lookup are improved.
 - Demonstrate fresh-account deployment, upgrade/rollback, recovery, performance,
   and teardown. Record reusable procedures, not permanent pass/fail claims.
 
-See [cloud hosting decisions](docs/design/cloud-hosting.md). These tasks do not
+See [cloud hosting decisions](docs/adr/0008-deferred-aws-direction.md). These tasks do not
 select a database, model, or AWS service by implication.

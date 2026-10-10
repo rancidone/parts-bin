@@ -1,228 +1,122 @@
-# Operating Parts Bin locally
+# Operations
 
-This guide explains useful operating procedures and their purpose. It is not a
-record of successful deployments or recovery exercises. Use the code, tests, and
-output of the exercise you run to establish behavior for your checkout.
+See [the README](../README.md) for startup and
+[config.example.toml](../config.example.toml) for settings. `PARTS_BIN_CONFIG`
+selects a configuration file outside the checkout. Keep configuration private.
+The infra repository owns deployment to core; this repository owns the app image
+and Compose definition.
 
-## Configuration and runtime checks
-
-Follow the [setup guide](../README.md). Use [config.example.toml](../config.example.toml)
-for keys and [compose.yaml](../compose.yaml) for container mounts and environment
-variables rather than copying a configuration schema from this guide.
-
-Configure the OpenAI API agent through private configuration. Use
-`PARTS_BIN_CONFIG` to point the process at a configuration file outside the checkout
-when needed. Keep credentials out of logs, prompts, shell history, and fixtures.
-
-For a checkout that previously used another runtime, configure OpenAI and start a
-new conversation. Keep historical conversation data and any old provider session
-files as retained local data; do not rewrite their provider identity or delete them
-as part of application cleanup. Retired-provider threads are for reading history.
-
-An HTTP health response is a useful diagnostic, not proof of provider login or
-model quality. Exercise a new OpenAI thread. A live smoke
-check may incur provider charges:
-
-```sh
-# Supply OPENAI_API_KEY privately and choose PARTS_BIN_OPENAI_MODEL first.
-PARTS_BIN_SMOKE_RUNTIME=openai uv run pytest tests/e2e/test_agent_runtime_smoke.py
-```
-
-See the [smoke test](../tests/e2e/test_agent_runtime_smoke.py) for its scope and required environment variables.
-
-## Diagnosing failures
-
-Start with a small reproducible request and distinguish provider transport,
-tool validation, domain errors, and interrupted execution. Read diagnostic
-metadata without copying private conversation or inventory contents into reports.
+## Diagnostics
 
 ```sh
 curl -fsS http://localhost:8000/health
-uv run pytest tests/agent_runtime/test_telemetry.py tests/evaluation/test_failures.py tests/test_log.py
-sqlite3 data/parts.db 'PRAGMA integrity_check;'
+docker compose logs --tail 100 parts-bin
 ```
 
-Substitute your configured database path. Inspect [logging](../log.py),
-[telemetry](../agent_runtime/telemetry.py), and container configuration for event
-formats and destinations. Avoid maintaining a separate event/schema list here.
-An integrity check tests database consistency, not completeness of a backup or
-correctness of the inventory it contains.
+`agent_configured` indicates that a key is present, not that provider authentication
+works. A new chat request checks the provider and may incur charges. For an
+isolated live smoke test, follow [the test's environment requirements](../tests/e2e/test_agent_runtime_smoke.py).
+For model or lookup failures, see [evaluation](../evaluation/README.md).
 
-## Backup and recovery
+## Interrupted requests
 
-Approval requests, decisions, and saved mutation outcomes live with inventory,
-even when conversations use a separate database. Retain them together: removing
-operation records can remove the protection against duplicate approval delivery.
-After a restart, resubmit the same approval ID to recover its saved outcome.
-If inventory or pending evidence changed while approval was waiting, request a
-fresh proposal and review it again. An opposite decision cannot replace a recorded
-approval or denial.
+**Refresh history** reads saved events without repeating work. **Resume request**
+explicitly continues the original execution after refreshing history. An active
+worker can prevent resume; after abrupt process loss its lease can take five
+minutes to expire. Do not resend the original message to recover a mutation.
 
-Proposals created by older versions with in-memory approvals cannot be safely
-reconstructed from conversation prose or events. Ask the assistant for a fresh
-proposal if an old approval ID is unknown; do not infer consent from history.
-Historical approval IDs without an execution checkpoint require a fresh proposal.
+Use the original approval controls and request ID for a waiting decision.
+Duplicate delivery returns the saved outcome. A changed target or an unknown
+historical approval requires a fresh proposal; conversation prose cannot replace
+approval.
 
-Agent events carry an execution ID. To resume an interrupted execution, replay
-the conversation's events, take the ID of the unfinished request, and submit it
-to the resume endpoint rather than sending the same message again:
+Resume may repeat a model call interrupted before its response was saved. Check
+provider usage before retrying uncertain paid work. Interrupted supplier retrieval
+is reported as incomplete and needs an explicit new lookup. Photos are not saved:
+attach a fresh photo before resuming interrupted initial image analysis. If resume
+has already failed with `image_resubmission_required`, send a new photo message.
+Old provider conversations remain read-only; start a new OpenAI chat.
+
+For API recovery, retain the thread ID and use the unfinished execution ID from
+its events:
 
 ```sh
 curl -N -X POST "http://localhost:8000/agent/threads/$thread_id/resume" \
   -F "execution_id=$execution_id"
 ```
 
-Use the original approval endpoint with the same request ID for a waiting
-decision. Resume preserves model/tool context and pending calls. Replayed events
-keep their original sequence; consumers must deduplicate by thread and sequence.
-A live worker prevents another worker from claiming the execution. After abrupt
-process loss its lease may take five minutes to expire; normal cancellation
-releases ownership. An expired worker cannot checkpoint or mutate inventory.
+Add `-F "photo=@part.jpg"` when resubmitting an image. **New chat** changes the
+browser's current thread without deleting server history.
 
-An interrupted supplier lookup reports an incomplete outcome; explicitly ask for
-a new lookup if needed. Resume can repeat a model request whose response was not
-checkpointed, so check usage when recovering an uncertain paid request. Photo
-bytes are never checkpointed. If initial image analysis was interrupted, provide
-a fresh photo with resume (`-F "photo=@part.jpg"`); if resuming without the photo
-already failed with `image_resubmission_required`, start a new photo message.
+The conversation selector lists retained history and its original provider.
+Switching conversations only reads saved events; it never resends a message,
+resumes work, or submits an approval decision. Retired-provider history remains
+selectable but read-only.
 
-Retain execution checkpoints, operation outcomes, and event identity records in
-backups alongside inventory and conversations. The chat remembers the current
-conversation ID in browser storage and restores its history on reload. It stores
-no conversation text or photos in browser storage. Use **Refresh history** after a
-connection failure; replay only reads saved events. **Resume request** explicitly
-continues unfinished work using its original execution ID. It refreshes history
-first and does not issue a resume if completion has appeared in the meantime.
-An unfinished request may still have an active worker; refresh its progress and
-wait for the lease to release before retrying a rejected resume.
+## Backup and recovery
 
-For an interrupted initial photo analysis, attach a fresh photo before choosing
-**Resume request**. Approval requests use their original controls; completed
-decisions are shown as approved or declined. **New chat** changes the current
-browser pointer without deleting retained server history. The conversation
-selector lists retained history and its original provider. Switching conversations
-only reads saved events; it never resends a message, resumes work, or submits an
-approval decision. Retired-provider history remains selectable but read-only.
+Find the inventory and conversation database paths in your private configuration.
+Back up both if separate; quiesce writes for a coordinated snapshot. Inventory
+backups must include provenance, pending reviews, approvals, execution checkpoints,
+and mutation outcomes. These records protect against repeated effects.
 
-Identify the inventory and conversation database paths from your configuration.
-They may share a file. Protect configuration separately and retain historical
-provider session files if they are part of your recovery requirements. A supplier cache is not an inventory
-backup. If state spans multiple files, quiesce writes for a coordinated backup.
-
-For a single SQLite database, use SQLite's online backup facility rather than
-copying a live database file and hoping its WAL state is included:
+Use SQLite's online backup facility to include WAL contents. Substitute your
+configured paths and a new destination for each snapshot:
 
 ```sh
+umask 077
 mkdir -p backups
 sqlite3 data/parts.db ".backup 'backups/parts-recovery.db'"
 sqlite3 backups/parts-recovery.db 'PRAGMA integrity_check;'
 ```
 
-Use a new destination for each retained backup; do not overwrite your only known
-good copy. Apply restrictive filesystem permissions and keep a protected copy
-outside the application's failure domain. Retention and off-host storage depend
-on the deployment and recovery objectives.
+Protect configuration separately. Keep an off-host recovery copy and choose
+retention for your acceptable data loss. Photos are ephemeral and must not enter
+backups. Supplier caches are not an inventory backup.
 
-Rehearse recovery into an isolated directory using copies of the backup and
-configuration. Stop the target application before replacing database state.
-Preserve any old database and its associated WAL/SHM files together for
-investigation; do not combine an old WAL with a restored database. Install the
-backup at the configured path with appropriate ownership and permissions before
-starting the target application.
+Rehearse restoration in an isolated installation. Stop the target app, preserve
+its existing database and WAL/SHM files together, and install the snapshot at the
+configured path with the correct ownership. Never combine a restored database
+with stale WAL/SHM files. Check integrity, stock quantities, conversation history,
+and a read/write workflow before using it. Keep the original installation intact
+until recovery is verified.
 
-Check integrity, representative inventory quantities, conversation history, and
-an application read/write workflow in that isolated installation. Record elapsed
-recovery time and the backup's age with the exercise. Keep the original local
-data untouched until recovery and any migration have been reviewed.
+Before upgrading, retain the previous code/image and take a backup. Code rollback
+and data restoration are separate: an older image may not understand a newer
+schema, and restoring a snapshot loses subsequent writes.
 
-## Historical passive values
+## Electrical fact review
 
-Adding or editing a passive normalizes supported value spellings in the domain.
-For example, editing a resistor to `22K` stores `22k`, and category-specific search
-recognizes either spelling. Unknown units are preserved rather than assigned an
-inferred electrical value. This is spelling normalization; it does not establish
-verified tolerance, power, or other specifications.
+Chat exposes supported fields through `get_specification_contract`. Assertions
+can be proposed and approved in chat but remain labeled as user assertions.
+For sourced ratings, inspect the exact variant and supporting document, then
+prepare facts using [the validated contract](../domain/specifications.py).
 
-Existing rows are not rewritten when the application starts. Search compares
-historical value spellings without changing their timestamps or evidence. If
-several records share a normalized identity, stock increments report a conflict
-with the affected IDs. Inspect the records and their provenance, then explicitly
-resolve their identities; do not automatically combine quantities or delete
-records. An edit that would collide also reports a conflict. Unknown package and
-known package stock remain separate identities.
-
-## Reviewing electrical facts
-
-Use `get_specification_contract` in chat to discover supported fields for a
-category. User-provided ratings can be staged through chat as assertions, then
-accepted with `apply_specification_review`. They remain assertions after approval.
-Search cannot treat them as independently sourced facts.
-
-For sourced facts, inspect the exact ordering variant and supporting document
-first. Prepare a JSON array matching the validated fact contract in
-[domain/specifications.py](../domain/specifications.py), with the original units,
-qualifiers, all applicable conditions, and a bounded passage for each field.
-Source evidence needs its URL, page, content hash, retrieval timestamp, and exact
-ordering code. Do not include downloaded document content or photos. Use an
-isolated inventory copy to rehearse the import:
+Stage an inspected JSON array on an isolated inventory copy first:
 
 ```sh
 uv run python -m ingestion.review_specifications PART_ID /path/to/candidate.json \
   --database /path/to/isolated-parts.db
 ```
 
-The command stages only. It makes no retrieval or model call and does not verify
-passage authenticity. Inspect the proposal with `get_specifications`, compare it
-against the source, and request `apply_specification_review` in chat for the
-approval controls. Use `reject_specification_review` to discard a proposal. Chat
-shows original values, bases, conditions, passages, and source links during review.
-Search results keep identity, stock, match status, and qualified ratings together
-in each card. Expand **View source evidence** to inspect passages; approval
-reviews open those passages by default.
+This stages a review; it does not retrieve or authenticate evidence. Inspect with
+`get_specifications`, then request `apply_specification_review` for approval or
+`reject_specification_review` to discard it. Supplier metadata lookup does not yet
+extract electrical facts automatically. See [the specification decisions](adr/0007-reviewed-electrical-facts.md).
 
-Search with explicit requirements and stock, for example four resistors at 10 kΩ,
-tolerance at most 1%, and rated power at least 0.25 W under the source's stated
-conditions. Missing evidence or differing conditions produce incomplete candidates.
-The current supplier lookup does not automatically extract these electrical facts.
-See [the specification decisions](design/electrical-specifications.md) for the
-initial categories, unsupported fields, and conservative comparison rules.
+## Supplied-source retries
 
-Retain electrical facts and pending specification reviews with the inventory
-backup. They are authoritative data, independent of enrichment cache freshness.
-For a different rated variant, create a distinct inventory record; do not change
-an evidenced record's identity or automatically merge stock by value and package.
-Use an explicit `add_stock` target only when the added stock is the same variant.
-
-## Supplied-source cache recovery
-
-The supplied-source operator command uses a disposable SQLite cache in the
-configured inventory database. Cache freshness is separate from retention of
-accepted evidence. Preserve authoritative tables during recovery; deleting the
-whole database to clear a cache would also delete inventory and retry protection.
-
-A failed or interrupted supplied-source lookup leaves a five-minute claim from
-the attempt's start. A lookup during that interval, including `--refresh`, is
-blocked. Once it expires, retry by explicitly invoking the operator command;
-there is no automatic retry or durable cache job. A failure is not saved as a
-no-match result. Check provider usage before retrying uncertain paid extraction.
-
-`--refresh` bypasses freshness and downloads the source again. If its hash is
-unchanged, the saved extraction can be reused without another model call. A
-failed refresh clears the prior cached result, so a later attempt may incur a
-new extraction charge. Cache cleanup cannot remove evidence already staged for
-review or accepted into inventory. Downloaded PDFs and photos are not cache data.
-
-## Turning failures into regressions
-
-Capture only diagnostic metadata, then construct a synthetic scenario that
-reproduces the failure without private user content. Review the scenario before
-promoting it into the evaluation set:
+The supplied-source command stages metadata from a supplied manufacturer PDF:
 
 ```sh
-uv run python -m evaluation.failures capture --help
-uv run python -m evaluation.failures promote --help
-uv run pytest tests/evaluation
+uv run python -m ingestion.enrich_source PART_ID SOURCE_URL --model MODEL
 ```
 
-See [evaluation usage](../evaluation/README.md) for running checks and
-[evaluation decisions](design/evaluation.md) for what they can establish.
+Its disposable cache shares the local inventory database. Never delete that
+database to clear a cache. A failed or interrupted attempt blocks retries,
+including `--refresh`, for five minutes from its start. Afterward, retry explicitly;
+failure is not a no-match result.
+
+`--refresh` downloads again; an unchanged hash can reuse the extraction without a
+model call. A failed refresh clears the prior result, so retry may incur another
+charge. Cache expiry does not affect staged or accepted evidence.

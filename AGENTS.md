@@ -54,7 +54,7 @@ implementations over speculative abstractions.
 
 - Target AWS serverless infrastructure provisioned with Terraform. Validate
   service choices against application constraints and official documentation;
-  record decisions and tradeoffs in `docs/design/`.
+  record decisions and tradeoffs in numbered ADRs under `docs/adr/`.
 - Keeping costs down is a project goal. Use only necessary services; prefer
   existing capabilities and add infrastructure when measured requirements
   justify its recurring cost and operational burden.
@@ -79,7 +79,7 @@ implementations over speculative abstractions.
 - `ingestion/`, `photo/`: source lookup/extraction and image processing.
 - `evaluation/`: recorded agent scenarios and enrichment acceptance checks.
 - `ui/`: React/Vite client.
-- `docs/README.md`, `docs/design/`: project understanding and design decisions.
+- `docs/README.md`, `docs/adr/`: project understanding and architecture decisions.
 - `docs/operations.md`: practical operating and recovery guidance.
 - `TODO.md`: upcoming work, not an implementation-status ledger.
 
@@ -105,5 +105,11 @@ implementations over speculative abstractions.
   counts, coverage matrices, or duplicate code/configuration schemas in prose.
 - Update tests with behavior changes, and docs when decisions or user procedures
   change. Delete obsolete paths rather than retaining deprecated shims.
+- Record architecture decisions as concise ADRs with context, decision, and
+  consequences. Supersede changed decisions with a new ADR; keep open work in
+  `TODO.md` and operating commands in `docs/operations.md`.
+- Bound command output before collecting it. Start with `git diff --stat` or
+  `--name-only`, then inspect focused files or hunks; suppress full Ansible
+  checkout diffs and use bounded log tails. Read required instructions in full.
 - Keep this file focused on durable project instructions. Put task status,
   milestones, and temporary plans in work-tracking documents, not `AGENTS.md`.
