@@ -156,6 +156,24 @@ resume may issue that request again. These boundaries cannot promise exactly-onc
 provider billing. Cloud scheduling, browser recovery controls, cancellation,
 and adapter-specific leases remain separate deployment work.
 
+### Browser recovery
+
+Keep only the current conversation ID in browser storage; conversation events
+remain authoritative on the server and photos stay in component memory. The
+[chat session](../../ui/src/agentSession.ts) serializes browser requests, deduplicates
+and orders replayed events, and requires history refresh after network failure.
+Restoration and refresh use the read-only event endpoint. Neither can issue new
+model work, repeat a message, or infer approval from visible prose.
+
+Resume is an explicit user action tied to the original execution ID. Refresh
+history before resuming so a missed completion can prevent unnecessary work.
+Visible events can identify unfinished requests but cannot prove that a worker
+has stopped; the server lease remains authoritative. A photo request with no
+visible derived response requires a fresh attachment. This is conservative and
+may request a photo even if a response was checkpointed before publication.
+Saved approval decisions resolve their corresponding controls; browser recovery
+does not change server approval validation or mutation retry protection.
+
 ### Authoritative records
 
 Committed inventory is authoritative. User assertions, proposed enrichment, and

@@ -87,8 +87,21 @@ a fresh photo with resume (`-F "photo=@part.jpg"`); if resuming without the phot
 already failed with `image_resubmission_required`, start a new photo message.
 
 Retain execution checkpoints, operation outcomes, and event identity records in
-backups alongside inventory and conversations. The UI currently replays visible
-history; execution resume is an API procedure, not an automatic browser retry.
+backups alongside inventory and conversations. The chat remembers the current
+conversation ID in browser storage and restores its history on reload. It stores
+no conversation text or photos in browser storage. Use **Refresh history** after a
+connection failure; replay only reads saved events. **Resume request** explicitly
+continues unfinished work using its original execution ID. It refreshes history
+first and does not issue a resume if completion has appeared in the meantime.
+An unfinished request may still have an active worker; refresh its progress and
+wait for the lease to release before retrying a rejected resume.
+
+For an interrupted initial photo analysis, attach a fresh photo before choosing
+**Resume request**. Approval requests use their original controls; completed
+decisions are shown as approved or declined. **New chat** changes the current
+browser pointer without deleting retained server history. Conversation selection
+is separate UI work; retain the thread ID when you need API access to an older
+conversation. Retired-provider history is read-only.
 
 Identify the inventory and conversation database paths from your configuration.
 They may share a file. Protect configuration separately and retain historical

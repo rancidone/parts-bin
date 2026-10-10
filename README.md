@@ -10,7 +10,7 @@ A design decision is not a claim that its implementation is available.
 
 ## Local setup
 
-Use Python 3.14+ with [uv](https://docs.astral.sh/uv/) and Node.js with npm.
+Use Python 3.14+ with [uv](https://docs.astral.sh/uv/) and Node.js 22.12+ with npm.
 Dependency declarations live in [pyproject.toml](pyproject.toml) and
 [ui/package.json](ui/package.json).
 
@@ -63,6 +63,7 @@ the suite there; run a focused subset with, for example, `uv run pytest tests/do
 ```sh
 uv run pytest
 npm run lint --prefix ui
+npm run test --prefix ui
 npm run build --prefix ui
 ```
 

@@ -1,95 +1,14 @@
-import { useRef, useState } from 'react'
-import type { AgentEvent } from './types'
-
-async function readEventStream(response: Response, receive: (event: AgentEvent) => void) {
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('The server did not return an event stream.')
-  const decoder = new TextDecoder()
-  let buffer = ''
-  const processChunk = (chunk: string) => {
-    const lines = chunk.split('\n').map(line => line.replace(/\r$/, ''))
-    const eventName = lines.find(line => line.startsWith('event:'))?.slice('event:'.length).trim()
-    const raw = lines.find(line => line.startsWith('data:'))?.slice('data:'.length).trim()
-    if (eventName !== 'agent_event' || !raw) return
-    try { receive(JSON.parse(raw) as AgentEvent) } catch { /* ignore malformed network data */ }
-  }
-  while (true) {
-    const { done, value } = await reader.read()
-    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done })
-    const chunks = buffer.split(/\r?\n\r?\n/)
-    buffer = chunks.pop() ?? ''
-    chunks.forEach(processChunk)
-    if (done) {
-      if (buffer.trim()) processChunk(buffer)
-      return
-    }
-  }
-}
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { AgentSession } from './agentSession'
 
 export function useAgent() {
-  const [events, setEvents] = useState<AgentEvent[]>([])
-  const [threadId, setThreadId] = useState<string | null>(null)
-  const runtime = 'openai'
-  const [pending, setPending] = useState(false)
-  const localSequence = useRef(0)
-  const submitting = useRef(false)
-
-  function receive(event: AgentEvent) {
-    setEvents(previous => previous.some(item => item.sequence === event.sequence && item.thread_id === event.thread_id)
-      ? previous : [...previous, event])
-  }
-
-  async function ensureThread() {
-    if (threadId) return threadId
-    const response = await fetch('/agent/threads', {
-      method: 'POST',
-    })
-    if (!response.ok) throw new Error(await response.text())
-    const created = await response.json() as { thread_id: string }
-    setThreadId(created.thread_id)
-    return created.thread_id
-  }
-
-  async function submit(message: string, photo?: File) {
-    if (submitting.current) return
-    submitting.current = true
-    setPending(true)
-    const sequence = --localSequence.current
-    receive({ kind: 'user_message', thread_id: threadId ?? 'new', runtime, sequence,
-      data: { text: message, image: photo ? { media_type: photo.type } : null } })
-    try {
-      const id = await ensureThread()
-      const form = new FormData()
-      form.append('message', message)
-      if (photo) form.append('photo', photo)
-      const response = await fetch(`/agent/threads/${id}/messages`, { method: 'POST', body: form })
-      if (!response.ok) throw new Error(await response.text())
-      await readEventStream(response, event => {
-        if (event.kind === 'user_message') {
-          // Replace this submission's local echo with the persisted event.
-          setEvents(previous => previous.map(item => item.sequence === sequence ? event : item))
-        } else {
-          receive(event)
-        }
-      })
-    } catch (error) {
-      receive({ kind: 'error', thread_id: threadId ?? 'new', runtime, sequence: -Date.now(), data: { code: 'network_error', message: error instanceof Error ? error.message : 'Could not reach the server.' } })
-    } finally { submitting.current = false; setPending(false) }
-  }
-
-  async function decide(requestId: string, approved: boolean) {
-    if (!threadId) return
-    setPending(true)
-    try {
-      const response = await fetch(`/agent/threads/${threadId}/approvals`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ request_id: requestId, approved }),
-      })
-      if (!response.ok) throw new Error(await response.text())
-      await readEventStream(response, receive)
-    } catch (error) {
-      receive({ kind: 'error', thread_id: threadId, runtime, sequence: -Date.now(), data: { code: 'network_error', message: error instanceof Error ? error.message : 'Could not reach the server.' } })
-    } finally { setPending(false) }
-  }
-
-  return { events, threadId, pending, submit, decide }
+  const [session] = useState(() => {
+    let storage: Storage | undefined
+    try { storage = window.localStorage } catch { /* Browser storage may be disabled. */ }
+    return new AgentSession((input, init) => fetch(input, init), storage)
+  })
+  const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
+  useEffect(() => { void session.restore() }, [session])
+  return { ...state, submit: session.submit, decide: session.decide, refresh: session.refresh,
+    resume: session.resume, newChat: session.newChat }
 }
