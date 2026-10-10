@@ -6,7 +6,7 @@ from copy import deepcopy
 
 import pytest
 
-from .runner import EvaluationFailure, default_runtime_factory, load_scenarios, run_scenario
+from evaluation.runner import EvaluationFailure, default_runtime_factory, load_scenarios, run_scenario
 
 
 def _scenario(scenario_id: str) -> dict:
@@ -24,14 +24,47 @@ async def test_paraphrased_answer_passes_when_tools_and_state_are_correct(tmp_pa
     assert scenario["recorded_turns"][-1]["text"] != original
 
 
+async def test_scenarios_seed_execute_and_inspect_injected_repositories(tmp_path):
+    from unittest.mock import Mock
+    from db.conversations import SQLiteConversationRepository
+    from db.repository import SQLitePartsBinRepository
+    from evaluation.runner import EvaluationStorage
+
+    repository = SQLitePartsBinRepository(tmp_path / "injected-inventory.db")
+    inventory = Mock(wraps=repository.inventory)
+    repository.inventory = inventory
+    conversations = SQLiteConversationRepository(tmp_path / "injected-events.db")
+    storage = EvaluationStorage(repository, conversations)
+    storage_factory = Mock(return_value=storage)
+
+    def factory(runtime, supplied_repository, supplied_conversations, turns):
+        assert supplied_repository is repository
+        assert supplied_conversations is conversations
+        return default_runtime_factory(runtime, supplied_repository, supplied_conversations, turns)
+
+    result = await run_scenario(_scenario("pending_review_resolution"), "openai", tmp_path,
+                                factory=factory, storage_factory=storage_factory)
+    assert result.status == "passed"
+    storage_factory.assert_called_once_with(tmp_path, "pending_review_resolution-openai")
+    inventory.insert.assert_called_once()
+    inventory.save_pending_review.assert_called_once()
+    # Both the agent's provenance tool and the final state check use this port.
+    assert inventory.list_provenance.call_count >= 2
+    inventory.list_provenance.assert_called_with(1)
+    assert inventory.search.call_count >= 1
+    assert any(event.kind == "approval_decision" for event in conversations.events("eval-pending_review_resolution"))
+    assert len(list(tmp_path.glob("*.db"))) == 2
+
+
 @pytest.mark.parametrize("runtime", ["openai"])
 async def test_initial_model_request_never_contains_a_full_inventory_snapshot(tmp_path, runtime):
     scenario = _scenario("large_inventory_search")
-    database = tmp_path / f"{runtime}.db"
-    from .runner import _seed, _turn
+    from evaluation.runner import _seed, _turn, sqlite_evaluation_storage
 
-    _seed(database, scenario["starting_database"])
-    instance, transport = default_runtime_factory(runtime, database, [_turn(turn) for turn in scenario["recorded_turns"]])
+    storage = sqlite_evaluation_storage(tmp_path, runtime)
+    _seed(storage.repository, scenario["starting_database"])
+    instance, transport = default_runtime_factory(runtime, storage.repository, storage.conversations,
+                                                   [_turn(turn) for turn in scenario["recorded_turns"]])
     await instance.run("no-inventory-prompt", scenario["conversation"][0]["user"])
 
     request = transport.requests[0]

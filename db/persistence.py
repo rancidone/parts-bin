@@ -1,12 +1,10 @@
 """
 Persistence layer for the parts inventory.
 
-All SQL lives here. Callers use upsert(), query(), list_all(), export_csv().
+SQLite inventory operations and deterministic value normalization.
 Normalization of `value` is applied here before every read and write.
 """
 
-import csv
-import io
 import json
 import re
 import sqlite3
@@ -666,18 +664,3 @@ def get_by_id(db_path: str | Path, part_id: int) -> dict | None:
 def list_all(db_path: str | Path) -> list[dict]:
     """Return all parts ordered by category, then value/part_number."""
     return query(db_path, {})
-
-
-def export_csv(rows: list[dict]) -> str:
-    """
-    Serialize a list of part dicts to CSV string.
-
-    Column order matches UI-defined schema:
-        part_category, value, package, quantity, part_number, manufacturer, description
-    """
-    fields = ["part_category", "value", "package", "quantity", "part_number", "manufacturer", "description"]
-    out = io.StringIO()
-    writer = csv.DictWriter(out, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
-    writer.writeheader()
-    writer.writerows(rows)
-    return out.getvalue()

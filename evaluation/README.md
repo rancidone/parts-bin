@@ -7,7 +7,7 @@ format and assertions. Prefer outcome checks over exact model wording.
 Run deterministic fixture evaluations with:
 
 ```sh
-uv run pytest evaluation
+uv run pytest tests/evaluation
 uv run python -m evaluation.runner --workspace /private/tmp/parts-bin-evals
 ```
 
@@ -15,6 +15,15 @@ For live evaluation, explicitly configure a provider and use the runner's
 `--live-factory module:function` option with `PARTS_BIN_LIVE_EVAL=1`.
 Account for provider costs. Keep credentials and private user content out of
 recorded artifacts. Use `uv run python -m evaluation.runner --help` for CLI options.
+
+Custom runtime factories receive the inventory repository, conversation repository,
+and recorded turns; use those injected stores for all state. The runner seeds and
+checks through the same repository contracts. Python callers can supply a
+`storage_factory` to `run_scenario` or `run_recorded` for isolated adapter testing.
+The default factory allocates a fresh SQLite pair per scenario. Custom storage
+factories must supply isolated disposable stores; seeding writes fixture inventory.
+Consult the callable contracts in [runner.py](runner.py) before updating a live
+factory. Do not reconstruct a store from a local filename inside a runtime factory.
 
 See [evaluation decisions](../docs/design/evaluation.md) for the distinction
 between deterministic checks, live quality measurements, and source review.
@@ -70,7 +79,7 @@ Even convincing fabricated evidence must never receive a factual pass.
 Run the negative and structural checks with:
 
 ```sh
-uv run pytest evaluation/test_enrichment_check.py
+uv run pytest tests/evaluation/test_enrichment_check.py
 ```
 
 ## Supplied-source extraction exercise

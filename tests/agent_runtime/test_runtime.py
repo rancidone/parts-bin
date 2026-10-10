@@ -8,11 +8,12 @@ from db.repository import SQLitePartsBinRepository
 from domain import PartsBinService
 from tools import PartsBinToolRegistry
 
-from agent_runtime import (ApprovalEngine, ApprovalResponse, ConversationStore,
+from agent_runtime import (ApprovalEngine, ApprovalResponse,
                            ImageInput, ModelTurn, OpenAIResponsesRuntime,
                            RuntimeSelectionError, ToolCall)
 
 from agent_runtime.runtime import ModelRequest
+from db.conversations import SQLiteConversationRepository
 
 
 class ScriptedTransport:
@@ -28,7 +29,7 @@ class ScriptedTransport:
 def build_runtime(tmp_path, turns, *, limit=8):
     repository = SQLitePartsBinRepository(tmp_path / "parts.db")
     registry = PartsBinToolRegistry(PartsBinService(repository))
-    store = ConversationStore(tmp_path / "conversations.db")
+    store = SQLiteConversationRepository(tmp_path / "conversations.db")
     common = {"registry": registry, "store": store, "approvals": ApprovalEngine(repository), "max_tool_turns": limit}
     transport = ScriptedTransport(turns)
     runtime = OpenAIResponsesRuntime(transport, **common)

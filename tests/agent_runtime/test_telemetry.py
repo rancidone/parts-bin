@@ -1,7 +1,8 @@
 from __future__ import annotations
 from db.repository import SQLitePartsBinRepository
 
-from agent_runtime import AgentGateway, AgentTelemetry, ApprovalEngine, ConversationStore, ModelTurn, OpenAIResponsesRuntime, ToolCall
+from agent_runtime import AgentGateway, AgentTelemetry, ApprovalEngine, ModelTurn, OpenAIResponsesRuntime, ToolCall
+from db.conversations import SQLiteConversationRepository
 from domain import PartsBinService
 from tools import PartsBinToolRegistry
 
@@ -25,7 +26,7 @@ class Turns:
 async def test_agent_telemetry_redacts_private_content(tmp_path):
     captured = CapturedTelemetry()
     telemetry = AgentTelemetry(captured.emit)
-    store = ConversationStore(tmp_path / "events.db")
+    store = SQLiteConversationRepository(tmp_path / "events.db")
     registry = PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db")))
     runtime = OpenAIResponsesRuntime(Turns([
         ModelTurn(tool_calls=(ToolCall("search_parts", {"filters": {"part_number": "private-part"}}),)), ModelTurn("private answer"),
@@ -45,7 +46,7 @@ async def test_agent_telemetry_redacts_private_content(tmp_path):
 async def test_telemetry_records_tool_error_approval_loop_and_runtime_failure(tmp_path):
     captured = CapturedTelemetry()
     telemetry = AgentTelemetry(captured.emit)
-    store = ConversationStore(tmp_path / "events.db")
+    store = SQLiteConversationRepository(tmp_path / "events.db")
     registry = PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db")))
     runtime = OpenAIResponsesRuntime(Turns([ModelTurn(tool_calls=(ToolCall("unknown", {"credential": "never"}),)), ModelTurn("done")]),
                                     registry=registry, store=store, approvals=ApprovalEngine(registry.service.repository), telemetry=telemetry)

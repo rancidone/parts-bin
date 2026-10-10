@@ -17,13 +17,12 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from agent_runtime import (
-    ApprovalEngine, ApprovalResponse, ConversationStore,
+    ApprovalEngine, ApprovalResponse, ConversationRepository,
     ImageInput, ModelTurn, OpenAIResponsesRuntime, ToolCall,
 )
 
 from domain import PartsBinService
-from db import persistence
-from db.repository import SQLitePartsBinRepository
+from domain.repositories import PartsBinRepository
 from tools import PartsBinToolRegistry
 
 SCENARIOS_PATH = Path(__file__).with_name("scenarios.json")
@@ -36,7 +35,29 @@ class EvaluationFailure(AssertionError):
 
 
 class RuntimeFactory(Protocol):
-    def __call__(self, runtime: str, database: Path, turns: list[ModelTurn]): ...
+    def __call__(self, runtime: str, repository: PartsBinRepository,
+                 conversations: ConversationRepository, turns: list[ModelTurn]): ...
+
+
+@dataclass(frozen=True)
+class EvaluationStorage:
+    repository: PartsBinRepository
+    conversations: ConversationRepository
+
+
+class StorageFactory(Protocol):
+    def __call__(self, workspace: Path, prefix: str) -> EvaluationStorage: ...
+
+
+def sqlite_evaluation_storage(workspace: Path, prefix: str) -> EvaluationStorage:
+    """Local composition only; scenario execution consumes repository contracts."""
+    from db.conversations import SQLiteConversationRepository
+    from db.repository import SQLitePartsBinRepository
+
+    # Each run gets isolated files, preserving existing evaluation artifacts.
+    database = workspace / f"{prefix}-{uuid.uuid4().hex}.db"
+    return EvaluationStorage(SQLitePartsBinRepository(database),
+                             SQLiteConversationRepository(database.with_suffix(".events.db")))
 
 
 @dataclass(frozen=True)
@@ -72,11 +93,11 @@ class RecordedTransport:
         return self.turns.popleft()
 
 
-def default_runtime_factory(runtime: str, database: Path, turns: list[ModelTurn]):
-    repository = SQLitePartsBinRepository(database)
+def default_runtime_factory(runtime: str, repository: PartsBinRepository,
+                            conversations: ConversationRepository, turns: list[ModelTurn]):
     service = PartsBinService(repository, spec_fetcher=_recorded_specs)
     registry = PartsBinToolRegistry(service)
-    common = {"registry": registry, "store": ConversationStore(database.with_suffix(".events.db")), "approvals": ApprovalEngine(repository)}
+    common = {"registry": registry, "store": conversations, "approvals": ApprovalEngine(repository)}
     transport = RecordedTransport(turns)
     if runtime != "openai":
         raise ValueError("Only the OpenAI runtime is supported")
@@ -108,8 +129,8 @@ def _turn(raw: dict[str, Any]) -> ModelTurn:
     return ModelTurn(raw.get("text", ""), calls)
 
 
-def _seed(database: Path, state: dict[str, Any]) -> None:
-    service = PartsBinService(SQLitePartsBinRepository(database))
+def _seed(repository: PartsBinRepository, state: dict[str, Any]) -> None:
+    service = PartsBinService(repository)
     parts = list(state.get("parts", []))
     large = state.get("large_inventory")
     if large:
@@ -119,7 +140,7 @@ def _seed(database: Path, state: dict[str, Any]) -> None:
     for part in parts:
         service.add_part(_add_request(part))
     for review in state.get("pending_reviews", []):
-        persistence.save_pending_review(database, review["part_id"], review["fields"], review.get("provenance", [_provenance(name, str(value)) for name, value in review["fields"].items()]))
+        repository.inventory.save_pending_review(review["part_id"], review["fields"], review.get("provenance", [_provenance(name, str(value)) for name, value in review["fields"].items()]))
 
 
 def _add_request(fields: dict[str, Any]):
@@ -127,11 +148,13 @@ def _add_request(fields: dict[str, Any]):
     return AddPartRequest(PartFields.from_mapping(fields))
 
 
-def _snapshot(database: Path) -> dict[str, Any]:
+def _snapshot(repository: PartsBinRepository) -> dict[str, Any]:
+    service = PartsBinService(repository)
+    parts = service.list()
     return {
-        "parts": [{key: row[key] for key in ("id", "part_category", "profile", "quantity", "value", "package", "part_number", "manufacturer", "description")} for row in persistence.list_all(database)],
-        "reviews": persistence.list_pending_reviews(database),
-        "provenance": {str(row["id"]): persistence.list_field_provenance(database, row["id"]) for row in persistence.list_all(database)},
+        "parts": [{key: getattr(part, key) for key in ("id", "part_category", "profile", "quantity", "value", "package", "part_number", "manufacturer", "description")} for part in parts],
+        "reviews": service.list_pending_reviews(),
+        "provenance": {str(part.id): repository.inventory.list_provenance(part.id) for part in parts},
     }
 
 
@@ -187,13 +210,14 @@ def _assert_state(snapshot: dict[str, Any], expected: dict[str, Any]) -> None:
             raise EvaluationFailure(f"missing provenance for part {part_id}: {set(field_names) - actual}")
 
 
-async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, *, factory: RuntimeFactory = default_runtime_factory) -> ScenarioResult:
+async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, *,
+                       factory: RuntimeFactory = default_runtime_factory,
+                       storage_factory: StorageFactory = sqlite_evaluation_storage) -> ScenarioResult:
     workspace.mkdir(parents=True, exist_ok=True)
-    # Never overwrite a prior evaluation artifact (which could be a redacted
-    # approved live artifact); each run gets an isolated database pair.
-    database = workspace / f"{scenario['id']}-{runtime}-{uuid.uuid4().hex}.db"
-    _seed(database, scenario["starting_database"])
-    runtime_instance, transport = factory(runtime, database, [_turn(turn) for turn in scenario["recorded_turns"]])
+    storage = storage_factory(workspace, f"{scenario['id']}-{runtime}")
+    _seed(storage.repository, scenario["starting_database"])
+    runtime_instance, transport = factory(runtime, storage.repository, storage.conversations,
+                                          [_turn(turn) for turn in scenario["recorded_turns"]])
     events: list[Any] = []
     turn_index = 0
     for conversation in scenario["conversation"]:
@@ -214,7 +238,7 @@ async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, 
     # Count durable tool calls, rather than deliveries of those calls.
     events = list({(event.thread_id, event.sequence): event for event in events}.values())
     _assert_tools(events, scenario["tool_constraints"])
-    _assert_state(_snapshot(database), scenario["expected_final_state"])
+    _assert_state(_snapshot(storage.repository), scenario["expected_final_state"])
     answers = "\n".join(event.data["text"].lower() for event in events if event.kind == "assistant_text")
     assertion = scenario.get("answer_assertions", {})
     if assertion.get("contains_any") and not any(text.lower() in answers for text in assertion["contains_any"]):
@@ -224,10 +248,12 @@ async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, 
     return ScenarioResult(scenario["id"], runtime, "passed", len([event for event in events if event.kind == "tool_call"]))
 
 
-async def run_recorded(workspace: Path, *, factory: RuntimeFactory = default_runtime_factory) -> EvaluationReport:
+async def run_recorded(workspace: Path, *, factory: RuntimeFactory = default_runtime_factory,
+                       storage_factory: StorageFactory = sqlite_evaluation_storage) -> EvaluationReport:
     results = []
     for scenario in load_scenarios():
-        results.append(await run_scenario(scenario, "openai", workspace, factory=factory))
+        results.append(await run_scenario(scenario, "openai", workspace, factory=factory,
+                                         storage_factory=storage_factory))
     return EvaluationReport(tuple(results))
 
 

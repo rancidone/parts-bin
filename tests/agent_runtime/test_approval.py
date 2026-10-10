@@ -8,7 +8,8 @@ from unittest.mock import patch
 import pytest
 from db.repository import SQLitePartsBinRepository
 
-from agent_runtime import ApprovalEngine, ApprovalResponse, ConversationStore, ModelTurn, OpenAIResponsesRuntime, ToolCall
+from agent_runtime import ApprovalEngine, ApprovalResponse, ModelTurn, OpenAIResponsesRuntime, ToolCall
+from db.conversations import SQLiteConversationRepository
 from db import persistence
 from domain import AddPartRequest, GetPartRequest, PartFields, PartsBinService, UpdatePartRequest
 from tools import PartsBinToolRegistry
@@ -148,7 +149,7 @@ class Turns:
 
 async def test_runtime_recovers_commit_before_tool_result_event(setup, tmp_path):
     database, service, engine, registry = setup
-    store = ConversationStore(tmp_path / "events.db")
+    store = SQLiteConversationRepository(tmp_path / "events.db")
     runtime = OpenAIResponsesRuntime(Turns(ModelTurn(tool_calls=(
         ToolCall("delete_part", {"part_id": 1}, "delete"),))),
         registry=registry, store=store, approvals=engine)
@@ -164,7 +165,7 @@ async def test_runtime_recovers_commit_before_tool_result_event(setup, tmp_path)
         await runtime.run("thread", "", approval_response=decision, on_event=disconnected)
     assert service.list() == []
     restarted = OpenAIResponsesRuntime(Turns(ModelTurn("Deleted.")), registry=registry,
-        store=ConversationStore(store.database), approvals=ApprovalEngine(SQLitePartsBinRepository(database)))
+        store=SQLiteConversationRepository(store.database), approvals=ApprovalEngine(SQLitePartsBinRepository(database)))
     result = await restarted.run("thread", "", approval_response=decision)
     assert result.status == "completed"
     saved = next(event for event in result.events if event.kind == "tool_result")
@@ -173,7 +174,7 @@ async def test_runtime_recovers_commit_before_tool_result_event(setup, tmp_path)
 
 async def test_runtime_approval_survives_replacement_before_decision(setup, tmp_path):
     database, service, engine, registry = setup
-    store = ConversationStore(tmp_path / "events.db")
+    store = SQLiteConversationRepository(tmp_path / "events.db")
     runtime = OpenAIResponsesRuntime(Turns(ModelTurn(tool_calls=(
         ToolCall("update_part", {"part_id": 1, "fields": {"description": "new"}}, "update"),))),
         registry=registry, store=store, approvals=engine)
@@ -181,7 +182,7 @@ async def test_runtime_approval_survives_replacement_before_decision(setup, tmp_
     event = next(event for event in pending.events if event.kind == "approval_request")
     restarted = OpenAIResponsesRuntime(Turns(ModelTurn("Updated.")),
         registry=PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(database))),
-        store=ConversationStore(store.database), approvals=ApprovalEngine(SQLitePartsBinRepository(database)))
+        store=SQLiteConversationRepository(store.database), approvals=ApprovalEngine(SQLitePartsBinRepository(database)))
     result = await restarted.run("thread", "", approval_response=ApprovalResponse(event.data["request_id"], True))
     assert result.status == "completed"
     assert service.get(GetPartRequest(1)).description == "new"

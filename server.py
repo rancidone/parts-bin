@@ -16,12 +16,13 @@ from time import perf_counter
 
 import log
 from agent_runtime import (
-    AgentGateway, ApprovalEngine, ApprovalResponse, ConversationStore, ImageInput,
+    AgentGateway, ApprovalEngine, ApprovalResponse, ImageInput,
     OpenAIResponsesRuntime, OpenAIResponsesTransport, UnsupportedRuntimeError,
 )
 from agent_runtime.telemetry import AgentTelemetry
-from db.persistence import export_csv
+from inventory_export import export_csv
 from db.repository import SQLitePartsBinRepository
+from db.conversations import SQLiteConversationRepository
 from domain import (
     ApplyReviewRequest, DeletePartRequest, DomainError, FetchSpecsRequest,
     PartsBinService, ProvenanceRequest, RejectReviewRequest, UpdatePartRequest,
@@ -90,7 +91,7 @@ def _make_agent_runtime():
     )
 
 
-_conversation_store = ConversationStore(_agent_cfg.get("conversation_db_path", str(_DB_PATH)))
+_conversation_store = SQLiteConversationRepository(_agent_cfg.get("conversation_db_path", str(_DB_PATH)))
 _approval_engine = ApprovalEngine(_repository)
 _agent_telemetry = AgentTelemetry()
 _agent_gateway = AgentGateway(_conversation_store, _make_agent_runtime, telemetry=_agent_telemetry)

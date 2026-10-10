@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from .runner import load_scenarios, run_scenario
+from evaluation.runner import load_scenarios, run_scenario
 
 
 def _cases():

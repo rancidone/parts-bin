@@ -55,6 +55,9 @@ implementations over speculative abstractions.
 - Target AWS serverless infrastructure provisioned with Terraform. Validate
   service choices against application constraints and official documentation;
   record decisions and tradeoffs in `docs/design/`.
+- Keeping costs down is a project goal. Use only necessary services; prefer
+  existing capabilities and add infrastructure when measured requirements
+  justify its recurring cost and operational burden.
 - Keep deployments independent, with one owner per installation. Do not introduce
   tenancy or shared multi-user access control without an explicit scope change.
 - Cloud deployments require HTTPS, authentication, secure configuration,
@@ -67,8 +70,8 @@ implementations over speculative abstractions.
 
 - `server.py`: current FastAPI entry point and API adapters.
 - `domain/`: typed inventory rules and domain errors.
-- `db/`: current SQLite schema and inventory persistence.
-- `agent_runtime/`: gateway, OpenAI transport, approvals, conversation storage,
+- `db/`: SQLite adapters for inventory, conversations, approvals, and executions.
+- `agent_runtime/`: gateway, OpenAI transport, approvals, conversation contracts,
   and telemetry.
 - `tools/`: typed inventory tool registry.
 - `ingestion/`, `photo/`: source lookup/extraction and image processing.
@@ -91,7 +94,8 @@ implementations over speculative abstractions.
 
 - Do not commit credentials or local runtime configuration. Treat `config.toml`,
   databases, telemetry, and uploaded images as local data.
-- Prefer focused tests alongside changed code. Run `uv run pytest` for backend
+- Keep Python tests in `tests/`, mirroring the source directories. Prefer focused
+  tests for changed code. Run `uv run pytest` for backend
   changes; for UI changes run `npm run lint` and `npm run build` from `ui/`.
 - Code defines implemented behavior; executable checks and their run output are
   implementation evidence. Documentation explains decisions, rationale, tradeoffs,

@@ -4,7 +4,7 @@ import json
 
 from agent_runtime import ConversationEvent
 
-from .failures import capture_failure, promote_failure
+from evaluation.failures import capture_failure, promote_failure
 
 
 def test_capture_failure_redacts_messages_images_arguments_and_results(tmp_path):

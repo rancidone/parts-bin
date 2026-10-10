@@ -25,10 +25,10 @@ check may incur provider charges:
 
 ```sh
 # Supply OPENAI_API_KEY privately and choose PARTS_BIN_OPENAI_MODEL first.
-PARTS_BIN_SMOKE_RUNTIME=openai uv run pytest e2e/test_agent_runtime_smoke.py
+PARTS_BIN_SMOKE_RUNTIME=openai uv run pytest tests/e2e/test_agent_runtime_smoke.py
 ```
 
-See the [smoke test](../e2e/test_agent_runtime_smoke.py) for its scope and required environment variables.
+See the [smoke test](../tests/e2e/test_agent_runtime_smoke.py) for its scope and required environment variables.
 
 ## Diagnosing failures
 
@@ -38,7 +38,7 @@ metadata without copying private conversation or inventory contents into reports
 
 ```sh
 curl -fsS http://localhost:8000/health
-uv run pytest agent_runtime/test_telemetry.py evaluation/test_failures.py test_log.py
+uv run pytest tests/agent_runtime/test_telemetry.py tests/evaluation/test_failures.py tests/test_log.py
 sqlite3 data/parts.db 'PRAGMA integrity_check;'
 ```
 
@@ -130,7 +130,7 @@ promoting it into the evaluation set:
 ```sh
 uv run python -m evaluation.failures capture --help
 uv run python -m evaluation.failures promote --help
-uv run pytest evaluation
+uv run pytest tests/evaluation
 ```
 
 See [evaluation usage](../evaluation/README.md) for running checks and

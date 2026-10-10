@@ -25,6 +25,13 @@ validate mutations, and enforce duplicate and quantity rules. Models must not
 receive a full inventory dump, raw database access, or an unrestricted action
 interface.
 
+Inventory search must support natural-language requirements over category-specific
+specifications and available stock. The agent interprets requirements; validated
+domain queries determine matches. Explain which committed facts satisfy each
+constraint, and identify missing evidence separately. Unknown specifications,
+pending proposals, or semantic similarity cannot establish that a part meets an
+electrical requirement. See [specification search](flexible-part-model-and-identity.md#natural-language-requirements-search).
+
 Keep one server-side approval policy. Reads do not need
 mutation approval. Changes to identified committed records, deletion, bulk edits,
 and acceptance of enrichment require explicit approval of the intended effect.
@@ -52,6 +59,13 @@ own access and retention policies; redacted telemetry does not make all stored
 application data non-sensitive.
 
 ## Scope discipline
+
+Keeping costs down is a product goal. Use only services needed for the supported
+workflows and deployment requirements. Prefer the existing storage and query
+capabilities, and justify additional services with measured quality, performance,
+or operational needs. Include infrastructure and external AI/retrieval usage in
+the cost assessment. Preserve correctness, security, and recovery requirements
+when reducing the stack.
 
 Prefer direct inventory tools and source-backed enrichment over generic browsing,
 shell, or database tools. Avoid speculative search systems, automatic runtime
