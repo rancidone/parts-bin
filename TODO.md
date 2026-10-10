@@ -6,9 +6,6 @@ Design rationale belongs in [docs/design/](docs/design/).
 
 ## Next: persistence decoupling and serverless
 
-- Isolate the supplied-source enrichment cache behind a small storage contract.
-  Keep its expiry and recovery semantics separate from authoritative inventory,
-  provenance, conversation history, and operation outcomes.
 - Use repository-injected scenarios plus adapter-specific atomicity, concurrency,
   and recovery checks to evaluate a cloud persistence candidate. Rehearse migration
   on a copy, preserving identities, evidence, event ordering, and retry protection.

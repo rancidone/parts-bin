@@ -10,16 +10,16 @@ import json
 import multiprocessing
 import re
 import socket
-import sqlite3
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 
 import httpx
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTTextContainer
+
+from ingestion.cache import EnrichmentCache
+from ingestion.errors import EnrichmentError
 
 POLICY_VERSION = "supplied-pdf-v1"
 ALLOWED_HOSTS = frozenset({"assets.nexperia.com", "www.nexperia.com", "www.ti.com"})
@@ -29,10 +29,6 @@ MAX_TEXT_CHARS = 60_000
 CACHE_SECONDS = 90 * 24 * 3600
 LEASE_SECONDS = 300
 FIELDS = ("part_number", "manufacturer", "package", "description")
-
-
-class EnrichmentError(ValueError):
-    pass
 
 
 @dataclass(frozen=True)
@@ -232,52 +228,8 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
             "policy_version": POLICY_VERSION, "usage": payload.get("usage", {})}
 
 
-class ResultCache:
-    """Disposable local cache with cross-process leases; not a durable job queue."""
-
-    def __init__(self, path: str | Path):
-        self.path = path
-        with self.connection() as conn:
-            conn.execute("""CREATE TABLE IF NOT EXISTS supplied_enrichment_cache (
-                key TEXT PRIMARY KEY, expires REAL NOT NULL, lease_until REAL NOT NULL,
-                result TEXT)""")
-
-    @contextmanager
-    def connection(self):
-        conn = sqlite3.connect(self.path)
-        try:
-            with conn:
-                yield conn
-        finally:
-            conn.close()
-
-    def previous(self, key: str) -> dict | None:
-        with self.connection() as conn:
-            row = conn.execute("SELECT result FROM supplied_enrichment_cache WHERE key = ?", (key,)).fetchone()
-        return json.loads(row[0]) if row and row[0] else None
-
-    def acquire(self, key: str, *, refresh: bool = False) -> dict | None:
-        now = time.time()
-        with self.connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT expires, lease_until, result FROM supplied_enrichment_cache WHERE key = ?", (key,)).fetchone()
-            if row and row[1] > now:
-                raise EnrichmentError("Enrichment is active or cooling down after a failure; try later")
-            if row and row[0] > now and row[2] and not refresh:
-                return json.loads(row[2])
-            conn.execute("INSERT OR REPLACE INTO supplied_enrichment_cache VALUES (?, 0, ?, NULL)",
-                         (key, now + LEASE_SECONDS))
-        return None
-
-    def save(self, key: str, result: dict) -> None:
-        ttl = CACHE_SECONDS if result["outcome"] == "proposal" else 24 * 3600
-        with self.connection() as conn:
-            conn.execute("UPDATE supplied_enrichment_cache SET expires = ?, lease_until = 0, result = ? WHERE key = ?",
-                         (time.time() + ttl, json.dumps(result), key))
-
-
 async def enrich(part_number: str, manufacturer: str | None, source_url: str, *,
-                 api_key: str, model: str, cache: ResultCache, refresh: bool = False,
+                 api_key: str, model: str, cache: EnrichmentCache, refresh: bool = False,
                  client: httpx.AsyncClient | None = None) -> dict:
     checked_url(source_url)
     if not part_number.strip() or not model.strip():
@@ -286,7 +238,8 @@ async def enrich(part_number: str, manufacturer: str | None, source_url: str, *,
         manufacturer.strip().casefold() if manufacturer else None, source_url, model,
         POLICY_VERSION]).encode()).hexdigest()
     previous = cache.previous(key)
-    hit = cache.acquire(key, refresh=refresh)
+    now = time.time()
+    hit = cache.acquire(key, now=now, lease_until=now + LEASE_SECONDS, refresh=refresh)
     if hit is not None:
         return {**hit, "cache_hit": True}
     if not api_key:
@@ -298,11 +251,13 @@ async def enrich(part_number: str, manufacturer: str | None, source_url: str, *,
             document = await retrieve_pdf(source_url, client)
             if previous and previous["source"]["sha256"] == document.sha256:
                 result = {**previous, "source": {**previous["source"], "retrieved_at": document.retrieved_at}}
-                cache.save(key, result)
+                cache.save(key, result, expires=time.time() + (
+                    CACHE_SECONDS if result["outcome"] == "proposal" else 24 * 3600))
                 return {**result, "cache_hit": True}
             result = await extract(document, part_number, manufacturer,
                                    api_key=api_key, model=model, client=client)
-            cache.save(key, result)
+            cache.save(key, result, expires=time.time() + (
+                CACHE_SECONDS if result["outcome"] == "proposal" else 24 * 3600))
             return {**result, "cache_hit": False}
     finally:
         if own_client:

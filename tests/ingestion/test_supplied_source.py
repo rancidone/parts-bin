@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from db.enrichment_cache import SQLiteEnrichmentCache
 from db.repository import SQLitePartsBinRepository
 
 from domain import AddPartRequest, AddStockRequest, ApplyReviewRequest, GetPartRequest, PartFields, PartsBinService, UpdatePartRequest
@@ -102,7 +103,7 @@ async def test_extraction_returns_only_validated_fields_and_usage():
 
 async def test_cache_reuses_result_without_retrieval_and_separates_identity(tmp_path):
     path = tmp_path / "cache.db"
-    cache = source.ResultCache(path)
+    cache = SQLiteEnrichmentCache(path)
     with patch.object(source, "retrieve_pdf", AsyncMock(return_value=DOCUMENT)) as retrieve, \
             patch.object(source, "extract", AsyncMock(return_value=extraction())) as extract:
         first = await source.enrich("PBSS5350T", None, URL, api_key="fake", model="explicit-model", cache=cache)
@@ -122,20 +123,8 @@ async def test_cache_reuses_result_without_retrieval_and_separates_identity(tmp_
     assert "pages" not in stored and "api_key" not in stored
 
 
-def test_cache_lease_and_expiry(tmp_path):
-    cache = source.ResultCache(tmp_path / "cache.db")
-    with patch.object(source.time, "time", return_value=100):
-        assert cache.acquire("key") is None
-        with pytest.raises(source.EnrichmentError):
-            source.ResultCache(cache.path).acquire("key")
-        cache.save("key", extraction())
-        assert cache.acquire("key")["outcome"] == "proposal"
-    with patch.object(source.time, "time", return_value=100 + source.CACHE_SECONDS + 1):
-        assert cache.acquire("key") is None
-
-
 async def test_provider_failure_is_not_cached_as_no_match(tmp_path):
-    cache = source.ResultCache(tmp_path / "cache.db")
+    cache = SQLiteEnrichmentCache(tmp_path / "cache.db")
     with patch.object(source, "retrieve_pdf", AsyncMock(side_effect=TimeoutError)):
         with pytest.raises(TimeoutError):
             await source.enrich("PBSS5350T", None, URL, api_key="fake", model="explicit-model", cache=cache)
@@ -189,7 +178,15 @@ def test_stage_and_accept_keep_quantity_and_evidence(tmp_path):
     assert service.get(GetPartRequest(original.id)).quantity == 9
     accepted = service.apply_review(ApplyReviewRequest(original.id))
     assert accepted.package == "SOT23" and accepted.quantity == 9
+    cache = SQLiteEnrichmentCache(tmp_path / "parts.db")
+    cache.acquire("disposable", now=100, lease_until=400)
+    cache.save("disposable", extraction(), expires=1000)
     from domain.models import ProvenanceRequest
+    before = service.provenance(ProvenanceRequest(original.id))
+    with sqlite3.connect(cache.path) as conn:
+        conn.execute("DROP TABLE supplied_enrichment_cache")
+    assert service.get(GetPartRequest(original.id)) == accepted
+    assert service.provenance(ProvenanceRequest(original.id)) == before
     evidence = service.provenance(ProvenanceRequest(original.id))
     assert json.loads(evidence[0]["evidence"])["sha256"] == DOCUMENT.sha256
 
@@ -217,3 +214,94 @@ def test_staging_rejects_quantity_and_unevidenced_fields(tmp_path):
     with pytest.raises(DomainError):
         service.stage_enrichment(original, {"package": "SOT23"}, [])
     assert service.list_pending_reviews() == {}
+
+
+async def test_enrichment_uses_injected_storage_contract():
+    from unittest.mock import Mock
+    from ingestion.cache import EnrichmentCache
+
+    cache = Mock(spec=EnrichmentCache)
+    cache.previous.return_value = None
+    cache.acquire.return_value = None
+    with patch.object(source.time, "time", return_value=100), \
+            patch.object(source, "retrieve_pdf", AsyncMock(return_value=DOCUMENT)), \
+            patch.object(source, "extract", AsyncMock(return_value=extraction())):
+        result = await source.enrich("PBSS5350T", None, URL, api_key="fake",
+                                     model="explicit-model", cache=cache)
+    key = cache.previous.call_args.args[0]
+    cache.acquire.assert_called_once_with(key, now=100, lease_until=400, refresh=False)
+    cache.save.assert_called_once_with(key, extraction(), expires=100 + source.CACHE_SECONDS)
+    assert result["cache_hit"] is False
+
+
+@pytest.mark.parametrize("outcome,ttl", [
+    ("proposal", source.CACHE_SECONDS), ("no_match", 86400), ("needs_clarification", 86400),
+])
+async def test_expiry_revalidates_hash_without_repeating_paid_extraction(tmp_path, outcome, ttl):
+    cache = SQLiteEnrichmentCache(tmp_path / "cache.db")
+    result = extraction() if outcome == "proposal" else {
+        **extraction(), "outcome": outcome, "fields": {}, "clarification": "Which variant?"}
+    later = source.Document(URL, DOCUMENT.sha256, "2026-10-11T00:00:00+00:00", (PAGE,))
+    with patch.object(source.time, "time", return_value=100) as now, \
+            patch.object(source, "retrieve_pdf", AsyncMock(return_value=DOCUMENT)) as retrieve, \
+            patch.object(source, "extract", AsyncMock(return_value=result)) as extract:
+        await source.enrich("PBSS5350T", None, URL, api_key="fake", model="explicit-model", cache=cache)
+        with sqlite3.connect(cache.path) as conn:
+            assert conn.execute("SELECT expires FROM supplied_enrichment_cache").fetchone()[0] == 100 + ttl
+        now.return_value = 100 + ttl - 1
+        await source.enrich("PBSS5350T", None, URL, api_key="", model="explicit-model", cache=cache)
+        assert retrieve.await_count == 1
+        now.return_value = 100 + ttl
+        retrieve.return_value = later
+        refreshed = await source.enrich("PBSS5350T", None, URL, api_key="fake", model="explicit-model",
+                                        cache=SQLiteEnrichmentCache(cache.path))
+        assert refreshed["cache_hit"] is True
+        assert refreshed["source"]["retrieved_at"] == later.retrieved_at
+        assert retrieve.await_count == 2
+        assert extract.await_count == 1
+
+
+@pytest.mark.parametrize("failure_stage", ["retrieve_pdf", "extract"])
+async def test_failed_refresh_requires_explicit_retry_after_cooldown(tmp_path, failure_stage):
+    cache = SQLiteEnrichmentCache(tmp_path / "cache.db")
+    with patch.object(source.time, "time", return_value=100) as now, \
+            patch.object(source, "retrieve_pdf", AsyncMock(return_value=DOCUMENT)) as retrieve, \
+            patch.object(source, "extract", AsyncMock(return_value=extraction())) as extract:
+        await source.enrich("PBSS5350T", None, URL, api_key="fake", model="explicit-model", cache=cache)
+        failed = retrieve if failure_stage == "retrieve_pdf" else extract
+        retrieve.return_value = source.Document(URL, "changed", DOCUMENT.retrieved_at, (PAGE,))
+        failed.side_effect = TimeoutError
+        with pytest.raises(TimeoutError):
+            await source.enrich("PBSS5350T", None, URL, api_key="fake", model="explicit-model",
+                                cache=cache, refresh=True)
+        counts = (retrieve.await_count, extract.await_count)
+        now.return_value = 399
+        with pytest.raises(source.EnrichmentError, match="cooling down"):
+            await source.enrich("PBSS5350T", None, URL, api_key="fake", model="explicit-model",
+                                cache=SQLiteEnrichmentCache(cache.path), refresh=True)
+        assert (retrieve.await_count, extract.await_count) == counts
+        now.return_value = 400
+        assert (retrieve.await_count, extract.await_count) == counts
+        failed.side_effect = None
+        await source.enrich("PBSS5350T", None, URL, api_key="fake", model="explicit-model", cache=cache)
+        assert retrieve.await_count == counts[0] + 1
+        assert extract.await_count == counts[1] + 1
+
+
+async def test_cache_key_preserves_identity_source_model_and_policy(tmp_path):
+    cache = SQLiteEnrichmentCache(tmp_path / "cache.db")
+    with patch.object(source, "retrieve_pdf", AsyncMock(return_value=DOCUMENT)) as retrieve, \
+            patch.object(source, "extract", AsyncMock(return_value=extraction())) as extract:
+        async def lookup(number="PBSS5350T", manufacturer=None, url=URL, model="explicit-model"):
+            return await source.enrich(number, manufacturer, url, api_key="fake", model=model, cache=cache)
+
+        await lookup()
+        assert (await lookup(number=" pbss5350t "))["cache_hit"] is True
+        await lookup(number="PBSS5350T,215")
+        await lookup(manufacturer="Nexperia")
+        assert (await lookup(manufacturer=" nexperia "))["cache_hit"] is True
+        await lookup(url=URL + "?revision=2")
+        await lookup(model="other-model")
+        with patch.object(source, "POLICY_VERSION", "next-policy"):
+            await lookup()
+        assert retrieve.await_count == extract.await_count == 6

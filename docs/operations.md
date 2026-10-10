@@ -121,6 +121,25 @@ an application read/write workflow in that isolated installation. Record elapsed
 recovery time and the backup's age with the exercise. Keep the original local
 data untouched until recovery and any migration have been reviewed.
 
+## Supplied-source cache recovery
+
+The supplied-source operator command uses a disposable SQLite cache in the
+configured inventory database. Cache freshness is separate from retention of
+accepted evidence. Preserve authoritative tables during recovery; deleting the
+whole database to clear a cache would also delete inventory and retry protection.
+
+A failed or interrupted supplied-source lookup leaves a five-minute claim from
+the attempt's start. A lookup during that interval, including `--refresh`, is
+blocked. Once it expires, retry by explicitly invoking the operator command;
+there is no automatic retry or durable cache job. A failure is not saved as a
+no-match result. Check provider usage before retrying uncertain paid extraction.
+
+`--refresh` bypasses freshness and downloads the source again. If its hash is
+unchanged, the saved extraction can be reused without another model call. A
+failed refresh clears the prior cached result, so a later attempt may incur a
+new extraction charge. Cache cleanup cannot remove evidence already staged for
+review or accepted into inventory. Downloaded PDFs and photos are not cache data.
+
 ## Turning failures into regressions
 
 Capture only diagnostic metadata, then construct a synthetic scenario that
