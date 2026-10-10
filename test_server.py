@@ -1,11 +1,18 @@
 """HTTP adapter tests for the gateway and inventory surfaces."""
 
 from unittest.mock import patch
+from tempfile import TemporaryDirectory
+from pathlib import Path
+import os
 
 import pytest
 from starlette.testclient import TestClient
 
-import server
+with TemporaryDirectory() as setup_dir:
+    config = Path(setup_dir) / "test.toml"
+    config.write_text(f'[db]\npath = "{setup_dir}/parts.db"\n')
+    with patch.dict(os.environ, {"PARTS_BIN_CONFIG": str(config)}):
+        import server
 from db.persistence import init_db
 
 
@@ -13,27 +20,49 @@ from db.persistence import init_db
 def client(tmp_path):
     db_path = tmp_path / "parts.db"
     init_db(db_path)
-    with patch.object(server, "_DB_PATH", db_path):
+    from agent_runtime import AgentGateway, ConversationStore
+    store = ConversationStore(db_path)
+    gateway = AgentGateway(store, server._make_agent_runtime)
+    with patch.object(server, "_DB_PATH", db_path), patch.object(server, "_conversation_store", store), patch.object(server, "_agent_gateway", gateway):
         with TestClient(server.app, raise_server_exceptions=True) as test_client:
             yield test_client, db_path
 
 
-def test_health_reports_explicit_runtimes(client):
+def test_health_reports_agent_configuration(client):
     response = client[0].get("/health")
     assert response.status_code == 200
-    assert set(response.json()) == {"status", "runtimes"}
+    assert set(response.json()) == {"status", "agent_configured"}
 
 
-@pytest.mark.parametrize("runtime", ["codex", "openai", "local"])
-def test_agent_thread_selects_runtime(client, runtime):
-    response = client[0].post("/agent/threads", json={"runtime": runtime})
+def test_agent_thread_uses_openai_without_a_picker(client):
+    response = client[0].post("/agent/threads")
     assert response.status_code == 200
-    assert response.json()["runtime"] == runtime
+    thread_id = response.json()["thread_id"]
+    assert server._conversation_store.runtime_for(thread_id) == "openai"
 
 
-def test_invalid_agent_thread_runtime_is_rejected(client):
-    response = client[0].post("/agent/threads", json={"runtime": "unsupported"})
+@pytest.mark.parametrize("runtime", ["codex", "local", "openai", "unsupported"])
+def test_agent_thread_runtime_selection_is_rejected(client, runtime):
+    response = client[0].post("/agent/threads", json={"runtime": runtime})
     assert response.status_code == 422
+
+
+def test_catalog_endpoints_are_removed(client):
+    assert client[0].get("/jlcparts/status").status_code == 404
+    assert client[0].post("/jlcparts/download").status_code == 405
+
+
+@pytest.mark.parametrize("runtime", ["codex", "local"])
+def test_historical_conversations_are_readable_but_cannot_continue(client, runtime):
+    import sqlite3
+    with sqlite3.connect(client[1]) as conn:
+        conn.execute("INSERT INTO agent_threads VALUES (?, ?)", ("old-thread", runtime))
+        conn.execute("INSERT INTO agent_events VALUES (?, ?, ?, ?, ?)",
+                     ("old-thread", 1, "assistant_text", runtime, '{"text":"preserved history"}'))
+    assert "preserved history" in client[0].get("/agent/threads/old-thread/events").text
+    assert client[0].post("/agent/threads/old-thread/messages", data={"message": "continue"}).status_code == 409
+    assert client[0].post("/agent/threads/old-thread/approvals", json={"request_id": "old", "approved": True}).status_code == 409
+    assert server._conversation_store.runtime_for("old-thread") == runtime
 
 
 def test_inventory_still_opens(client):
@@ -64,10 +93,10 @@ async def test_message_endpoint_returns_sse_before_turn_finishes(tmp_path, monke
                 stopped.set()
 
     store = ConversationStore(tmp_path / "conversation.db")
-    gateway = AgentGateway(store, lambda _: OpenAIResponsesRuntime(PausedTransport(),
+    gateway = AgentGateway(store, lambda: OpenAIResponsesRuntime(PausedTransport(),
         registry=PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db")), store=store, approvals=ApprovalEngine()))
     monkeypatch.setattr(server, "_agent_gateway", gateway)
-    thread = gateway.create_thread("openai")
+    thread = gateway.create_thread()
     response = await asyncio.wait_for(server.submit_agent_message(thread, "search", None), 1)
     assert response.headers["x-accel-buffering"] == "no"
     for kind in ["user_message", "tool_call", "tool_result"]:

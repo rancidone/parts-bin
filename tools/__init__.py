@@ -1,4 +1,4 @@
-"""Canonical Parts Bin tool contract and MCP transport."""
+"""Canonical Parts Bin tool contract."""
 
 from .registry import ApprovalReceipt, PartsBinToolRegistry, ToolExecutionContext
 

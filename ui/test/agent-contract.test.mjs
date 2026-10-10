@@ -12,10 +12,6 @@ test('UI has one normalized event-stream reader and only agent conversation endp
   assert.doesNotMatch(chat, /\/(?:chat|query)|\/settings\/llm/)
 })
 
-test('runtime selector is locked once a thread exists', () => {
-  assert.match(chat, /disabled=\{Boolean\(threadId\)\}/)
-})
-
 for (const kind of ['user_message', 'assistant_text', 'tool_call', 'tool_result', 'approval_request', 'approval_decision', 'error']) {
   test(`renders ${kind} event data`, async () => {
     assert.match(chat, new RegExp(`event\.kind === ['"]${kind}['"]`))

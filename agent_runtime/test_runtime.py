@@ -6,12 +6,11 @@ import pytest
 
 from domain import PartsBinService
 from tools import PartsBinToolRegistry
-from tools.mcp_server import MCPServer
 
-from agent_runtime import (ApprovalEngine, ApprovalResponse, CodexAppServerRuntime,
-                           ConversationStore, LocalOpenAICompatibleRuntime,
-                           ImageInput, ModelTurn, OpenAIResponsesRuntime, PartsBinMCPClient,
+from agent_runtime import (ApprovalEngine, ApprovalResponse, ConversationStore,
+                           ImageInput, ModelTurn, OpenAIResponsesRuntime,
                            RuntimeSelectionError, ToolCall)
+
 from agent_runtime.runtime import ModelRequest
 
 
@@ -25,24 +24,18 @@ class ScriptedTransport:
         return self.turns.popleft()
 
 
-def build_runtime(kind, tmp_path, turns, *, native=True, limit=8):
-    registry = PartsBinToolRegistry(PartsBinService(tmp_path / f"{kind}.db"))
+def build_runtime(tmp_path, turns, *, limit=8):
+    registry = PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db"))
     store = ConversationStore(tmp_path / "conversations.db")
     common = {"registry": registry, "store": store, "approvals": ApprovalEngine(), "max_tool_turns": limit}
     transport = ScriptedTransport(turns)
-    if kind == "openai":
-        runtime = OpenAIResponsesRuntime(transport, **common)
-    elif kind == "local":
-        runtime = LocalOpenAICompatibleRuntime(transport, supports_native_tools=native, **common)
-    else:
-        runtime = CodexAppServerRuntime(transport, mcp_client=PartsBinMCPClient(MCPServer(registry)), **common)
+    runtime = OpenAIResponsesRuntime(transport, **common)
     return runtime, transport, store
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["codex", "openai", "local"])
-async def test_runtimes_share_tool_events_and_database_outcome(tmp_path, kind):
-    runtime, transport, _store = build_runtime(kind, tmp_path, [
+async def test_tool_events_and_database_outcome(tmp_path):
+    runtime, transport, _store = build_runtime(tmp_path, [
         ModelTurn(tool_calls=(ToolCall("add_part", {"part_category": "resistor", "profile": "passive", "quantity": 2, "value": "10k"}, "a"),)),
         ModelTurn(tool_calls=(ToolCall("search_parts", {"filters": {"value": "10k"}}, "b"),)),
         ModelTurn("Added and found it."),
@@ -56,7 +49,7 @@ async def test_runtimes_share_tool_events_and_database_outcome(tmp_path, kind):
 @pytest.mark.asyncio
 async def test_approval_is_visible_and_must_be_returned_by_same_thread(tmp_path):
     update = ToolCall("update_part", {"part_id": 1, "fields": {"description": "new"}}, "u")
-    runtime, _transport, store = build_runtime("openai", tmp_path, [
+    runtime, _transport, store = build_runtime(tmp_path, [
         ModelTurn(tool_calls=(ToolCall("add_part", {"part_category": "resistor", "profile": "passive", "quantity": 1, "value": "10k"}),)),
         ModelTurn("added"), ModelTurn(tool_calls=(update,)),
         ModelTurn("updated"),
@@ -72,24 +65,16 @@ async def test_approval_is_visible_and_must_be_returned_by_same_thread(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_local_json_envelope_and_loop_limit(tmp_path):
-    runtime, transport, _ = build_runtime("local", tmp_path, [
-        ModelTurn('{"type":"parts_bin_tool_call","name":"search_parts","arguments":{}}'),
-        ModelTurn("done"),
-    ], native=False)
-    assert (await runtime.run("json", "what do I have")).status == "completed"
-    assert transport.requests[0].json_tool_envelope is True
-
-    looping, _, _ = build_runtime("openai", tmp_path, [ModelTurn(tool_calls=(ToolCall("search_parts", {}),))] * 2, limit=1)
+async def test_tool_loop_limit(tmp_path):
+    looping, _, _ = build_runtime(tmp_path, [ModelTurn(tool_calls=(ToolCall("search_parts", {}),))] * 2, limit=1)
     failed = await looping.run("loop", "search")
     assert failed.status == "failed"
     assert failed.events[-2].data["code"] == "tool_loop_limit"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["codex", "openai", "local"])
-async def test_tool_errors_recover_and_images_reach_each_runtime(tmp_path, kind):
-    runtime, transport, _ = build_runtime(kind, tmp_path, [
+async def test_tool_errors_recover_and_images_reach_transport(tmp_path):
+    runtime, transport, _ = build_runtime(tmp_path, [
         ModelTurn(tool_calls=(ToolCall("not_a_tool", {}, "bad"),)), ModelTurn("I corrected that."),
     ])
     result = await runtime.run("image", "identify this", image=ImageInput("image/png", "AA=="))
@@ -99,10 +84,9 @@ async def test_tool_errors_recover_and_images_reach_each_runtime(tmp_path, kind)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["codex", "openai", "local"])
-async def test_approved_ic_correction_executes_without_model_repeating_call(tmp_path, kind):
+async def test_approved_ic_correction_executes_without_model_repeating_call(tmp_path):
     from domain import GetPartRequest
-    runtime, transport, _ = build_runtime(kind, tmp_path, [
+    runtime, transport, _ = build_runtime(tmp_path, [
         ModelTurn(tool_calls=(ToolCall("add_part", {"part_category": "IC", "profile": "discrete_ic", "quantity": 110, "part_number": "NE5532"}),)),
         ModelTurn("added"),
         ModelTurn(tool_calls=(ToolCall("update_part", {"part_id": 1, "fields": {"quantity": 10, "package": "DIP", "part_category": "operational amplifier", "description": "Dual operational amplifier"}}),)),

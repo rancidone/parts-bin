@@ -24,7 +24,7 @@ async def test_paraphrased_answer_passes_when_tools_and_state_are_correct(tmp_pa
     assert scenario["recorded_turns"][-1]["text"] != original
 
 
-@pytest.mark.parametrize("runtime", ["codex", "openai", "local"])
+@pytest.mark.parametrize("runtime", ["openai"])
 async def test_initial_model_request_never_contains_a_full_inventory_snapshot(tmp_path, runtime):
     scenario = _scenario("large_inventory_search")
     database = tmp_path / f"{runtime}.db"

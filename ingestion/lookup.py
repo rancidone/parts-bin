@@ -6,14 +6,12 @@ Lookup failure is non-fatal; callers receive a structured enrichment result.
 """
 
 from collections import defaultdict
-from pathlib import Path
 from time import perf_counter
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 
 import log
-from ingestion.jlcparts_lookup import lookup_by_mpn as _jlcparts_lookup_by_mpn
 from ingestion.pdf_extract import extract_pdf_candidates
 from ingestion.source_extract import classify_content, extract_html_candidates
 from ingestion.web_search import search_datasheet_pdfs
@@ -682,7 +680,6 @@ async def _fetch_web_search_pdf(
 async def fetch_specs_detailed(
     part_number: str,
     digikey_credentials: dict | None = None,
-    jlcparts_db_path: str | None = None,
     search_config: dict | None = None,
 ) -> dict:
     """
@@ -702,27 +699,6 @@ async def fetch_specs_detailed(
     stage_timings_ms: dict[str, float] = {}
 
     async with httpx.AsyncClient() as client:
-        if jlcparts_db_path and Path(jlcparts_db_path).exists():
-            jlcparts_started = perf_counter()
-            tried_providers.append("jlcparts")
-            jlcparts_result = _jlcparts_lookup_by_mpn(jlcparts_db_path, part_number)
-            stage_timings_ms["jlcparts_lookup"] = _elapsed_ms(jlcparts_started)
-            _logger.info("jlcparts lookup finished", extra={
-                "part_number": part_number,
-                "latency_ms": stage_timings_ms["jlcparts_lookup"],
-                "status": jlcparts_result["status"],
-            })
-            source_attempts.append(_build_source_attempt(
-                provider="jlcparts",
-                authority_tier="local_db",
-                lookup_status=jlcparts_result["status"],
-                specs=jlcparts_result.get("specs"),
-                debug=jlcparts_result.get("debug"),
-                error=jlcparts_result.get("error"),
-            ))
-            if jlcparts_result.get("debug"):
-                _logger.debug("jlcparts raw result", extra=jlcparts_result["debug"])
-
         if digikey_credentials:
             tried_providers.append("digikey")
             digikey_started = perf_counter()

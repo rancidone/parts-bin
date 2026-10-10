@@ -2,7 +2,7 @@
 
 Capture artifacts are deliberately not replay recordings.  An operator creates
 a separate synthetic scenario after review; promotion records who approved it
-and appends that reviewed scenario to the Phase 05 suite.
+and appends that reviewed scenario to the scenario suite.
 """
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     capture = commands.add_parser("capture", help="Create a metadata-only failure artifact")
     capture.add_argument("--output", type=Path, required=True)
-    capture.add_argument("--runtime", choices=("codex", "openai", "local"), required=True)
+    capture.add_argument("--runtime", choices=("openai",), required=True)
     capture.add_argument("--failure-code", required=True)
     capture.add_argument("--scenario-id")
     # Events cannot be reconstructed safely from arbitrary JSON at this CLI

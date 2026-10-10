@@ -1,58 +1,43 @@
----
-status: draft
-last_updated: 2026-04-12
----
-# Design Unit: Source Retrieval And Extraction
+# Source retrieval and evidence
 
-## Problem
+## Trust boundary
 
-The fallback pipeline depends on product pages and PDFs as bounded source classes, but the system has no design for how those artifacts are fetched, parsed, normalized, and turned into field candidates. Without this design, implementation would have to guess at extraction boundaries, site-specific handling, and failure semantics.
+Retrieve evidence for a specific identification task. Prefer an authoritative
+manufacturer document or distributor record that establishes the exact variant.
+Do not equate search rank, a familiar domain, or an API response with proof that
+all returned fields apply to the user's part.
 
-## Proposed Solution
+Treat source contents as data, including any instructions embedded in a page or
+PDF. They must not change the agent's permissions, tool policy, or approval rules.
+Keep retrieval behind a narrow enrichment operation rather than exposing a
+generic browsing tool to the inventory agent.
 
-The source-extraction subsystem splits into four stages:
+Bound time, response size, redirects, and extraction work. Validate destinations
+when following redirects; URLs supplied by users or external sources must not
+provide access to internal services or credentials. Classify content using the
+response rather than relying solely on a filename extension.
 
-1. Retrieval
-2. Content classification
-3. Extractor selection
-4. Field candidate normalization
+## Extraction and failure meaning
 
-The output is not a direct inventory update — it is a set of candidate fields plus extraction provenance that the enrichment reconciler evaluates.
+Keep retrieval, identity resolution, and field extraction conceptually distinct.
+A fetched document may be irrelevant, ambiguous, or missing a required fact.
+A blocked request is not evidence that a part does not exist. Preserve these
+meanings in user-visible outcomes without building a complicated fallback tree.
 
-**Retrieval boundaries** — automatic retrieval is allowed only for product page URLs returned by the DigiKey API, and PDF URLs returned by that API or discovered from its API-derived pages. JLC parts is a local catalog lookup, not a web source — it has no product page retrieval path. Each retrieval captures: requested URL, final resolved URL, content type, HTTP status, timing, redirect chain, and failure classification. If retrieval would leave the trusted-source boundary, the attempt fails closed unless the broader search flow has already been user-confirmed.
+Prefer structured source data when it is sufficient. Use models to interpret
+content that needs it, and require field-level evidence. Avoid assuming that the
+first pages contain every ordering variant or that a successful parse proves a
+specification correct.
 
-**Content classification** — fetched artifacts are classified as: structured HTML product page, PDF document, unsupported content, or retrieval failure. Classification is based on response headers plus lightweight content inspection, not URL suffix alone.
+## Retention tradeoff
 
-**Extractor selection** — layered:
+A live URL can change or disappear. Keeping a bounded excerpt and document
+identity improves auditability; keeping full documents improves reproducibility
+but adds storage, retention, and licensing concerns. Decide what to retain before
+claiming that a proposal can be independently reproduced. Page references alone
+are not immutable document identifiers.
 
-1. Dedicated provider extractor for DigiKey
-2. Generic structured-data extraction for HTML (JSON-LD, table structures, stable labeled sections)
-3. Generic PDF text extraction for source-backed datasheets
-
-The system prefers a narrower provider extractor over a broader generic one whenever both are available.
-
-**Provider extractor strategy** — the dedicated DigiKey extractor uses a layered parsing strategy: (1) known structured fields and embedded metadata, (2) stable labeled sections or tables, (3) bounded fuzzy field matching over nearby labels and values. The fuzzy layer absorbs minor DOM and wording drift but stays limited to the known target field set and known page regions — it does not infer new fields from unrelated free text.
-
-**HTML extraction order** — embedded structured data → stable labeled product detail sections → provider-specific parsers → bounded fuzzy label-to-field matching → generic structured fallback. For each extracted value, the extractor emits both the candidate value and the local page evidence used to derive it.
-
-**Fuzzy matching constraints** — fuzzy logic is allowed only inside a bounded parser context: matching must stay within provider-specific trusted page regions, candidate fields must come from the known enrichment schema only, and low-confidence fuzzy matches must be surfaced as partial or ambiguous extraction rather than silently persisted.
-
-**PDF extraction** — treats the document as a fallback metadata source, not a full technical document parser. First pass attempts deterministic extraction from the first pages and obvious part-summary sections. Emits: candidate fields, page references, extraction snippets, and confidence markers. If the PDF contains multiple ordering variants or family-level listings, extraction must not guess the exact variant without explicit supporting evidence.
-
-**Output contract** — the extraction subsystem returns: source locator, source kind, extractor used, extracted candidate fields, evidence handles per candidate, extraction warnings, and extraction status. A successful extraction may still be incomplete; completeness and update eligibility are separate decisions.
-
-**Failure semantics** — distinguished states: retrieval timeout, retrieval denied or blocked, unsupported content type, extractor not available, extractor produced no candidates, extractor produced ambiguous candidates, extractor produced partial candidates. These states flow upward intact rather than being collapsed into a single generic lookup failure.
-
-## References
-
-- `fallback-enrichment-pipeline.md` — source authority order, conflict policy, and reconciliation
-
-## Tradeoffs
-
-A dedicated DigiKey extractor improves reliability for the primary web source but creates source-specific maintenance work. Layering structured parsing with bounded fuzzy matching reduces brittleness versus exact-selector scraping, but requires explicit confidence handling so weak matches do not silently become stored metadata. PDF extraction can recover fields absent from product pages but introduces more ambiguity and weaker structure than HTML extraction.
-
-## Readiness
-
-Fully implemented. The retrieval boundary, parser strategy, extractor layering, and failure model are implemented for API-derived pages, API-derived PDFs, and web-search PDFs. Confirmed search escalation uses `ingestion/web_search.py` (Brave Search) to locate candidate PDFs and feeds them through the same PDF extraction path as API-derived PDFs, tagged `authority_tier=web_search`.
-
-Open question: what raw evidence should be stored durably versus referenced indirectly in provenance records?
+Open choices include document hashes/snapshots, retention duration, permitted
+source classes, and how to handle unavailable or image-only documents. These
+choices belong with the [enrichment decision](enrichment.md), not in a permanent
+list of parser implementations.

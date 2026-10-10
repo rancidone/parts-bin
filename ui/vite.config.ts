@@ -9,7 +9,6 @@ export default defineConfig({
     proxy: {
       '/agent':     'http://localhost:8000',
       '/inventory': 'http://localhost:8000',
-      '/jlcparts':  'http://localhost:8000',
     },
   },
 })

@@ -17,14 +17,13 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from agent_runtime import (
-    ApprovalEngine, ApprovalResponse, CodexAppServerRuntime, ConversationStore,
-    ImageInput, LocalOpenAICompatibleRuntime, ModelTurn, OpenAIResponsesRuntime,
-    PartsBinMCPClient, ToolCall,
+    ApprovalEngine, ApprovalResponse, ConversationStore,
+    ImageInput, ModelTurn, OpenAIResponsesRuntime, ToolCall,
 )
+
 from domain import PartsBinService
 from db import persistence
 from tools import PartsBinToolRegistry
-from tools.mcp_server import MCPServer
 
 SCENARIOS_PATH = Path(__file__).with_name("scenarios.json")
 MUTATIONS_REQUIRING_APPROVAL = frozenset({"update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review"})
@@ -36,7 +35,7 @@ class EvaluationFailure(AssertionError):
 
 
 class RuntimeFactory(Protocol):
-    def __call__(self, runtime: str, database: Path, turns: list[ModelTurn], *, local_json_envelope: bool = False): ...
+    def __call__(self, runtime: str, database: Path, turns: list[ModelTurn]): ...
 
 
 @dataclass(frozen=True)
@@ -72,18 +71,14 @@ class RecordedTransport:
         return self.turns.popleft()
 
 
-def default_runtime_factory(runtime: str, database: Path, turns: list[ModelTurn], *, local_json_envelope: bool = False):
+def default_runtime_factory(runtime: str, database: Path, turns: list[ModelTurn]):
     service = PartsBinService(database, spec_fetcher=_recorded_specs)
     registry = PartsBinToolRegistry(service)
     common = {"registry": registry, "store": ConversationStore(database.with_suffix(".events.db")), "approvals": ApprovalEngine()}
     transport = RecordedTransport(turns)
-    if runtime == "codex":
-        return CodexAppServerRuntime(transport, mcp_client=PartsBinMCPClient(MCPServer(registry)), **common), transport
-    if runtime == "openai":
-        return OpenAIResponsesRuntime(transport, **common), transport
-    if runtime == "local":
-        return LocalOpenAICompatibleRuntime(transport, supports_native_tools=not local_json_envelope, **common), transport
-    raise ValueError(f"Unknown runtime: {runtime}")
+    if runtime != "openai":
+        raise ValueError("Only the OpenAI runtime is supported")
+    return OpenAIResponsesRuntime(transport, **common), transport
 
 
 async def _recorded_specs(part_number: str) -> dict[str, Any]:
@@ -196,7 +191,7 @@ async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, 
     # approved live artifact); each run gets an isolated database pair.
     database = workspace / f"{scenario['id']}-{runtime}-{uuid.uuid4().hex}.db"
     _seed(database, scenario["starting_database"])
-    runtime_instance, transport = factory(runtime, database, [_turn(turn) for turn in scenario["recorded_turns"]], local_json_envelope=scenario.get("local_json_envelope", False))
+    runtime_instance, transport = factory(runtime, database, [_turn(turn) for turn in scenario["recorded_turns"]])
     events: list[Any] = []
     turn_index = 0
     for conversation in scenario["conversation"]:
@@ -214,8 +209,6 @@ async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, 
             raise EvaluationFailure(f"runtime did not complete: {result.status}")
         turn_index += 1
     _assert_tools(events, scenario["tool_constraints"])
-    if scenario.get("local_json_envelope") and (not transport.requests or not transport.requests[0].json_tool_envelope):
-        raise EvaluationFailure("local JSON-envelope mode was not requested")
     _assert_state(_snapshot(database), scenario["expected_final_state"])
     answers = "\n".join(event.data["text"].lower() for event in events if event.kind == "assistant_text")
     assertion = scenario.get("answer_assertions", {})
@@ -229,8 +222,7 @@ async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, 
 async def run_recorded(workspace: Path, *, factory: RuntimeFactory = default_runtime_factory) -> EvaluationReport:
     results = []
     for scenario in load_scenarios():
-        for runtime in scenario.get("runtimes", ["codex", "openai", "local"]):
-            results.append(await run_scenario(scenario, runtime, workspace, factory=factory))
+        results.append(await run_scenario(scenario, "openai", workspace, factory=factory))
     return EvaluationReport(tuple(results))
 
 

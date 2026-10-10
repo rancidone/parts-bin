@@ -130,33 +130,6 @@
   background: var(--surface);
 }
 
-.runtimeRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.runtimeRow select {
-  font-size: 0.75rem;
-  padding: 3px 8px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  cursor: pointer;
-  background: transparent;
-  transition: background 0.15s, border-color 0.15s;
-  color: var(--fg);
-}
-
-.runtimeRow select:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.runtimeLocked {
-  font-size: 0.75rem;
-  color: #c0392b;
-}
-
 .activity {
   align-self: flex-start;
   color: var(--muted);

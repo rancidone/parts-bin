@@ -110,18 +110,6 @@
       "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"quantity": 1}}, "reviews": {}},
       "answer_assertions": {"contains_any": ["found", "10k"]},
       "recorded_turns": [{"tool_calls": [{"name": "not_a_tool", "arguments": {}}]}, {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10k"}}}]}, {"text": "I recovered from the tool error and found the 10k resistor."}]
-    },
-    {
-      "id": "local_json_envelope",
-      "runtimes": ["local"],
-      "local_json_envelope": true,
-      "starting_database": {"parts": [{"part_category": "resistor", "profile": "passive", "quantity": 1, "value": "10k", "package": "0603"}]},
-      "conversation": [{"user": "Find my 10k resistor."}],
-      "allowed_approvals": {},
-      "tool_constraints": {"required_sequence": ["search_parts"], "max_calls": 1},
-      "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"quantity": 1}}, "reviews": {}},
-      "answer_assertions": {"contains_any": ["found", "10k"]},
-      "recorded_turns": [{"text": "{\"type\":\"parts_bin_tool_call\",\"name\":\"search_parts\",\"arguments\":{\"filters\":{\"part_category\":\"resistor\",\"value\":\"10k\"}}}"}, {"text": "Found the matching 10k resistor."}]
     }
   ]
 }

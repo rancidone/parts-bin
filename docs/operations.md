@@ -1,123 +1,97 @@
-# Local operations
+# Operating Parts Bin locally
 
-Parts Bin supports three explicitly selected runtimes: `local`, `openai`, and
-`codex`. A runtime is chosen when a thread is created and cannot change for
-that thread. If a runtime is unavailable, the thread reports that runtime
-failure; Parts Bin never falls back to an old or alternate runtime.
+This guide explains useful operating procedures and their purpose. It is not a
+record of successful deployments or recovery exercises. Use the code, tests, and
+output of the exercise you run to establish behavior for your checkout.
 
-## Setup and capability checks
+## Configuration and runtime checks
 
-Start from a clean checkout:
+Follow the [setup guide](../README.md). Use [config.example.toml](../config.example.toml)
+for keys and [compose.yaml](../compose.yaml) for container mounts and environment
+variables rather than copying a configuration schema from this guide.
 
-```sh
-uv sync
-cd ui && npm install && cd ..
-cp config.example.toml config.toml
-mkdir -p data
-uv run pytest agent_runtime evaluation test_log.py
-./dev.sh
-curl -fsS http://localhost:8000/health
-```
+Configure the OpenAI API agent through private configuration. Use
+`PARTS_BIN_CONFIG` to point the process at a configuration file outside the checkout
+when needed. Keep credentials out of logs, prompts, shell history, and fixtures.
 
-Configure only the runtime you intend to use in `config.toml`.
+For a checkout that previously used another runtime, configure OpenAI and start a
+new conversation. Keep historical conversation data and any old provider session
+files as retained local data; do not rewrite their provider identity or delete them
+as part of application cleanup. Retired-provider threads are for reading history.
 
-- Local: point `agent.local.base_url` to an OpenAI-compatible server and set a
-  model name. The model must reliably follow system instructions, handle the
-  configured image modality when photos are used, and support native function
-  tools. `supports_native_tools = false` is only for a local model that emits
-  the exact documented Parts Bin JSON tool envelope; it is not a provider
-  fallback or reduced compatibility mode.
-- OpenAI: set `agent.openai.api_key` from a local secret-management mechanism,
-  select a Responses API model, and leave `base_url` at the API endpoint unless
-  using an authorized compatible endpoint. Do not commit `config.toml` or put
-  the key in telemetry, shell history, screenshots, or scenario fixtures.
-- Codex: authenticate the locally installed Codex CLI/app server using its
-  normal interactive login before starting Parts Bin. The repository launcher
-  then starts the app server and configures the Parts Bin MCP server. For the
-  Docker deployment, set `CODEX_HOME` to the host Codex directory; Compose
-  mounts only its `auth.json` into the container read-only. Parts Bin does not
-  attempt programmatic login or a fallback if the app server is unavailable.
-
-The health endpoint reports configuration availability, not provider login or
-model-quality validation. Run a new thread with each configured runtime for an
-end-to-end check. The optional smoke test is explicitly configured:
+An HTTP health response is a useful diagnostic, not proof of provider login or
+model quality. Exercise a new OpenAI thread. A live smoke
+check may incur provider charges:
 
 ```sh
-PARTS_BIN_SMOKE_RUNTIME=local uv run pytest e2e/test_agent_runtime_smoke.py
+# Supply OPENAI_API_KEY privately and choose PARTS_BIN_OPENAI_MODEL first.
 PARTS_BIN_SMOKE_RUNTIME=openai uv run pytest e2e/test_agent_runtime_smoke.py
-PARTS_BIN_SMOKE_RUNTIME=codex uv run pytest e2e/test_agent_runtime_smoke.py
 ```
 
-## Telemetry and diagnostics
+See the [smoke test](../e2e/test_agent_runtime_smoke.py) for its scope and required environment variables.
 
-`TELEMETRY_LOG_FILE` defaults to `telemetry.jsonl` (Docker uses
-`/app/data/telemetry.jsonl`). It is JSONL with telemetry version 1. The fixed
-event set is `agent_runtime_selected`, `agent_turn_finished`,
-`agent_tool_started`, `agent_tool_finished`, `agent_tool_error`,
-`agent_approval_decision`, `agent_loop_limit`, and `agent_runtime_error`.
-Records contain runtime, opaque thread/argument fingerprints, tool name,
-argument keys, latency, status, stable error code, approval boolean, and a
-coarse domain outcome. They do not contain prompts, assistant text, image
-payloads, credentials, tool values/results, or inventory records. The logging
-guard redacts sensitive field names even if a caller accidentally supplies one.
+## Diagnosing failures
 
-Useful local diagnostics:
+Start with a small reproducible request and distinguish provider transport,
+tool validation, domain errors, and interrupted execution. Read diagnostic
+metadata without copying private conversation or inventory contents into reports.
 
 ```sh
 curl -fsS http://localhost:8000/health
-tail -n 50 data/telemetry.jsonl
 uv run pytest agent_runtime/test_telemetry.py evaluation/test_failures.py test_log.py
-uv run python -m evaluation.runner --workspace /private/tmp/parts-bin-evals
 sqlite3 data/parts.db 'PRAGMA integrity_check;'
 ```
 
-Runtime failures use `agent_runtime_error`; rejected or invalid registry calls
-use `agent_tool_error` with a `failure_scope` of `tool` or `domain`; an
-exhausted bounded tool loop uses `agent_loop_limit`. This separates provider
-configuration from tool/domain failures without retaining sensitive data.
+Substitute your configured database path. Inspect [logging](../log.py),
+[telemetry](../agent_runtime/telemetry.py), and container configuration for event
+formats and destinations. Avoid maintaining a separate event/schema list here.
+An integrity check tests database consistency, not completeness of a backup or
+correctness of the inventory it contains.
 
 ## Backup and recovery
 
-Back up both the inventory database and, when configured separately, the
-conversation database. Use SQLite's online backup command while the service is
-running so WAL state is included consistently:
+Identify the inventory and conversation database paths from your configuration.
+They may share a file. Protect configuration separately and retain historical
+provider session files if they are part of your recovery requirements. A supplier cache is not an inventory
+backup. If state spans multiple files, quiesce writes for a coordinated backup.
+
+For a single SQLite database, use SQLite's online backup facility rather than
+copying a live database file and hoping its WAL state is included:
 
 ```sh
 mkdir -p backups
-sqlite3 data/parts.db ".backup 'backups/parts-$(date +%Y%m%d-%H%M%S).db'"
-sqlite3 backups/parts-YYYYMMDD-HHMMSS.db 'PRAGMA integrity_check;'
+sqlite3 data/parts.db ".backup 'backups/parts-recovery.db'"
+sqlite3 backups/parts-recovery.db 'PRAGMA integrity_check;'
 ```
 
-For recovery, stop Parts Bin, preserve the damaged file for investigation,
-replace only the configured database with a verified backup, then start the
-service and run `PRAGMA integrity_check`. Backups and telemetry are local data;
-protect their filesystem permissions. SQLite files are supported for this
-single-user local deployment only—network filesystems, multi-writer access,
-and remote inventory synchronization are unsupported deployment modes.
+Use a new destination for each retained backup; do not overwrite your only known
+good copy. Apply restrictive filesystem permissions and keep a protected copy
+outside the application's failure domain. Retention and off-host storage depend
+on the deployment and recovery objectives.
 
-## Evaluation-failure capture and promotion
+Rehearse recovery into an isolated directory using copies of the backup and
+configuration. Stop the target application before replacing database state.
+Preserve any old database and its associated WAL/SHM files together for
+investigation; do not combine an old WAL with a restored database. Install the
+backup at the configured path with appropriate ownership and permissions before
+starting the target application.
 
-Live evaluations remain opt-in (`PARTS_BIN_LIVE_EVAL=1`). When one fails,
-capture a metadata-only artifact; it deliberately excludes prompts, images,
-arguments, results, text, credentials, and inventory records:
+Check integrity, representative inventory quantities, conversation history, and
+an application read/write workflow in that isolated installation. Record elapsed
+recovery time and the backup's age with the exercise. Keep the original local
+data untouched until recovery and any migration have been reviewed.
+
+## Turning failures into regressions
+
+Capture only diagnostic metadata, then construct a synthetic scenario that
+reproduces the failure without private user content. Review the scenario before
+promoting it into the evaluation set:
 
 ```sh
-uv run python -m evaluation.failures capture \
-  --output .eval-artifacts/failure.json --runtime local \
-  --failure-code tool_loop --scenario-id observed-local-loop
-```
-
-Review the failure, then write a new synthetic deterministic scenario JSON by
-hand. Do not copy customer input or inventory into it. A named reviewer can
-promote it into the Phase 05 suite:
-
-```sh
-uv run python -m evaluation.failures promote \
-  --capture .eval-artifacts/failure.json \
-  --candidate /path/to/reviewed-scenario.json \
-  --approved-by "reviewer-name"
+uv run python -m evaluation.failures capture --help
+uv run python -m evaluation.failures promote --help
 uv run pytest evaluation
 ```
 
-Promotion appends only a new scenario ID, records the approver and timestamp
-in the capture artifact, and refuses duplicate IDs or incomplete scenarios.
+See [evaluation usage](../evaluation/README.md) for running checks and
+[evaluation decisions](design/evaluation.md) for what they can establish.

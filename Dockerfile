@@ -19,9 +19,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nodejs npm tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-chi-tra \
-    && npm install --global @openai/codex@0.147.0 \
-    && npm cache clean --force \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-chi-tra \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv
@@ -34,8 +32,7 @@ COPY --from=ui-builder /app/ui/dist ./ui/dist
 
 RUN useradd --create-home --shell /bin/bash appuser \
     && mkdir -p /app/data \
-    && mkdir -p /home/appuser/.codex \
-    && chown -R appuser:appuser /app /home/appuser/.codex
+    && chown -R appuser:appuser /app
 
 USER appuser
 

@@ -6,7 +6,7 @@ from .runner import load_scenarios, run_scenario
 
 
 def _cases():
-    return [(scenario["id"], runtime) for scenario in load_scenarios() for runtime in scenario.get("runtimes", ["codex", "openai", "local"])]
+    return [(scenario["id"], runtime) for scenario in load_scenarios() for runtime in ["openai"]]
 
 
 @pytest.mark.parametrize(("scenario_id", "runtime"), _cases())

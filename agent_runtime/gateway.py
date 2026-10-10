@@ -1,7 +1,7 @@
 """Application host for the normalized agent event protocol.
 
 The gateway deliberately knows nothing about Parts Bin records or SQLite.  It
-selects an already-composed runtime, owns its lifecycle, and translates its
+hosts an OpenAI runtime, owns its lifecycle, and translates its
 durable ``ConversationEvent`` objects to the one stream consumed by the UI.
 """
 
@@ -15,11 +15,11 @@ from typing import Awaitable
 from uuid import uuid4
 
 from .models import ApprovalResponse, ConversationEvent, ImageInput, RuntimeName
-from .runtime import AgentRuntime
-from .store import ConversationStore
+from .runtime import OpenAIResponsesRuntime
+from .store import ConversationStore, UnsupportedRuntimeError
 from .telemetry import AgentTelemetry
 
-RuntimeFactory = Callable[[RuntimeName], Awaitable[AgentRuntime] | AgentRuntime]
+RuntimeFactory = Callable[[], Awaitable[OpenAIResponsesRuntime] | OpenAIResponsesRuntime]
 
 
 class AgentGateway:
@@ -29,13 +29,13 @@ class AgentGateway:
                  *, telemetry: AgentTelemetry | None = None) -> None:
         self.store = store
         self._make_runtime = make_runtime
-        self._runtimes: dict[RuntimeName, AgentRuntime] = {}
+        self._runtime: OpenAIResponsesRuntime | None = None
         self.telemetry = telemetry or AgentTelemetry()
 
-    def create_thread(self, runtime: RuntimeName) -> str:
+    def create_thread(self) -> str:
         thread_id = uuid4().hex
-        self.store.create_thread(thread_id, runtime)
-        self.telemetry.runtime_selected(thread_id, runtime)
+        self.store.create_thread(thread_id, "openai")
+        self.telemetry.runtime_selected(thread_id, "openai")
         return thread_id
 
     async def submit(self, thread_id: str, text: str, *, image: ImageInput | None = None,
@@ -101,27 +101,29 @@ class AgentGateway:
 
     async def close(self) -> None:
         """Release runtime-owned connections/processes during application shutdown."""
-        for runtime in self._runtimes.values():
-            closer = getattr(getattr(runtime, "transport", None), "close", None)
+        if self._runtime is not None:
+            closer = getattr(self._runtime.transport, "close", None)
             if closer is not None:
                 result = closer()
                 if hasattr(result, "__await__"):
                     await result
-        self._runtimes.clear()
+            self._runtime = None
 
-    async def _runtime_for(self, thread_id: str) -> AgentRuntime:
-        runtime_name = self._runtime_name(thread_id)
-        runtime = self._runtimes.get(runtime_name)
-        if runtime is None:
-            built = self._make_runtime(runtime_name)
-            runtime = await built if hasattr(built, "__await__") else built
-            self._runtimes[runtime_name] = runtime
-        return runtime
+    async def _runtime_for(self, thread_id: str) -> OpenAIResponsesRuntime:
+        self._runtime_name(thread_id)
+        if self._runtime is None:
+            built = self._make_runtime()
+            self._runtime = await built if hasattr(built, "__await__") else built
+        return self._runtime
 
     def _runtime_name(self, thread_id: str) -> RuntimeName:
         runtime_name = self.store.runtime_for(thread_id)
         if runtime_name is None:
             raise KeyError(thread_id)
+        if runtime_name != "openai":
+            raise UnsupportedRuntimeError(
+                "This conversation uses a retired provider and is read-only. Start a new OpenAI conversation."
+            )
         return runtime_name
 
     def _failure(self, thread_id: str, runtime: RuntimeName, code: str, message: str, *, latency_ms: float) -> tuple[ConversationEvent, ...]:
@@ -130,9 +132,3 @@ class AgentGateway:
         error = self.store.append(ConversationEvent("error", thread_id, runtime, {"code": code, "message": message}))
         completed = self.store.append(ConversationEvent("completed", thread_id, runtime, {"status": "failed"}))
         return error, completed
-
-
-async def event_stream(events: tuple[ConversationEvent, ...]) -> AsyncIterator[ConversationEvent]:
-    """Tiny async adapter kept at the HTTP boundary for SSE streaming."""
-    for event in events:
-        yield event

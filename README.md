@@ -1,97 +1,69 @@
 # Parts Bin
 
-Parts Bin is a local-first electronics inventory app. Conversations run through
-one agent gateway, a shared typed tool registry, and normalized durable events.
-The inventory remains in a local SQLite database.
+Parts Bin helps an electronics hobbyist identify parts, manage stock, and find
+what they already have through text, photos, and an inventory UI.
 
-## Requirements
+The project favors local-first operation and independent deployments owned by
+the operator. The cloud direction is AWS serverless with Terraform; see the
+[cloud decisions](docs/design/cloud-hosting.md) for rationale and open choices.
+A design decision is not a claim that its implementation is available.
 
-- Python 3.14+ and [uv](https://docs.astral.sh/uv/)
-- Node.js and npm
-- At least one explicitly configured runtime: Codex, OpenAI API, or Local
-- Optional DigiKey credentials for supplier spec lookup
+## Local setup
 
-## Setup
+Use Python 3.14+ with [uv](https://docs.astral.sh/uv/) and Node.js with npm.
+Dependency declarations live in [pyproject.toml](pyproject.toml) and
+[ui/package.json](ui/package.json).
+
+From the repository root:
 
 ```sh
 uv sync
-cd ui && npm install && cd ..
+npm ci --prefix ui
 cp config.example.toml config.toml
-```
-
-Configure only the runtimes you intend to use. The runtime is selected when a
-conversation starts and remains fixed for that thread. An unavailable runtime
-reports an error; it does not select another provider.
-
-```toml
-[agent]
-conversation_db_path = "data/parts.db"
-
-[agent.codex]
-command = "codex exec"
-model = "gpt-5.6-luna"
-
-[agent.openai]
-api_key = ""
-base_url = "https://api.openai.com/v1"
-model = "gpt-5.6"
-
-[agent.local]
-base_url = "http://localhost:8080/v1"
-api_key = ""
-model = "local"
-supports_native_tools = true
-
-[db]
-path = "data/parts.db"
-```
-
-The Local runtime accepts an OpenAI-compatible inference endpoint. Set
-`supports_native_tools = false` only for a model that follows the documented
-strict JSON tool-call envelope. The repository Codex launcher starts
-`codex app-server --stdio` and configures the repository's `tools.mcp_server`
-as the `parts_bin` MCP server. Set `PARTS_BIN_CODEX_BIN` only when `codex` is
-not on `PATH`.
-
-See [local operations](docs/operations.md) for runtime capability requirements,
-Codex authentication, OpenAI credential handling, telemetry, diagnostics,
-backup/recovery, and redacted evaluation-failure promotion.
-
-## Run locally
-
-```sh
-./dev.sh
-```
-
-The API runs on `http://localhost:8000`; Vite serves the development UI on
-`http://localhost:5173`. Stop both with `./dev.sh stop`.
-
-## Docker deployment
-
-Keep `config.toml` and SQLite data outside the image. For a local-first
-deployment, point the Local runtime at a reachable local inference service and
-store the database under `data/`:
-
-```toml
-[agent]
-conversation_db_path = "data/parts.db"
-
-[db]
-path = "data/parts.db"
-```
-
-```sh
 mkdir -p data
+```
+
+Skip the copy if you already have local configuration. Edit `config.toml` to
+configure the OpenAI API agent; use
+[config.example.toml](config.example.toml) for configuration keys. Keep credentials
+out of version control. See [configuration decisions](docs/design/configuration.md)
+and [operations](docs/operations.md) for guidance.
+
+Run the API and UI in separate terminals:
+
+```sh
+uv run uvicorn server:app --host 127.0.0.1 --port 8000
+```
+
+```sh
+npm run dev --prefix ui -- --host 127.0.0.1
+```
+
+Open `http://localhost:5173`. Stop each process with Ctrl-C. For a container-based
+local deployment, inspect [compose.yaml](compose.yaml), configure its mounts and
+API credentials, then run:
+
+```sh
 docker compose up --build -d
 ```
 
-The container serves the API and built UI at `http://localhost:8000`, mounts
-`config.toml` read-only, and persists `data/`. Back up `data/parts.db` while
-the service is stopped, or use SQLite's backup facility for an online backup.
+Compose publishes port 8000. Treat this as local setup, not a recipe for exposing
+an authenticated service to the internet. Keep configuration and persistent data
+outside the image; see [backup and recovery](docs/operations.md#backup-and-recovery).
 
-## Tests
+## Development checks
 
 ```sh
 uv run pytest
-cd ui && npm run lint && npm run build
+npm run lint --prefix ui
+npm run build --prefix ui
 ```
+
+See [evaluation guidance](evaluation/README.md) for focused checks and their
+limitations. Run checks to obtain results; documentation does not certify them.
+
+## Project understanding
+
+Start with the [documentation guide](docs/README.md) for product intent,
+architecture decisions, enrichment, and cloud tradeoffs. [TODO.md](TODO.md)
+contains upcoming work, not a record of completed implementation.

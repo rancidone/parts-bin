@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "status": "draft_for_review",
+  "input": "Nexperia PBSS5350T",
+  "mode": "supplied_source_extraction",
+  "source": {
+    "url": "https://assets.nexperia.com/documents/data-sheet/PBSS5350T.pdf",
+    "document_date": "2023-01-01",
+    "reviewed_on": "2026-10-10",
+    "page_numbering": "One-based PDF pages",
+    "evidence_format": "Summaries are paraphrases, not verbatim source passages."
+  },
+  "expected_fields": {
+    "manufacturer": {
+      "value": "Nexperia",
+      "page": 2,
+      "locator": "Document header and copyright attribution",
+      "evidence_summary": "The document identifies Nexperia as the manufacturer publishing the PBSS5350T data sheet."
+    },
+    "part_number": {
+      "value": "PBSS5350T",
+      "page": 2,
+      "locator": "Section 6, Table 3: Ordering information",
+      "evidence_summary": "The type-number entry is PBSS5350T."
+    },
+    "package": {
+      "value": "SOT23",
+      "accepted_aliases": ["SOT-23", "TO-236AB"],
+      "page": 1,
+      "locator": "Section 1: General description; corroborated by Table 3 on page 2",
+      "evidence_summary": "The device is supplied in SOT23, also designated TO-236AB; the ordering table specifies three terminals."
+    },
+    "description": {
+      "value": "PNP bipolar transistor with low collector-emitter saturation voltage",
+      "page": 1,
+      "locator": "Section 1: General description",
+      "evidence_summary": "The device is described as a PNP transistor with low VCEsat.",
+      "comparison": "Semantic equivalence; exact wording is not required."
+    }
+  },
+  "additional_correctness_checks": [
+    {
+      "rule": "If current ratings are mentioned, distinguish collector current from repetitive peak current and preserve the pulse conditions.",
+      "page": 3,
+      "locator": "Section 8, Table 5: Limiting values",
+      "reference": {
+        "collector_current_A": -2,
+        "repetitive_peak_collector_current_A": -3,
+        "repetitive_peak_conditions": "Duty cycle <= 0.25; pulse duration <= 100 ms"
+      },
+      "note": "These are absolute maximum limits, not a guarantee of safe operation at every combination of voltage, current, and temperature. Magnitudes may be used if PNP polarity is clear."
+    }
+  ],
+  "expected_action": "Propose supported metadata for review; do not mutate inventory during extraction."
+}
