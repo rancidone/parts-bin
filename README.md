@@ -65,6 +65,14 @@ npm run test --prefix ui
 npm run build --prefix ui
 ```
 
+Browser regression tests run the UI against synthetic API responses in Chromium.
+They require no backend, local inventory, or provider credentials:
+
+```sh
+npm exec --prefix ui -- playwright install chromium
+npm run test:browser --prefix ui
+```
+
 See [evaluation guidance](evaluation/README.md) for focused checks and their
 limitations.
 

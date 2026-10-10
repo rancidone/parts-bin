@@ -78,7 +78,7 @@ export function Chat() {
     <form className={styles.inputBar} onSubmit={send}>
       {photoPreview && <div className={styles.photoPreview}><img src={photoPreview} alt="attachment" /><button type="button" className={styles.removePhoto} onClick={clearPhoto}>✕</button></div>}
       <div className={styles.inputRow}>
-        <button type="button" className={styles.attachBtn} disabled={pending || readOnly} onClick={() => fileRef.current?.click()} title="Attach photo">📎</button>
+        <button type="button" className={styles.attachBtn} disabled={pending || readOnly} onClick={() => fileRef.current?.click()} aria-label="Attach photo" title="Attach photo">📎</button>
         <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={choosePhoto} hidden />
         <textarea className={styles.textInput} disabled={pending || !restored || readOnly} aria-label="Message" value={text} onChange={event => setText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(event as unknown as React.FormEvent) } }} placeholder="Add a part or ask a question…" rows={1} />
         <button type="submit" className={styles.sendBtn} aria-label="Send message" disabled={pending || !restored || readOnly || (!text.trim() && !photo)}>▶</button>

@@ -6,9 +6,6 @@ Decisions and rationale belong in [ADRs](docs/adr/README.md).
 
 ## Next: local chat and lookup
 
-- Add browser-level regression tests around reconnect, photo resubmission,
-  approval rendering, and interactions across multiple tabs. Preserve historical
-  provider identity and keep recovery explicit.
 - Evaluate natural-language inventory lookup through the existing narrow tool
   contract. Exercise value notation, exact ordering suffixes, package ambiguity,
   stock availability, and useful clarification. Keep committed inventory separate

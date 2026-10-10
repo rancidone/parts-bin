@@ -22,3 +22,7 @@ __pycache__/
 # node
 ui/node_modules/
 ui/dist/
+
+# browser test artifacts
+ui/test-results/
+ui/playwright-report/
