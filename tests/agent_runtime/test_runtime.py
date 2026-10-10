@@ -163,3 +163,30 @@ async def test_budget_failure_finishes_execution_and_preserves_completed_mutatio
     replay = await runtime.run('budget', 'resume', execution_id=result.execution_id)
     assert replay.status == 'failed'
     assert len(runtime.registry.service.list()) == 1
+
+
+@pytest.mark.asyncio
+async def test_pasted_bom_batch_results_reach_chat_without_mutating_stock(tmp_path):
+    from domain import AddPartRequest, PartFields
+    from agent_runtime.budgets import model_tool_result
+
+    items = [
+        {'filters': {'part_number': 'PBSS5350T,215'}, 'quantity': 4},
+        {'filters': {'part_number': 'PBSS5350T,115'}, 'quantity': 2},
+        {'filters': {'part_number': 'NE5532P'}, 'quantity': 3},
+    ]
+    runtime, transport, store = build_runtime(tmp_path, [
+        ModelTurn(tool_calls=(ToolCall('check_inventory', {'items': items}, 'bom'),)),
+        ModelTurn('PBSS5350T,215: 8 available. PBSS5350T,115: missing. NE5532P: 2 available, short 1.'),
+    ])
+    for number, quantity in [('PBSS5350T,215', 8), ('NE5532P', 2)]:
+        runtime.registry.service.add_part(AddPartRequest(PartFields(
+            part_category='IC', profile='discrete_ic', part_number=number, quantity=quantity)))
+    before = runtime.registry.service.list()
+    result = await runtime.run('bom', 'Check this BOM:\nMPN\tQty\nPBSS5350T,215\t4\nPBSS5350T,115\t2\nNE5532P\t3')
+    assert result.status == 'completed'
+    exchange = transport.requests[-1].exchanges[-1]['result']
+    assert [item['status'] for item in exchange['result']['items']] == ['sufficient', 'missing', 'insufficient']
+    assert not model_tool_result(exchange).get('result_omitted')
+    assert not any(event.kind == 'approval_request' for event in store.events('bom'))
+    assert runtime.registry.service.list() == before
