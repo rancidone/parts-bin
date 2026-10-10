@@ -15,6 +15,8 @@ status. Recording them does not select additional services or change behavior.
 - [0009: Bound model context independently of retained data](0009-bounded-model-context.md)
 - [0010: Cite supplied electrical evidence by server-owned passages](0010-supplied-electrical-passages.md)
 
+- [0011: Extract PDFs best effort with explicit coverage and visual review](0011-best-effort-pdf-extraction.md)
+
 Use one numbered record per decision with **Status**, **Context**, **Decision**,
 and **Consequences**. Do not append implementation progress, test counts, or
 current configuration. Correct factual mistakes when necessary; when a decision

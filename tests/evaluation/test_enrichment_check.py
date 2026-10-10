@@ -96,3 +96,16 @@ def test_timer_package_is_ordering_code_specific():
 @pytest.mark.parametrize("candidate", [None, [], {"fields": []}, {"fields": {"package": None}}])
 def test_malformed_candidate_returns_failure(candidate):
     assert check_candidate("exact_pnp_transistor", candidate)["status"] == "failed"
+
+
+@pytest.mark.parametrize('evidence', [None, {'page': True, 'excerpt': 'Transformer'}, {'page': 1, 'excerpt': ''}])
+def test_mismatch_requires_positive_cited_evidence(evidence):
+    candidate = {'outcome': 'no_match', 'fields': {}, 'mismatch_evidence': evidence}
+    assert check_candidate('mismatched_datasheet', candidate)['status'] == 'failed'
+
+
+def test_mismatch_evidence_still_requires_semantic_review():
+    candidate = {'outcome': 'no_match', 'fields': {}, 'mismatch_evidence': {
+        'page': 1, 'excerpt': 'Synthetic unrelated transformer'}}
+    report = check_candidate('mismatched_datasheet', candidate)
+    assert report['status'] == 'needs_review' and report['errors'] == []

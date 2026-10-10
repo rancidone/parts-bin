@@ -222,6 +222,7 @@ class PartsBinService:
                 service.stage_specifications(original, facts)
         return {'part_id': original.id, 'outcome': outcome,
                 'clarification': candidate.get('clarification'), 'review_staged': bool(facts),
+                'extraction_assessment': candidate.get('extraction_assessment'),
                 **self.get_specifications(original.id)}
 
     def apply_specification_review(self, part_id: int) -> dict:

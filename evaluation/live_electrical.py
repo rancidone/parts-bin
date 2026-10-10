@@ -151,11 +151,16 @@ async def run_electrical(workspace: Path, *, api_key: str, model: str,
             try:
                 document = await retriever(case['url'], client)
                 excerpts, omitted = source.select_excerpts(document, case['part_number'])
-                excerpts, passage_omission = source.electrical_passages(excerpts)
+                tables, table_omission = source.relevant_tables(document.tables, case['part_number'])
+                excerpts, passage_omission = source.electrical_passages(excerpts,
+                    budget=source.MAX_EXCERPT_BYTES - (source.MAX_TABLE_CONTEXT_BYTES if tables else 0))
+                omitted = omitted or table_omission
                 omitted = omitted or passage_omission
                 row['source'] = {'url': document.url, 'sha256': document.sha256,
                                  'retrieved_at': document.retrieved_at, 'page_count': len(document.pages),
                                  'selected_text_bytes': sum(len(item['text'].encode()) for item in excerpts),
+                                 'selected_table_context_bytes': len(json.dumps(tables, ensure_ascii=False).encode()),
+                                 'selected_pages': sorted({item['page'] for item in excerpts}),
                                  'text_omitted': omitted}
                 row['retrieval_latency_ms'] = round((perf_counter() - started) * 1000, 1)
                 stage = 'extraction'

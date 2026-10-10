@@ -93,7 +93,10 @@ acknowledgement; resuming a terminal execution returns the saved outcome.
 Supplied-PDF extraction uses selected source excerpts. If these cannot establish
 identity or evidence, provide a shorter datasheet for the exact ordering variant.
 Missing evidence in selected excerpts does not establish that the part is absent
-from the source. Manufacturer downloads identify Parts Bin in the
+from the source. A `no_match` result requires a cited passage identifying a
+conflicting device, family, or manufacturer; inspect that evidence before
+selecting a different source. A missing exact code alone requires clarification.
+Manufacturer downloads identify Parts Bin in the
 request headers. Download, parsing and model excerpt limits remain independent;
 see [the extraction implementation](../ingestion/supplied_source.py) for current
 bounds. An HTTP or parsing failure stops before a paid extraction and must not be
@@ -170,13 +173,33 @@ uv run python -m ingestion.enrich_source PART_ID SOURCE_URL --model MODEL
 Add `--electrical` to stage electrical facts instead of metadata. The chat tool
 uses the same extraction and fact review path. Approved hosts are listed in
 [the source policy](../ingestion/supplied_source.py); unsupported hosts and
-oversized, image-only or unparsable documents fail without a proposal. A family
+oversized or unparsable documents fail without a proposal. Image-only documents
+return a request for visual review without a text-only model call. A family
 datasheet that does not establish the exact ordering variant needs clarification.
 The extractor leaves unsupported fields unknown and retains only bounded evidence,
 not the PDF. Resolve an existing electrical review before another extraction.
+Chat shows an extraction confidence score based on the fraction of supported
+fields extracted with validated citations and minimum qualifiers. It is a coverage
+heuristic, not a calibrated probability of correctness or proof that qualifiers are complete.
+Missing fields and omitted context are explained. Use the relevant-page links to
+open the manufacturer PDF at exact-code, ratings and measurement pages; PDF
+viewers that ignore page fragments can be navigated manually. Scanned documents
+need visual inspection or a text/OCR version; automatic OCR is not performed.
+Detected table cells retain their bounds so merged cells can be interpreted
+without filling blanks. Review uncertain associations in the original viewer.
+
 Electrical evidence can include several source passages; review every cited row,
-heading and footnote before approving. Matching depends on stored conditions, so
-reject proposals that omit a source's applicable temperature, test environment,
+heading and footnote before approving. Capacitor capacitance requires explicit
+measurement frequency and temperature;
+its rated voltage requires AC/DC and rating temperature before a match can be
+confirmed. Incomplete facts may remain in a review or accepted history, but
+cannot confirm those requirements. Matching also depends on stored conditions.
+Equivalent explicit Celsius and humidity intervals or center ± tolerance
+compare by equal endpoints while the original conditions and passages remain
+stored. Resistive and resistive-load spellings of load type compare alike. Other
+condition names and values compare literally; no derating or
+room-temperature inference is performed. Reject proposals that omit a source's
+applicable temperature, test environment,
 min/max bound, load pairing or reference-only qualifier. The
 [disposable live runner](../evaluation/README.md#supplied-source-extraction-exercise)
 evaluates source interpretation separately from approval mechanics.

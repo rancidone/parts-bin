@@ -18,7 +18,7 @@ DOCUMENT = source.Document(URL, "abc123", "2026-10-10T00:00:00+00:00", (PAGE,))
 
 
 def candidate():
-    return {"outcome": "proposal", "clarification": None, "fields": {
+    return {"outcome": "proposal", "clarification": None, "mismatch_evidence": None, "fields": {
         name: {"value": value, "evidence": {"page": 1, "excerpt": excerpt}}
         for name, value, excerpt in [
             ("manufacturer", "Nexperia", "Nexperia"),
@@ -149,7 +149,7 @@ async def test_retrieval_limits_bytes_and_keeps_document_transient():
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request:
             httpx.Response(200, content=b"%PDF-fake"))) as client:
         with patch.object(source, "public_destination", AsyncMock()), \
-                patch.object(source, "parse_pdf_bounded", return_value=(PAGE,)):
+                patch.object(source, "parse_pdf_bounded", return_value=((PAGE,), (), False)):
             document = await source.retrieve_pdf(URL, client)
             assert document.pages == (PAGE,)
             assert len(document.sha256) == 64
@@ -176,9 +176,8 @@ def test_pdf_table_lines_keep_variant_and_rating_on_same_row():
             line.set_bbox((x, y, x + 80, y + 10))
             column.add(line)
         layout.add(column)
-    with patch.object(source, 'extract_pages', return_value=[layout]):
-        assert source.parse_pdf(b'%PDF-test') == (
-            'Variant\tPower at 25 °C\nTYPE-A\t0.25 W\nTYPE-B\t0.125 W\n',)
+    assert source.page_text(layout) == (
+        'Variant\tPower at 25 °C\nTYPE-A\t0.25 W\nTYPE-B\t0.125 W\n')
 
 
 def part(service):
@@ -358,9 +357,10 @@ async def test_selected_excerpts_use_original_citations_and_validate_visible_evi
     assert extracted['fields']['part_number']['evidence']['page'] == 2
 
 
-async def test_excerpt_absence_does_not_become_no_match():
-    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, ('x' * 20_000,))
-    outcome = {'outcome': 'no_match', 'clarification': None, 'fields': dict.fromkeys(source.FIELDS)}
+@pytest.mark.parametrize('text', ['x' * 20_000, 'Unresolved family identity'])
+async def test_excerpt_absence_does_not_become_no_match(text):
+    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, (text,))
+    outcome = {'outcome': 'no_match', 'clarification': None, 'mismatch_evidence': None, 'fields': dict.fromkeys(source.FIELDS)}
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={
             'status': 'completed', 'output': [{'type': 'message', 'content': [
                 {'type': 'output_text', 'text': json.dumps(outcome)}]}],
@@ -382,3 +382,98 @@ async def test_cannot_quote_evidence_outside_selected_excerpts():
         }))) as client:
             with pytest.raises(source.EnrichmentError, match='supplied excerpts'):
                 await source.extract(document, 'PBSS5350T', None, api_key='fake', model='test', client=client)
+
+
+@pytest.mark.parametrize('omitted', [False, True])
+async def test_wrong_document_requires_visible_mismatch_evidence(omitted):
+    passage = 'Coilcraft TA7618 flyback transformer'
+    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, (passage,))
+    raw = {'outcome': 'no_match', 'clarification': None,
+           'mismatch_evidence': {'page': 1, 'excerpt': passage},
+           'fields': dict.fromkeys(source.FIELDS)}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={
+        'status': 'completed', 'output': [{'type': 'message', 'content': [
+            {'type': 'output_text', 'text': json.dumps(raw)}]}],
+    }))) as client:
+        with patch.object(source, 'select_excerpts', return_value=([{'page': 1, 'text': passage}], omitted)):
+            result = await source.extract(document, 'NE555P', 'Texas Instruments',
+                                          api_key='fake', model='test', client=client)
+    assert result['outcome'] == 'no_match'
+    assert result['fields'] == {}
+    assert result['mismatch_evidence'] == raw['mismatch_evidence']
+
+
+async def test_mismatch_cannot_cite_hidden_text():
+    visible = 'Family identity is unresolved.'
+    hidden = 'Coilcraft TA7618 flyback transformer'
+    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, (visible + '\n' + hidden,))
+    raw = {'outcome': 'no_match', 'clarification': None,
+           'mismatch_evidence': {'page': 1, 'excerpt': hidden},
+           'fields': dict.fromkeys(source.FIELDS)}
+    with patch.object(source, 'select_excerpts', return_value=([{'page': 1, 'text': visible}], True)):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={
+            'status': 'completed', 'output': [{'type': 'message', 'content': [
+                {'type': 'output_text', 'text': json.dumps(raw)}]}],
+        }))) as client:
+            with pytest.raises(source.EnrichmentError, match='supplied excerpts'):
+                await source.extract(document, 'NE555P', None, api_key='fake', model='test', client=client)
+
+
+@pytest.mark.parametrize('evidence', [
+    {'page': True, 'excerpt': PAGE}, {'page': 2, 'excerpt': PAGE},
+    {'page': 1, 'excerpt': 'Invented transformer'}, {'page': 1, 'excerpt': ''},
+])
+def test_mismatch_rejects_invalid_evidence(evidence):
+    raw = {'outcome': 'no_match', 'clarification': None,
+           'mismatch_evidence': evidence, 'fields': dict.fromkeys(source.FIELDS)}
+    with pytest.raises(source.EnrichmentError):
+        source.validate_candidate(raw, 'NE555P', None, DOCUMENT)
+
+
+async def test_exact_timer_ordering_row_supports_reviewed_package():
+    row = 'NE555P\tActive\tProduction\tPDIP (P) | 8\t50 | TUBE\n'
+    header = 'PACKAGE OPTION ADDENDUM\nOrderable part number\tStatus\tMaterial type\tPackage | Pins\n'
+    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, (
+        'Texas Instruments precision timers.\n' + 'other text\n' * 1000,
+        header + 'Other ordering rows\n' * 100 + row + 'NE555PS\tSO (PS) | 8\n',
+    ))
+    raw = {'outcome': 'proposal', 'clarification': None, 'mismatch_evidence': None, 'fields': {
+        'manufacturer': {'value': 'Texas Instruments', 'evidence': {'page': 1, 'excerpt': 'Texas Instruments'}},
+        'part_number': {'value': 'NE555P', 'evidence': {'page': 2, 'excerpt': row.strip()}},
+        'package': {'value': 'PDIP-8', 'evidence': {'page': 2, 'excerpt': row.strip()}},
+        'description': None,
+    }}
+    def handler(request):
+        pages = json.loads(json.loads(request.content)['input'])['pages']
+        assert any(item['page'] == 2 and header in item['text'] for item in pages)
+        assert any(item['page'] == 2 and row in item['text'] for item in pages)
+        return httpx.Response(200, json={'status': 'completed', 'output': [
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await source.extract(document, 'NE555P', 'Texas Instruments', api_key='fake', model='test', client=client)
+    review = source.review_result(result)
+    assert review['chosen_updates'] == {'manufacturer': 'Texas Instruments', 'part_number': 'NE555P', 'package': 'PDIP-8'}
+    package = next(item for item in review['durable_provenance'] if item['field_name'] == 'package')
+    assert json.loads(package['evidence'])['excerpt'] == row.strip()
+
+
+@pytest.mark.parametrize('variant', ['NE555P.A', 'NE555PE4', 'NE555PS', 'NE555P,123', 'NE555P/123'])
+def test_timer_identity_cannot_drop_ordering_suffix(variant):
+    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, (f'Texas Instruments {variant}',))
+    raw = {'outcome': 'proposal', 'clarification': None, 'mismatch_evidence': None, 'fields': {
+        'manufacturer': {'value': 'Texas Instruments', 'evidence': {'page': 1, 'excerpt': 'Texas Instruments'}},
+        'part_number': {'value': 'NE555P', 'evidence': {'page': 1, 'excerpt': variant}},
+        'package': None, 'description': None,
+    }}
+    with pytest.raises(source.EnrichmentError, match='exact ordering variant'):
+        source.validate_candidate(raw, 'NE555P', 'Texas Instruments', document)
+
+
+def test_description_cannot_join_words_across_interleaved_columns():
+    document = source.Document(URL, 'hash', DOCUMENT.retrieved_at, (
+        PAGE + '\nFeature bullet\tThese devices are precision timing\nAnother bullet\tcircuits for delays.\n',))
+    raw = candidate()
+    raw['fields']['description'] = {'value': 'Precision timing circuit', 'evidence': {
+        'page': 1, 'excerpt': 'precision timing circuits'}}
+    with pytest.raises(source.EnrichmentError, match='not present on the cited page'):
+        source.validate_candidate(raw, 'PBSS5350T', 'Nexperia', document)

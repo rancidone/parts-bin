@@ -29,7 +29,8 @@
       "review": [
         "Exact first ordering row: 1 µF, 500 V nominal DC at 85 °C, J tolerance 5%.",
         "600 V operating at 70 °C and 350 V operating at 105 °C are distinct from the nominal 500 V rating.",
-        "Preserve measuring frequency and terminal variant; do not infer other pin-count variants."
+        "Preserve the page-16 routine capacitance test conditions: 1 kHz at room temperature. If omitted from selected excerpts, do not treat an unqualified capacitance as complete.",
+        "Review vertically merged voltage cells and terminal variants; do not infer other pin-count variants."
       ]
     },
     {

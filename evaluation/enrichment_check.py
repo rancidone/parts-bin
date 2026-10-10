@@ -36,7 +36,7 @@ def check_candidate(case_id: str, candidate: object) -> dict:
     if not isinstance(candidate, dict):
         errors.append("Candidate must be a JSON object.")
         return result()
-    allowed = {"outcome", "fields", "user_assertions", "clarification"}
+    allowed = {"outcome", "fields", "user_assertions", "clarification", "mismatch_evidence"}
     if set(candidate) - allowed:
         errors.append("Unexpected top-level fields: " + ", ".join(sorted(set(candidate) - allowed)))
     expected = case.get("expected_fields", {})
@@ -48,7 +48,7 @@ def check_candidate(case_id: str, candidate: object) -> dict:
     else:
         aliases = case.get("accepted_aliases", {})
 
-    expected_outcome = "proposal" if expected else "needs_clarification"
+    expected_outcome = case.get("expected_outcome", "proposal" if expected else "needs_clarification")
     if candidate.get("outcome") != expected_outcome:
         errors.append(f"Expected outcome {expected_outcome!r}.")
     if candidate.get("user_assertions", {}) != case.get("user_assertions", {}):
@@ -59,6 +59,17 @@ def check_candidate(case_id: str, candidate: object) -> dict:
         return result()
     if set(fields) - FIELDS:
         errors.append("Unsupported proposed fields: " + ", ".join(sorted(set(fields) - FIELDS)))
+
+    if expected_outcome == 'no_match':
+        if fields:
+            errors.append('A mismatched source must not propose fields.')
+        evidence = candidate.get('mismatch_evidence')
+        if (not isinstance(evidence, dict) or set(evidence) != {'page', 'excerpt'}
+                or type(evidence['page']) is not int or evidence['page'] < 1
+                or not _text(evidence['excerpt'])):
+            errors.append('A mismatched source requires a cited passage identifying the conflict.')
+        reviews.append('Verify the cited passage identifies an unrelated device, rather than merely omitting the requested code.')
+        return result()
 
     if not expected:
         if fields:
