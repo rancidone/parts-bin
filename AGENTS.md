@@ -69,6 +69,8 @@ implementations over speculative abstractions.
 ## Repository map
 
 - `server.py`: current FastAPI entry point and API adapters.
+- `application.py`: shared service assembly from injected storage/runtime dependencies.
+- `local_app.py`: local configuration, SQLite composition, and ASGI factory.
 - `domain/`: typed inventory rules and domain errors.
 - `db/`: SQLite adapters for inventory, conversations, approvals, and executions.
 - `agent_runtime/`: gateway, OpenAI transport, approvals, conversation contracts,

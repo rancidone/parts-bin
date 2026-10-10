@@ -1,34 +1,26 @@
 """HTTP adapter tests for the gateway and inventory surfaces."""
 
-from unittest.mock import patch
-from tempfile import TemporaryDirectory
-from pathlib import Path
-import os
-
 import pytest
 from db.repository import SQLitePartsBinRepository
 from db.conversations import SQLiteConversationRepository
 from starlette.testclient import TestClient
-
-with TemporaryDirectory() as setup_dir:
-    config = Path(setup_dir) / "test.toml"
-    config.write_text(f'[db]\npath = "{setup_dir}/parts.db"\n')
-    with patch.dict(os.environ, {"PARTS_BIN_CONFIG": str(config)}):
-        import server
-from db.persistence import init_db
+from starlette.requests import Request
+from application import ApplicationServices, create_services
+import server
 
 
 @pytest.fixture
 def client(tmp_path):
     db_path = tmp_path / "parts.db"
-    init_db(db_path)
-    from agent_runtime import AgentGateway, ApprovalEngine
     store = SQLiteConversationRepository(db_path)
-    gateway = AgentGateway(store, server._make_agent_runtime)
     repository = SQLitePartsBinRepository(db_path)
-    with patch.object(server, "_DB_PATH", db_path), patch.object(server, "_repository", repository), patch.object(server, "_conversation_store", store), patch.object(server, "_approval_engine", ApprovalEngine(repository)), patch.object(server, "_agent_gateway", gateway):
-        with TestClient(server.app, raise_server_exceptions=True) as test_client:
-            yield test_client, db_path
+
+    def unavailable():
+        raise RuntimeError("OpenAI is not configured")
+
+    services = create_services(repository, store, transport_factory=unavailable, agent_configured=False)
+    with TestClient(server.create_app(services), raise_server_exceptions=True) as test_client:
+        yield test_client, db_path
 
 
 def test_health_reports_agent_configuration(client):
@@ -41,7 +33,7 @@ def test_agent_thread_uses_openai_without_a_picker(client):
     response = client[0].post("/agent/threads")
     assert response.status_code == 200
     thread_id = response.json()["thread_id"]
-    assert server._conversation_store.runtime_for(thread_id) == "openai"
+    assert client[0].app.state.services.gateway.store.runtime_for(thread_id) == "openai"
 
 
 @pytest.mark.parametrize("runtime", ["codex", "local", "openai", "unsupported"])
@@ -66,7 +58,7 @@ def test_historical_conversations_are_readable_but_cannot_continue(client, runti
     assert client[0].post("/agent/threads/old-thread/messages", data={"message": "continue"}).status_code == 409
     assert client[0].post("/agent/threads/old-thread/approvals", json={"request_id": "old", "approved": True}).status_code == 409
     assert client[0].post("/agent/threads/old-thread/resume", data={"execution_id": "old"}).status_code == 409
-    assert server._conversation_store.runtime_for("old-thread") == runtime
+    assert client[0].app.state.services.gateway.store.runtime_for("old-thread") == runtime
 
 
 def test_inventory_still_opens(client):
@@ -82,16 +74,17 @@ def test_resume_endpoint_checks_execution_identity(client):
 
 
 @pytest.mark.asyncio
-async def test_resume_endpoint_replays_completed_execution_without_model_call(tmp_path, monkeypatch):
+async def test_resume_endpoint_replays_completed_execution_without_model_call(tmp_path):
     from agent_runtime import AgentGateway, ModelTurn
     from tests.agent_runtime.test_runtime import build_runtime
 
     runtime, transport, store = build_runtime(tmp_path, [ModelTurn("done")])
     gateway = AgentGateway(store, lambda: runtime)
-    monkeypatch.setattr(server, "_agent_gateway", gateway)
+    app = server.create_app(ApplicationServices(runtime.registry.service, gateway, True))
+    request = Request({"type": "http", "app": app})
     thread = gateway.create_thread()
     events = await gateway.submit(thread, "hello")
-    response = await server.resume_agent_execution(thread, events[0].data["execution_id"], None)
+    response = await server.resume_agent_execution(request, thread, events[0].data["execution_id"], None)
     chunks = [chunk async for chunk in response.body_iterator]
     assert len(chunks) == 3
     assert '"status": "completed"' in chunks[-1]
@@ -100,11 +93,9 @@ async def test_resume_endpoint_replays_completed_execution_without_model_call(tm
 
 
 @pytest.mark.asyncio
-async def test_message_endpoint_returns_sse_before_turn_finishes(tmp_path, monkeypatch):
+async def test_message_endpoint_returns_sse_before_turn_finishes(tmp_path):
     import asyncio
-    from agent_runtime import AgentGateway, ApprovalEngine, ModelTurn, OpenAIResponsesRuntime, ToolCall
-    from domain import PartsBinService
-    from tools import PartsBinToolRegistry
+    from agent_runtime import ModelTurn, ToolCall
     release = asyncio.Event()
     stopped = asyncio.Event()
 
@@ -122,11 +113,12 @@ async def test_message_endpoint_returns_sse_before_turn_finishes(tmp_path, monke
 
     store = SQLiteConversationRepository(tmp_path / "conversation.db")
     repository = SQLitePartsBinRepository(tmp_path / "parts.db")
-    gateway = AgentGateway(store, lambda: OpenAIResponsesRuntime(PausedTransport(),
-        registry=PartsBinToolRegistry(PartsBinService(repository)), store=store, approvals=ApprovalEngine(repository)))
-    monkeypatch.setattr(server, "_agent_gateway", gateway)
+    services = create_services(repository, store, transport_factory=PausedTransport)
+    gateway = services.gateway
+    app = server.create_app(services)
+    request = Request({"type": "http", "app": app})
     thread = gateway.create_thread()
-    response = await asyncio.wait_for(server.submit_agent_message(thread, "search", None), 1)
+    response = await asyncio.wait_for(server.submit_agent_message(request, thread, "search", None), 1)
     assert response.headers["x-accel-buffering"] == "no"
     for kind in ["user_message", "tool_call", "tool_result"]:
         chunk = await asyncio.wait_for(anext(response.body_iterator), 1)

@@ -32,8 +32,12 @@ and [operations](docs/operations.md) for guidance.
 Run the API and UI in separate terminals:
 
 ```sh
-uv run uvicorn server:app --host 127.0.0.1 --port 8000
+uv run uvicorn local_app:create_app --factory --host 127.0.0.1 --port 8000
 ```
+
+The local factory loads configuration and constructs SQLite-backed services.
+The HTTP adapter can also be constructed with injected services; see
+[application assembly](application.py) and [architecture](docs/design/architecture.md#http-and-worker-execution).
 
 ```sh
 npm run dev --prefix ui -- --host 127.0.0.1
