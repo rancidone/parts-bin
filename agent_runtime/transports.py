@@ -31,8 +31,8 @@ class OpenAIResponsesTransport:
             elif exchange["type"] == "approval_denied":
                 input_items.append({"role": "user", "content": "The user declined the pending operation. Do not execute it."})
             elif exchange["type"] == "tool_result":
-                # Approval continuation starts a new turn after the saved operation
-                # executes; its call/result pair still needs explicit context.
+                # Runtime checkpoints normally retain the original function item.
+                # A caller supplying only a tool outcome must provide its call too.
                 if exchange["call_id"] not in call_ids:
                     input_items.append({"type": "function_call", "call_id": exchange["call_id"],
                                         "name": exchange["name"], "arguments": json.dumps(exchange.get("arguments", {}))})

@@ -19,6 +19,7 @@ from domain import (
     PartFields, PartsBinService, ProvenanceRequest, RejectReviewRequest,
     SearchPartsRequest, UpdatePartRequest, ErrorCode,
 )
+from domain.repositories import StoredOperation
 
 ToolResult = dict[str, Any]
 ApprovalChecker = Callable[[str, dict[str, Any]], bool | Awaitable[bool]]
@@ -73,6 +74,9 @@ class ApprovalReceipt:
 @dataclass(frozen=True)
 class ToolExecutionContext:
     approval: ApprovalReceipt | None = None
+    operation_id: str | None = None
+    execution_id: str | None = None
+    worker_id: str | None = None
 
 
 class PartsBinToolRegistry:
@@ -102,7 +106,10 @@ class PartsBinToolRegistry:
                 _validate_add_part_completeness(args)
             if name in _APPROVAL_REQUIRED and not await self._approved(name, args, context):
                 return _error(str(ErrorCode.APPROVAL_REQUIRED), "Explicit user approval is required for this mutation", {"tool": name})
-            result = await self._dispatch(name, args)
+            if name in {"add_part", "add_stock"} and context is not None and context.operation_id:
+                result = await self._execute_addition(name, args, context)
+            else:
+                result = await self._dispatch(name, args)
             return {"ok": True, "result": result}
         except DomainError as exc:
             return _error(str(exc.code), exc.message, exc.details)
@@ -121,7 +128,39 @@ class PartsBinToolRegistry:
         decision = self.approval_checker(name, args)
         return await decision if inspect.isawaitable(decision) else bool(decision)
 
-    async def _dispatch(self, name: str, args: dict[str, Any]) -> Any:
+    async def _execute_addition(self, name: str, args: dict[str, Any], context: ToolExecutionContext) -> Any:
+        with self.service.transaction() as (service, repository):
+            if context.execution_id and context.worker_id:
+                repository.executions.assert_owned(context.execution_id, context.worker_id)
+            previous = repository.operations.get(context.operation_id)
+            if previous is not None:
+                if previous.tool_name != name or previous.arguments != args:
+                    raise DomainError(ErrorCode.CONFLICT, "Operation identity was reused with different arguments")
+                return previous.result
+            bound = PartsBinToolRegistry(service)
+            result = await bound._dispatch(name, args, enrich=False)
+            if name == "add_part" and service.should_enrich(result):
+                # A crash after commit must not automatically repeat paid retrieval.
+                result["enrichment"] = {"status": "interrupted", "retry_tool": "lookup_part_specs"}
+            repository.operations.insert(StoredOperation(context.operation_id, name, args, result))
+        if name == "add_part" and self.service.should_enrich(result):
+            result = await self._enrich_added(result)
+            with self.service.repository.transaction() as repository:
+                repository.operations.save_result(context.operation_id, result)
+        return result
+
+    async def _enrich_added(self, result: dict[str, Any]) -> dict[str, Any]:
+        try:
+            lookup = await self.service.fetch_and_stage_specs(FetchSpecsRequest(result["id"]))
+            result["enrichment"] = {key: value for key, value in lookup.items()
+                                    if key in {"chosen_updates", "provider", "outcome", "status", "tried_providers"}}
+        except DomainError as exc:
+            result["enrichment"] = {"status": "unavailable", "code": str(exc.code)}
+        except Exception:
+            result["enrichment"] = {"status": "failed"}
+        return result
+
+    async def _dispatch(self, name: str, args: dict[str, Any], *, enrich: bool = True) -> Any:
         if name == "search_parts":
             limit = args.get("limit", 20)
             rows = self.service.search(SearchPartsRequest(args.get("filters", {})))
@@ -132,17 +171,8 @@ class PartsBinToolRegistry:
             fields = {key: args.get(key) for key in _FIELDS}
             part = self.service.add_part(AddPartRequest(PartFields(**fields)))
             result = _compact_part(part)
-            if self.service.should_enrich(result):
-                try:
-                    lookup = await self.service.fetch_and_stage_specs(FetchSpecsRequest(part.id))
-                    result["enrichment"] = {key: value for key, value in lookup.items()
-                                            if key in {"chosen_updates", "provider", "outcome", "status", "tried_providers"}}
-                except DomainError as exc:
-                    result["enrichment"] = {"status": "unavailable", "code": str(exc.code)}
-                except Exception:
-                    # Stock was committed successfully. Supplier failure must
-                    # not misreport the addition as failed and cause a retry.
-                    result["enrichment"] = {"status": "failed"}
+            if enrich and self.service.should_enrich(result):
+                result = await self._enrich_added(result)
             return result
         if name == "add_stock":
             return _compact_part(self.service.add_stock(AddStockRequest(args["part_id"], args["quantity"])))

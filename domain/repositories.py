@@ -11,6 +11,41 @@ class RepositoryConflict(Exception):
     """A write violates a storage uniqueness or integrity constraint."""
 
 
+class ExecutionUnavailable(ValueError):
+    """Work is unknown, already leased, or no longer owned by this worker."""
+
+
+@dataclass(frozen=True)
+class StoredOperation:
+    operation_id: str
+    tool_name: str
+    arguments: dict[str, Any]
+    result: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class StoredExecution:
+    execution_id: str
+    thread_id: str
+    context: dict[str, Any]
+    status: str
+
+
+class OperationRepository(Protocol):
+    def get(self, operation_id: str) -> StoredOperation | None: ...
+    def insert(self, operation: StoredOperation) -> None: ...
+    def save_result(self, operation_id: str, result: dict[str, Any]) -> None: ...
+
+
+class ExecutionRepository(Protocol):
+    def claim(self, thread_id: str, execution_id: str, worker_id: str,
+              context: dict[str, Any] | None = None) -> StoredExecution: ...
+    def for_approval(self, thread_id: str, request_id: str) -> StoredExecution | None: ...
+    def assert_owned(self, execution_id: str, worker_id: str) -> None: ...
+    def save(self, execution_id: str, worker_id: str, context: dict[str, Any], status: str) -> None: ...
+    def release(self, execution_id: str, worker_id: str) -> None: ...
+
+
 @dataclass(frozen=True)
 class StoredApproval:
     request_id: str
@@ -50,9 +85,9 @@ class Savepoint(Protocol):
 
 
 class PartsBinRepository(Protocol):
-    """One transaction boundary for inventory, review evidence, and approval outcomes.
+    """One transaction boundary for inventory, evidence, and agent mutation outcomes.
 
-    Transactions serialize competing writes and bind both repositories to the same
+    Transactions serialize competing writes and bind the repositories to the same
     unit of work. Exceptions roll back the unit; savepoints allow a rejected domain
     operation to roll back while its failure outcome is retained.
     """
@@ -60,6 +95,8 @@ class PartsBinRepository(Protocol):
     storage_id: str
     inventory: InventoryRepository
     approvals: ApprovalRepository
+    operations: OperationRepository
+    executions: ExecutionRepository
 
     def transaction(self) -> AbstractContextManager["PartsBinRepository"]: ...
     def savepoint(self) -> AbstractContextManager[Savepoint]: ...

@@ -210,6 +210,9 @@ async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, 
         if result.status != "completed":
             raise EvaluationFailure(f"runtime did not complete: {result.status}")
         turn_index += 1
+    # Continuation can replay existing events with their original sequence.
+    # Count durable tool calls, rather than deliveries of those calls.
+    events = list({(event.thread_id, event.sequence): event for event in events}.values())
     _assert_tools(events, scenario["tool_constraints"])
     _assert_state(_snapshot(database), scenario["expected_final_state"])
     answers = "\n".join(event.data["text"].lower() for event in events if event.kind == "assistant_text")

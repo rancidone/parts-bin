@@ -24,6 +24,7 @@ class ConversationRepository(Protocol):
     def create_thread(self, thread_id: str, runtime: RuntimeName) -> None: ...
     def runtime_for(self, thread_id: str) -> RuntimeName | None: ...
     def append(self, event: ConversationEvent) -> ConversationEvent: ...
+    def append_once(self, event: ConversationEvent, event_id: str) -> ConversationEvent: ...
     def events(self, thread_id: str) -> list[ConversationEvent]: ...
 
 
@@ -46,6 +47,8 @@ class ConversationStore:
                     FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id)
                 );
             """)
+            conn.execute("""CREATE TABLE IF NOT EXISTS agent_event_keys (
+                event_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, sequence INTEGER NOT NULL)""")
 
     def _connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.database)
@@ -68,8 +71,23 @@ class ConversationStore:
         return None if row is None else row["runtime"]
 
     def append(self, event: ConversationEvent) -> ConversationEvent:
+        return self._append(event, None)
+
+    def append_once(self, event: ConversationEvent, event_id: str) -> ConversationEvent:
+        return self._append(event, event_id)
+
+    def _append(self, event: ConversationEvent, event_id: str | None) -> ConversationEvent:
         self.create_thread(event.thread_id, event.runtime)
         with self._connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if event_id is not None:
+                previous = conn.execute("""SELECT e.* FROM agent_events e JOIN agent_event_keys k
+                    ON e.thread_id = k.thread_id AND e.sequence = k.sequence WHERE k.event_id = ?""", (event_id,)).fetchone()
+                if previous is not None:
+                    if previous["thread_id"] != event.thread_id:
+                        raise ValueError("Event identity belongs to another conversation")
+                    return ConversationEvent(previous["kind"], event.thread_id, previous["runtime"],
+                                             json.loads(previous["data_json"]), previous["sequence"])
             next_sequence = conn.execute(
                 "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_events WHERE thread_id = ?", (event.thread_id,)
             ).fetchone()[0]
@@ -78,6 +96,8 @@ class ConversationStore:
                 (event.thread_id, next_sequence, event.kind, event.runtime,
                  json.dumps(event.data, sort_keys=True, separators=(",", ":"))),
             )
+            if event_id is not None:
+                conn.execute("INSERT INTO agent_event_keys VALUES (?, ?, ?)", (event_id, event.thread_id, next_sequence))
         return ConversationEvent(event.kind, event.thread_id, event.runtime, event.data, next_sequence)
 
     def events(self, thread_id: str) -> list[ConversationEvent]:

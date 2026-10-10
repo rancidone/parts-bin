@@ -163,6 +163,20 @@ async def submit_agent_message(thread_id: str, message: str = Form(default=""), 
     return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.post("/agent/threads/{thread_id}/resume")
+async def resume_agent_execution(thread_id: str, execution_id: str = Form(...),
+                                 photo: UploadFile | None = File(default=None)) -> StreamingResponse:
+    if not execution_id.strip():
+        raise HTTPException(status_code=422, detail="execution_id is required")
+    try:
+        events = _agent_gateway.resume_stream(thread_id, execution_id, image=await _agent_image(photo))
+    except UnsupportedRuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown conversation thread") from exc
+    return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.post("/agent/threads/{thread_id}/approvals")
 async def respond_to_agent_approval(thread_id: str, body: dict) -> StreamingResponse:
     request_id, approved = body.get("request_id"), body.get("approved")

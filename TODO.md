@@ -12,10 +12,6 @@ Design rationale belongs in [docs/design/](docs/design/).
   Honor the existing ephemeral-photo policy; persist derived candidates and
   progress rather than image bytes. If an interrupted photo stage cannot resume,
   request a fresh image explicitly.
-- Add persisted model/tool execution context and job state around approval
-  continuation. Extend stable operation IDs and atomic outcomes to ordinary
-  additions and stock increments; exercise interrupted paid stages and the
-  failure window between a committed write and an acknowledged job step.
 - Resolve the budget, region, access, and recovery constraints needed for a small
   AWS experiment. Compare Lambda durable functions with Step Functions Standard
   using the same scenario; verify Python/async and Terraform integration.
@@ -28,6 +24,11 @@ Design rationale belongs in [docs/design/](docs/design/).
 
 ## Enrichment simplification
 
+- Define category-specific specification shapes and representative searches for
+  resistors, transistors, and audio ICs. Keep units, test conditions, source
+  evidence, and review semantics explicit; compare document storage with JSON
+  in relational storage before choosing a backend. See
+  [flexible part modeling](docs/design/flexible-part-model-and-identity.md).
 - Exercise source-backed extraction against the representative
   [acceptance cases](evaluation/enrichment/acceptance.json). Start with a supplied
   datasheet to separate extraction quality from source discovery.

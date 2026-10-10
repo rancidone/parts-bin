@@ -102,4 +102,5 @@ async def test_approved_ic_correction_executes_without_model_repeating_call(tmp_
     assert result.status == "completed"
     part = runtime.registry.service.get(GetPartRequest(1))
     assert (part.quantity, part.package, part.part_category) == (10, "DIP", "operational amplifier")
-    assert transport.requests[-1].exchanges[0]["result"]["ok"]
+    assert transport.requests[-1].user_text == "I have 10 not 100 and they are DIP"
+    assert transport.requests[-1].exchanges[-1]["result"]["ok"]
