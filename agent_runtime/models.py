@@ -51,6 +51,20 @@ class ConversationEvent:
 
 
 @dataclass(frozen=True)
+class ConversationSummary:
+    """Small, provider-preserving record used to choose stored conversations."""
+
+    thread_id: str
+    runtime: RuntimeName
+    title: str
+    last_sequence: int
+
+    def payload(self) -> dict[str, Any]:
+        return {"thread_id": self.thread_id, "runtime": self.runtime,
+                "title": self.title, "last_sequence": self.last_sequence}
+
+
+@dataclass(frozen=True)
 class ApprovalResponse:
     request_id: str
     approved: bool

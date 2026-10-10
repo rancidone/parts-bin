@@ -14,7 +14,7 @@ from time import perf_counter
 from typing import Awaitable
 from uuid import uuid4
 
-from .models import ApprovalResponse, ConversationEvent, ImageInput, RuntimeName
+from .models import ApprovalResponse, ConversationEvent, ConversationSummary, ImageInput, RuntimeName
 from .runtime import OpenAIResponsesRuntime
 from .store import ConversationRepository, UnsupportedRuntimeError
 from .telemetry import AgentTelemetry
@@ -37,6 +37,9 @@ class AgentGateway:
         self.store.create_thread(thread_id, "openai")
         self.telemetry.runtime_selected(thread_id, "openai")
         return thread_id
+
+    def threads(self) -> tuple[ConversationSummary, ...]:
+        return tuple(self.store.threads())
 
     async def submit(self, thread_id: str, text: str, *, image: ImageInput | None = None,
                      on_event: Callable[[ConversationEvent], None] | None = None) -> tuple[ConversationEvent, ...]:

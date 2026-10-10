@@ -1,6 +1,7 @@
 """HTTP adapter tests for the gateway and inventory surfaces."""
 
 import pytest
+from agent_runtime import ConversationEvent
 from db.repository import SQLitePartsBinRepository
 from db.conversations import SQLiteConversationRepository
 from starlette.testclient import TestClient
@@ -34,6 +35,26 @@ def test_agent_thread_uses_openai_without_a_picker(client):
     assert response.status_code == 200
     thread_id = response.json()["thread_id"]
     assert client[0].app.state.services.gateway.store.runtime_for(thread_id) == "openai"
+
+
+def test_agent_threads_lists_stored_conversations_without_starting_a_provider(client):
+    import sqlite3
+    http, path = client
+    thread_id = http.post("/agent/threads").json()["thread_id"]
+    store = http.app.state.services.gateway.store
+    store.append(ConversationEvent("user_message", thread_id, "openai", {"text": "Find my op amps"}))
+    with sqlite3.connect(path) as conn:
+        conn.execute("INSERT INTO agent_threads(thread_id, runtime) VALUES (?, ?)", ("old-thread", "local"))
+        conn.execute("""INSERT INTO agent_events(thread_id, sequence, kind, runtime, data_json)
+                        VALUES (?, ?, ?, ?, ?)""",
+                     ("old-thread", 1, "assistant_text", "local", '{"text":"Preserved local history"}'))
+
+    response = http.get("/agent/threads")
+    assert response.status_code == 200
+    assert response.json() == {"threads": [
+        {"thread_id": "old-thread", "runtime": "local", "title": "Preserved local history", "last_sequence": 1},
+        {"thread_id": thread_id, "runtime": "openai", "title": "Find my op amps", "last_sequence": 1},
+    ]}
 
 
 @pytest.mark.parametrize("runtime", ["codex", "local", "openai", "unsupported"])

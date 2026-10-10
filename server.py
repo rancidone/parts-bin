@@ -99,6 +99,11 @@ async def create_agent_thread(request: Request, body: dict | None = Body(default
     return {"thread_id": _services(request).gateway.create_thread()}
 
 
+@router.get("/agent/threads")
+async def list_agent_threads(request: Request) -> dict:
+    return {"threads": [thread.payload() for thread in _services(request).gateway.threads()]}
+
+
 @router.get("/agent/threads/{thread_id}/events")
 async def resume_agent_thread(request: Request, thread_id: str, after: int = 0) -> StreamingResponse:
     try:

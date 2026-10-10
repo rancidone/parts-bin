@@ -99,9 +99,10 @@ wait for the lease to release before retrying a rejected resume.
 For an interrupted initial photo analysis, attach a fresh photo before choosing
 **Resume request**. Approval requests use their original controls; completed
 decisions are shown as approved or declined. **New chat** changes the current
-browser pointer without deleting retained server history. Conversation selection
-is separate UI work; retain the thread ID when you need API access to an older
-conversation. Retired-provider history is read-only.
+browser pointer without deleting retained server history. The conversation
+selector lists retained history and its original provider. Switching conversations
+only reads saved events; it never resends a message, resumes work, or submits an
+approval decision. Retired-provider history remains selectable but read-only.
 
 Identify the inventory and conversation database paths from your configuration.
 They may share a file. Protect configuration separately and retain historical
