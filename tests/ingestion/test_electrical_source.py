@@ -191,11 +191,55 @@ async def test_electrical_evidence_must_be_visible_to_model():
             await extract(raw)
 
 
-async def test_identity_quote_cannot_be_only_longer_variant():
-    longer = PASSAGE.replace(NUMBER, NUMBER + '-TR')
+@pytest.mark.parametrize('dash', ['-', '−', '–', '‐', '‑'])
+async def test_identity_quote_cannot_be_only_longer_variant(dash):
+    longer = PASSAGE.replace(NUMBER, NUMBER + dash + 'TR')
     raw = candidate(passage=longer, facts=[])
     with pytest.raises(source.EnrichmentError, match='exact ordering variant'):
         await extract(raw, document=source.Document(URL, 'a' * 64, DOCUMENT.retrieved_at, (longer,)))
+
+
+async def test_standalone_device_title_keeps_bjt_facts_for_review(tmp_path):
+    # Synthetic layout regression, not a live-model quality assertion.
+    from tests.ingestion.test_pdf_limits import text_pdf
+    rows = ['onsemi', 'NPN Darlington Transistor', 'BC517',
+            'ABSOLUTE MAXIMUM RATINGS (TA = 25 C)',
+            'VCEO Collector-Emitter Voltage 30 V',
+            'IC Collector Current - Continuous 1.2 A',
+            'ORDERING INFORMATION', 'BC517-D74Z TO-92-3 LF']
+    stream = '\n'.join(f'BT /F1 8 Tf 10 {180 - i * 18} Td ({row}) Tj ET'
+                       for i, row in enumerate(rows)).encode()
+    pages = source.parse_pdf(text_pdf(1, stream))
+    document = source.Document('https://www.onsemi.com/test.pdf', 'a' * 64,
+                               DOCUMENT.retrieved_at, pages)
+    raw = {'outcome': 'proposal', 'clarification': None, 'mismatch_evidence': None,
+           'fields': {'part_number': {'value': 'BC517', 'evidence': {'page': 1, 'excerpt': 'BC517'}},
+                      'manufacturer': {'value': 'onsemi', 'evidence': {'page': 1, 'excerpt': 'onsemi'}},
+                      'package': None, 'description': None},
+           'facts': [raw_fact('polarity', 'NPN', 'nominal'),
+                     raw_fact('collector_emitter_voltage', '30 V', 'absolute_maximum'),
+                     raw_fact('continuous_collector_current', '1.2 A', 'absolute_maximum_continuous',
+                              [{'name': 'ambient_temperature', 'value': '25 C'}])]}
+
+    def handler(request):
+        body = json.loads(request.content)
+        assert 'A standalone device designation in the document title' in body['instructions']
+        assert 'A family heading covering different electrical grades' in body['instructions']
+        supplied = json.loads(body['input'])['pages']
+        assert 'BC517\n' in supplied[0]['text'] and '30 V' in supplied[0]['text']
+        return httpx.Response(200, json={'status': 'completed', 'output': [
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await source.extract(document, 'BC517', None, category='bjt',
+                                      api_key='fake', model='test', client=client)
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    part = service.add_part(AddPartRequest(PartFields('bjt', 'discrete_ic', 4, part_number='BC517')))
+    service.stage_specifications(part, result['facts'])
+    review = service.get_specifications(part.id)
+    assert review['facts'] == [] and review['pending_review'] is not None
+    assert service.get(GetPartRequest(part.id)) == part
+    assert result['extraction_assessment']['missing_fields'] == ['pulsed_collector_current', 'dc_current_gain']
 
 
 async def test_cache_separates_metadata_and_category_contracts(tmp_path):

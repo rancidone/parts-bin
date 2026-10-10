@@ -27,7 +27,7 @@ then retry. Candidate discovery does not stage variant metadata or change stock.
 
 When a part has a saved datasheet link, Inventory Fetch specs instead uses that
 source through the supplied-PDF electrical extractor. All categories can store
-an HTTPS link; automatic extraction still requires an exact ordering code and
+an HTTPS link; automatic extraction still requires an exact part identity and
 a supported electrical category. Links on other hosts remain available to open,
 but the extractor enforces its approved-host policy. Without a saved link,
 supplier lookup can propose a datasheet link alongside metadata and use it for
@@ -160,7 +160,10 @@ can be proposed and approved in chat but remain labeled as user assertions.
 For sourced ratings, provide an exact inventory target and an approved manufacturer
 PDF URL in chat. `ingest_datasheet` retrieves the source and stages supported
 electrical facts. It uses the configured OpenAI model and can incur a paid call.
-Stock without an exact ordering code needs clarification first. Inspect every
+Stock without an exact part identity needs clarification first. A standalone
+device title can establish an unsuffixed identity when the source assigns the
+ratings to that device; a family covering different electrical grades still
+needs clarification. Supplied ordering suffixes must remain exact. Inspect every
 proposed value, qualifier, condition and source passage; authentic quotations do
 not by themselves prove that the model interpreted a table correctly.
 

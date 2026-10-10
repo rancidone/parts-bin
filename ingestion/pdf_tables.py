@@ -25,7 +25,7 @@ def relevant_tables(tables: tuple[dict, ...], part_number: str) -> tuple[list[di
     Coordinates use PDF points, with y measured from the page top. A tall cell
     stays one cell; blank cells are never filled or assigned another row's value.
     """
-    exact = re.compile(r'(?<![\w,./-])' + re.escape(part_number) + r'(?![\w,./-])', re.I)
+    exact = re.compile(r'(?<![\w,./\u2010-\u2015\u2212-])' + re.escape(part_number) + r'(?![\w,./\u2010-\u2015\u2212-])', re.I)
     selected, omitted = [], False
     for table in tables:
         cells = table['cells']
