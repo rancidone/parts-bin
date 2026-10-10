@@ -73,11 +73,14 @@ def check_completeness(case, candidate, category):
 def assess_report(report):
     expectations = {case['id']: case for case in json.loads(EXPECTATIONS.read_text())['cases']}
     from .live_electrical import load_cases
-    categories = {case['id']: case['category'] for case in load_cases()}
+    sources = {case['id']: case for case in load_cases()}
     return [{'case_id': row['case_id'], 'extraction_outcome': row['outcome'],
+             'expectation_case_id': expectation_id,
              'reported_coverage': (row.get('candidate') or {}).get('extraction_assessment', {}).get('confidence_score'),
-             **check_completeness(expectations[row['case_id']], row.get('candidate'), categories[row['case_id']])}
-            for row in report['results'] if row['case_id'] in expectations]
+             **check_completeness(expectations[expectation_id], row.get('candidate'), sources[row['case_id']]['category'])}
+            for row in report['results']
+            if row['case_id'] in sources
+            and (expectation_id := sources[row['case_id']].get('expectation_case_id', row['case_id'])) in expectations]
 
 
 def main():

@@ -263,6 +263,38 @@
         "This incomplete code does not establish an orderable package/shipping variant. Request the complete identity and stage no facts."
       ],
       "layout_class": "ruled_tables"
+    },
+    {
+      "id": "opamp_saved_link_missing_suffix",
+      "category": "operational amplifier",
+      "manufacturer": "Texas Instruments",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.ti.com/lit/ds/symlink/lm358.pdf",
+      "part_number": "LM358BI",
+      "linked_part": true,
+      "expected_outcome": "proposal",
+      "layout_class": "ruled_tables",
+      "review": [
+        "The saved link asserts the association. Preserve LM358BI without appending a package or shipping suffix.",
+        "Use B ratings shared across package and shipping variants. Quote the actual source device designation internally.",
+        "Retain the recommended 3–36 V supply range, distinct 40 V stress rating, and merged −40 to 85 °C current temperature. All facts still require source evidence and review."
+      ],
+      "expectation_case_id": "opamp_b_operating_and_stress_limits"
+    },
+    {
+      "id": "saved_link_wrong_document",
+      "category": "resistor",
+      "manufacturer": "Vishay Dale",
+      "quantity": 4,
+      "value": "10k",
+      "url": "https://www.coilcraft.com/getmedia/f080b1aa-a575-4b78-94e5-0976b1d2673a/ta7618.pdf",
+      "part_number": "RS02C10K00FS7017",
+      "linked_part": true,
+      "expected_outcome": "no_match",
+      "review": [
+        "A saved link does not authorize extracting transformer ratings for a resistor or overriding a manufacturer contradiction. Stage no facts."
+      ]
     }
   ]
 }

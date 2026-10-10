@@ -9,12 +9,12 @@ electrical lookup are improved.
 
 ## Next: electrical requirements and enrichment
 
-- Improve bounded context selection for the op-amp
-  [source cases](evaluation/enrichment/electrical_sources.json): preserve stress,
-  operating-supply and frequency-response sections alongside exact ordering rows.
-  Include governing merged-cell geometry for quiescent-current temperature.
-  Reevaluate B/BA variants against the independent source expectations with
-  bounded live runs after these omissions are corrected.
+- Resolve op-amp extraction omissions against the independent
+  [source expectations](evaluation/enrichment/electrical_expectations.json):
+  inherited output/load conditions, characterization-only restrictions on
+  temperature-dependent bias-current bounds, and quiescent-current facts.
+  Use bounded repeat runs of B/BA and saved-link cases; review equivalent wording
+  separately from missing qualifiers.
 - Define further operating ranges and derating from concrete source-backed
   requests; extend fields and condition comparison only where those cases need it.
 - Define identity for connectors, modules, kits, and unmarked stock from concrete
@@ -36,11 +36,11 @@ electrical lookup are improved.
 - Evaluate retention of governing headings, vertically merged cells, and distant
   measurement-method sections in bounded source selection across supplier layouts.
   Fix measured omissions without part-specific rules.
-- Measure repeatability of electrical table interpretation across models and
-  sources. Check global test conditions, min/max endpoints, paired load ratings
-  and reference-circuit values against independent source expectations. Separate
-  qualifier completeness from extraction coverage and cross-run matching; use
-  source review, latency and measured usage when selecting a model.
+- Compare electrical table interpretation across models and sources using
+  independent expectations for global conditions, min/max endpoints, paired load
+  ratings and reference-circuit values. Keep qualifier completeness, extraction
+  coverage and repeatability separate; use source review, latency and measured
+  usage when selecting a model.
 - Evaluate raster OCR on representative scanned datasheets, including page
   selection and table association, before deciding whether to add production OCR.
   Keep recognition measurements separate from electrical correctness.

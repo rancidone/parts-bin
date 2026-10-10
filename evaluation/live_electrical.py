@@ -117,8 +117,10 @@ async def run_electrical(workspace: Path, *, api_key: str, model: str,
         service = PartsBinService(SQLitePartsBinRepository(database))
         part = service.add_part(AddPartRequest(PartFields(case['category'],
             'passive' if case['category'] in {'resistor', 'capacitor', 'inductor'} else 'discrete_ic',
-            case['quantity'], value=case['value'], part_number=case['part_number'], manufacturer=case['manufacturer'])))
+            case['quantity'], value=case['value'], part_number=case['part_number'], manufacturer=case['manufacturer'],
+            datasheet_url=case['url'] if case.get('linked_part') else None)))
         row = {'case_id': case['id'], 'source_url': case['url'], 'expected_outcome': case['expected_outcome'],
+               'linked_part': case.get('linked_part', False),
                'provider_attempts': 0, 'responses': [], 'candidate': None,
                'semantic_review': {'status': 'needs_review', 'instructions': case['review']},
                'estimated_cost_usd': None,
@@ -151,7 +153,7 @@ async def run_electrical(workspace: Path, *, api_key: str, model: str,
             try:
                 document = await retriever(case['url'], client)
                 excerpts, omitted = source.select_excerpts(document, case['part_number'])
-                tables, table_omission = source.relevant_tables(document.tables, case['part_number'])
+                tables, table_omission = source.relevant_tables(document.tables, case['part_number'], excerpts=excerpts)
                 excerpts, passage_omission = source.electrical_passages(excerpts,
                     budget=source.MAX_EXCERPT_BYTES - (source.MAX_TABLE_CONTEXT_BYTES if tables else 0))
                 omitted = omitted or table_omission
@@ -165,7 +167,8 @@ async def run_electrical(workspace: Path, *, api_key: str, model: str,
                 row['retrieval_latency_ms'] = round((perf_counter() - started) * 1000, 1)
                 stage = 'extraction'
                 candidate = await source.extract(document, case['part_number'], case['manufacturer'],
-                    category=case['category'], api_key=api_key, model=model, client=client)
+                    category=case['category'], api_key=api_key, model=model, client=client,
+                    linked_part=case.get('linked_part', False))
                 row.update(outcome=candidate['outcome'], candidate=candidate)
                 if candidate['facts']:
                     stage = 'review'

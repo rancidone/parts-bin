@@ -166,3 +166,48 @@ def test_table_budget_omits_geometry_without_discarding_text():
             patch.object(source, 'MAX_TABLE_BYTES', 1):
         pages, tables, omitted = source.parse_pdf(text_pdf(1), with_tables=True)
     assert 'PBSS5350T' in pages[0] and tables == () and omitted
+
+
+def test_specification_sections_survive_ordering_repetitions_without_neighboring_grade():
+    document = source.Document('https://www.ti.com/test.pdf', 'hash', 'now', (
+        'Precision amplifier family\n' + 'Background\n' * 2000,
+        '1.1 Absolute Maximum Ratings\nSupply stress\t40 V\n' + 'Stress notes\n' * 30,
+        '1.2 Recommended Operating Conditions\nSupply\t3 V\t36 V\nAmbient\t-40 to 85 C\n',
+        '1.3 Electrical Characteristics: AMP12B and AMP12BA\nGlobal conditions: 25 C, load 10 kohm\n'
+        'Input bias current\t-35 nA\n' + 'Other parameters\n' * 100 +
+        'FREQUENCY RESPONSE\nGain bandwidth product\t1.2 MHz\nSlew rate\t0.5 V/us\n',
+        '1.3 Electrical Characteristics: AMP12B and AMP12BA (continued)\n'
+        'POWER SUPPLY\nQuiescent current per amplifier\t300 uA\nMerged temperature: -40 to 85 C\n',
+        '1.4 Electrical Characteristics: AMP12\nLegacy ratings\nFREQUENCY RESPONSE\n0.7 MHz\n',
+        'Ordering\n' + 'AMP12BIDR\tSOIC\n' * 1000,
+    ))
+    excerpts, omitted = source.select_excerpts(document, 'AMP12BIDR')
+    passages, _ = source.electrical_passages(excerpts, budget=9000)
+    assert omitted
+    for required in ('40 V', '3 V\t36 V', '25 C, load 10 kohm', '-35 nA',
+                     '1.2 MHz', '0.5 V/us', 'Merged temperature: -40 to 85 C', 'AMP12BIDR'):
+        assert any(required in item['text'] for item in passages)
+    windows = source.specification_windows(document, 'AMP12BIDR')
+    assert not any(i == 5 for i, _, _ in windows)
+    assert sum(len(item['text'].encode()) for item in passages) <= 9000
+    assert all(item['text'] in document.pages[item['page'] - 1] for item in passages)
+
+
+def test_selected_specification_rows_retain_governing_merged_temperature_geometry():
+    from ingestion.pdf_tables import relevant_tables
+    table = {'page': 2, 'cells': [
+        {'box': [0, 0, 100, 10], 'text': 'TEST CONDITIONS'},
+        {'box': [0, 10, 50, 20], 'text': 'Quiescent current at 5 V'},
+        {'box': [0, 20, 50, 30], 'text': 'Quiescent current at 36 V'},
+        {'box': [50, 10, 100, 30], 'text': 'Temperature -40 to 85 C'},
+        {'box': [100, 10, 150, 20], 'text': '300 uA'},
+        {'box': [100, 20, 150, 30], 'text': '800 uA'},
+    ]}
+    assert relevant_tables((table,), 'AMP12BIDR') == ([], False)
+    selected, omitted = relevant_tables((table,), 'AMP12BIDR', excerpts=[
+        {'page': 2, 'text': 'Quiescent current at 5 V\nTemperature -40 to 85 C\n300 uA\n800 uA'}])
+    assert not omitted
+    assert selected[0]['page'] == 2
+    assert sorted(selected[0]['cells'], key=lambda cell: cell['text']) == sorted(
+        table['cells'], key=lambda cell: cell['text'])
+    assert next(cell for cell in selected[0]['cells'] if 'Temperature' in cell['text'])['box'] == [50, 10, 100, 30]
