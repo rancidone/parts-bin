@@ -29,7 +29,7 @@ def start(log_file: str | None, log_level: str = "INFO") -> None:
 
     print("Starting API...")
     api = subprocess.Popen(
-        ["uv", "run", "uvicorn", "server:app", "--reload"],
+        ["uv", "run", "uvicorn", "local_app:create_app", "--factory", "--reload"],
         cwd=REPO_ROOT,
         env=env,
         start_new_session=True,

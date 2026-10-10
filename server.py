@@ -8,98 +8,57 @@ typed domain service.
 from __future__ import annotations
 
 import json
-import os
-import tomllib
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from time import perf_counter
 
 import log
 from agent_runtime import (
-    AgentGateway, ApprovalEngine, ApprovalResponse, ImageInput,
-    OpenAIResponsesRuntime, OpenAIResponsesTransport, UnsupportedRuntimeError,
+    ApprovalResponse, ImageInput, UnsupportedRuntimeError,
 )
-from agent_runtime.telemetry import AgentTelemetry
+from application import ApplicationServices
 from inventory_export import export_csv
-from db.repository import SQLitePartsBinRepository
-from db.conversations import SQLiteConversationRepository
 from domain import (
     ApplyReviewRequest, DeletePartRequest, DomainError, FetchSpecsRequest,
-    PartsBinService, ProvenanceRequest, RejectReviewRequest, UpdatePartRequest,
+    ProvenanceRequest, RejectReviewRequest, UpdatePartRequest,
 )
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from ingestion.lookup import fetch_specs_detailed
 
 
-_CONFIG_PATH = Path(os.environ.get("PARTS_BIN_CONFIG", Path(__file__).parent / "config.toml"))
-_UI_DIST_PATH = Path(__file__).parent / "ui" / "dist"
-
-
-def _load_config() -> dict:
-    if not _CONFIG_PATH.exists():
-        raise RuntimeError(f"config.toml not found at {_CONFIG_PATH}")
-    with open(_CONFIG_PATH, "rb") as config_file:
-        return tomllib.load(config_file)
-
-
-log.init()
 _logger = log.get_logger("parts_bin.server")
-_cfg = _load_config()
-_DB_PATH = Path(_cfg["db"]["path"])
-_repository = SQLitePartsBinRepository(_DB_PATH)
-_agent_cfg = _cfg.get("agent", {})
-_openai_cfg = _agent_cfg.get("openai", {})
-_search_cfg = _cfg.get("search")
-_DIGIKEY_CREDS: dict | None = (
-    {"client_id": _cfg["digikey"]["client_id"], "client_secret": _cfg["digikey"]["client_secret"]}
-    if _cfg.get("digikey", {}).get("client_id") else None
-)
-
-app = FastAPI(title="Parts Bin")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+router = APIRouter()
 
 
-def _domain_service() -> PartsBinService:
-    async def fetcher(part_number: str) -> dict:
-        return await fetch_specs_detailed(
-            part_number, _DIGIKEY_CREDS,
-            search_config=_search_cfg,
-        )
-    return PartsBinService(_repository, spec_fetcher=fetcher)
+def _services(request: Request) -> ApplicationServices:
+    return request.app.state.services
+
+
+def create_app(services: ApplicationServices, *, ui_dist_path: Path | None = None) -> FastAPI:
+    """Build an HTTP adapter from supplied application services."""
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            await services.close()
+
+    app = FastAPI(title="Parts Bin", lifespan=lifespan)
+    app.state.services = services
+    app.state.ui_dist_path = ui_dist_path
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    if ui_dist_path is not None and (ui_dist_path / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=ui_dist_path / "assets"), name="ui-assets")
+    app.include_router(router)
+    return app
 
 
 def _domain_error(exc: DomainError) -> HTTPException:
     status = 404 if exc.code.value in {"part_not_found", "review_not_found"} else 409 if exc.code.value in {"duplicate_part", "conflict", "ambiguous_target"} else 422
     return HTTPException(status_code=status, detail={"code": exc.code.value, "message": exc.message, "details": exc.details})
-
-
-def _make_agent_runtime():
-    from tools import PartsBinToolRegistry
-
-    if not _openai_cfg.get("api_key"):
-        raise RuntimeError("OpenAI API is not configured (agent.openai.api_key)")
-    return OpenAIResponsesRuntime(
-        OpenAIResponsesTransport(
-            api_key=_openai_cfg["api_key"], model=_openai_cfg.get("model", "gpt-5.6"),
-            base_url=_openai_cfg.get("base_url", "https://api.openai.com/v1"),
-        ),
-        registry=PartsBinToolRegistry(_domain_service()), store=_conversation_store,
-        approvals=_approval_engine, telemetry=_agent_telemetry,
-    )
-
-
-_conversation_store = SQLiteConversationRepository(_agent_cfg.get("conversation_db_path", str(_DB_PATH)))
-_approval_engine = ApprovalEngine(_repository)
-_agent_telemetry = AgentTelemetry()
-_agent_gateway = AgentGateway(_conversation_store, _make_agent_runtime, telemetry=_agent_telemetry)
-
-
-@app.on_event("shutdown")
-async def close_agent_gateway() -> None:
-    await _agent_gateway.close()
 
 
 def _sse(event: str, data: dict) -> str:
@@ -133,17 +92,17 @@ async def _agent_image(photo: UploadFile | None) -> ImageInput | None:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/agent/threads")
-async def create_agent_thread(body: dict | None = Body(default=None)) -> dict:
+@router.post("/agent/threads")
+async def create_agent_thread(request: Request, body: dict | None = Body(default=None)) -> dict:
     if body:
         raise HTTPException(status_code=422, detail="Thread creation does not accept a runtime selection or other options")
-    return {"thread_id": _agent_gateway.create_thread()}
+    return {"thread_id": _services(request).gateway.create_thread()}
 
 
-@app.get("/agent/threads/{thread_id}/events")
-async def resume_agent_thread(thread_id: str, after: int = 0) -> StreamingResponse:
+@router.get("/agent/threads/{thread_id}/events")
+async def resume_agent_thread(request: Request, thread_id: str, after: int = 0) -> StreamingResponse:
     try:
-        events = _agent_gateway.events(thread_id, after=max(after, 0))
+        events = _services(request).gateway.events(thread_id, after=max(after, 0))
     except UnsupportedRuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
@@ -151,12 +110,12 @@ async def resume_agent_thread(thread_id: str, after: int = 0) -> StreamingRespon
     return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.post("/agent/threads/{thread_id}/messages")
-async def submit_agent_message(thread_id: str, message: str = Form(default=""), photo: UploadFile | None = File(default=None)) -> StreamingResponse:
+@router.post("/agent/threads/{thread_id}/messages")
+async def submit_agent_message(request: Request, thread_id: str, message: str = Form(default=""), photo: UploadFile | None = File(default=None)) -> StreamingResponse:
     if not message.strip() and photo is None:
         raise HTTPException(status_code=422, detail="message or photo required")
     try:
-        events = _agent_gateway.submit_stream(thread_id, message.strip() or "Identify this part.", image=await _agent_image(photo))
+        events = _services(request).gateway.submit_stream(thread_id, message.strip() or "Identify this part.", image=await _agent_image(photo))
     except UnsupportedRuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
@@ -164,13 +123,13 @@ async def submit_agent_message(thread_id: str, message: str = Form(default=""), 
     return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.post("/agent/threads/{thread_id}/resume")
-async def resume_agent_execution(thread_id: str, execution_id: str = Form(...),
+@router.post("/agent/threads/{thread_id}/resume")
+async def resume_agent_execution(request: Request, thread_id: str, execution_id: str = Form(...),
                                  photo: UploadFile | None = File(default=None)) -> StreamingResponse:
     if not execution_id.strip():
         raise HTTPException(status_code=422, detail="execution_id is required")
     try:
-        events = _agent_gateway.resume_stream(thread_id, execution_id, image=await _agent_image(photo))
+        events = _services(request).gateway.resume_stream(thread_id, execution_id, image=await _agent_image(photo))
     except UnsupportedRuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
@@ -178,13 +137,13 @@ async def resume_agent_execution(thread_id: str, execution_id: str = Form(...),
     return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.post("/agent/threads/{thread_id}/approvals")
-async def respond_to_agent_approval(thread_id: str, body: dict) -> StreamingResponse:
+@router.post("/agent/threads/{thread_id}/approvals")
+async def respond_to_agent_approval(request: Request, thread_id: str, body: dict) -> StreamingResponse:
     request_id, approved = body.get("request_id"), body.get("approved")
     if not isinstance(request_id, str) or not isinstance(approved, bool):
         raise HTTPException(status_code=422, detail="request_id and approved boolean are required")
     try:
-        events = _agent_gateway.approval_stream(thread_id, ApprovalResponse(request_id, approved))
+        events = _services(request).gateway.approval_stream(thread_id, ApprovalResponse(request_id, approved))
     except UnsupportedRuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
@@ -192,118 +151,119 @@ async def respond_to_agent_approval(thread_id: str, body: dict) -> StreamingResp
     return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.get("/health")
-async def health() -> dict:
-    return {"status": "ok", "agent_configured": bool(_openai_cfg.get("api_key"))}
+@router.get("/health")
+async def health(request: Request) -> dict:
+    return {"status": "ok", "agent_configured": _services(request).agent_configured}
 
 
-@app.get("/inventory")
-async def inventory() -> list[dict]:
-    return [vars(part) for part in _domain_service().list()]
+@router.get("/inventory")
+async def inventory(request: Request) -> list[dict]:
+    return [vars(part) for part in _services(request).domain.list()]
 
 
-@app.get("/inventory/pending")
-async def inventory_pending() -> dict:
-    return {"reviews": _domain_service().list_pending_reviews()}
+@router.get("/inventory/pending")
+async def inventory_pending(request: Request) -> dict:
+    return {"reviews": _services(request).domain.list_pending_reviews()}
 
 
-@app.get("/inventory/{part_id}/provenance")
-async def inventory_part_provenance(part_id: int) -> dict:
+@router.get("/inventory/{part_id}/provenance")
+async def inventory_part_provenance(request: Request, part_id: int) -> dict:
     try:
-        return {"part_id": part_id, "provenance": _domain_service().provenance(ProvenanceRequest(part_id))}
+        return {"part_id": part_id, "provenance": _services(request).domain.provenance(ProvenanceRequest(part_id))}
     except DomainError as exc:
         raise _domain_error(exc) from exc
 
 
-@app.patch("/inventory/{part_id}")
-async def update_inventory_part(part_id: int, body: dict) -> dict:
+@router.patch("/inventory/{part_id}")
+async def update_inventory_part(request: Request, part_id: int, body: dict) -> dict:
     fields = body.get("part")
     if not isinstance(fields, dict):
         raise HTTPException(status_code=422, detail="part object required")
     try:
-        return {"part": vars(_domain_service().update_part(UpdatePartRequest(part_id, fields)))}
+        return {"part": vars(_services(request).domain.update_part(UpdatePartRequest(part_id, fields)))}
     except DomainError as exc:
         raise _domain_error(exc) from exc
 
 
-@app.delete("/inventory/{part_id}")
-async def delete_inventory_part(part_id: int) -> dict:
+@router.delete("/inventory/{part_id}")
+async def delete_inventory_part(request: Request, part_id: int) -> dict:
     try:
-        _domain_service().delete_part(DeletePartRequest(part_id))
+        _services(request).domain.delete_part(DeletePartRequest(part_id))
     except DomainError as exc:
         raise _domain_error(exc) from exc
     return {"ok": True}
 
 
-@app.get("/inventory/export.csv")
-async def inventory_csv():
-    return StreamingResponse(iter([export_csv([vars(part) for part in _domain_service().list()])]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=inventory.csv"})
+@router.get("/inventory/export.csv")
+async def inventory_csv(request: Request):
+    return StreamingResponse(iter([export_csv([vars(part) for part in _services(request).domain.list()])]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=inventory.csv"})
 
 
-@app.post("/inventory/{part_id}/refresh")
-async def refresh_part(part_id: int) -> dict:
+@router.post("/inventory/{part_id}/refresh")
+async def refresh_part(request: Request, part_id: int) -> dict:
     started = perf_counter()
     try:
-        result = await _domain_service().fetch_and_stage_specs(FetchSpecsRequest(part_id))
+        result = await _services(request).domain.fetch_and_stage_specs(FetchSpecsRequest(part_id))
     except DomainError as exc:
         raise _domain_error(exc) from exc
     _logger.info("refresh proposed", extra={"part_id": part_id, "latency_ms": round((perf_counter() - started) * 1000, 1)})
     return {"part": vars(result["part"]), "proposed_updates": result["chosen_updates"], "provenance": result["durable_provenance"], "outcome": result["outcome"], "withheld_candidates": result.get("withheld_candidates", {})}
 
 
-@app.post("/inventory/{part_id}/accept")
-async def accept_refresh(part_id: int, body: dict) -> dict:
+@router.post("/inventory/{part_id}/accept")
+async def accept_refresh(request: Request, part_id: int, body: dict) -> dict:
     updates, provenance = body.get("updates", {}), body.get("provenance", [])
     if not updates:
         raise HTTPException(status_code=422, detail="No updates to accept")
     try:
-        return {"part": vars(_domain_service().apply_review(ApplyReviewRequest(part_id, updates, tuple(provenance))))}
+        return {"part": vars(_services(request).domain.apply_review(ApplyReviewRequest(part_id, updates, tuple(provenance))))}
     except DomainError as exc:
         raise _domain_error(exc) from exc
 
 
-@app.post("/inventory/{part_id}/dismiss")
-async def dismiss_review(part_id: int) -> dict:
+@router.post("/inventory/{part_id}/dismiss")
+async def dismiss_review(request: Request, part_id: int) -> dict:
     try:
-        _domain_service().reject_review(RejectReviewRequest(part_id))
+        _services(request).domain.reject_review(RejectReviewRequest(part_id))
     except DomainError as exc:
         raise _domain_error(exc) from exc
     return {"ok": True}
 
 
-def _ui_index_path() -> Path:
-    return _UI_DIST_PATH / "index.html"
+def _ui_index_path(request: Request) -> Path | None:
+    directory = request.app.state.ui_dist_path
+    return None if directory is None else directory / "index.html"
 
 
-def _resolve_ui_asset(relative_path: str) -> Path | None:
-    candidate = (_UI_DIST_PATH / relative_path).resolve()
+def _resolve_ui_asset(request: Request, relative_path: str) -> Path | None:
+    directory = request.app.state.ui_dist_path
+    if directory is None:
+        return None
+    candidate = (directory / relative_path).resolve()
     try:
-        candidate.relative_to(_UI_DIST_PATH.resolve())
+        candidate.relative_to(directory.resolve())
     except ValueError:
         return None
     return candidate if candidate.is_file() else None
 
 
-if (_UI_DIST_PATH / "assets").is_dir():
-    app.mount("/assets", StaticFiles(directory=_UI_DIST_PATH / "assets"), name="ui-assets")
-
-
-@app.get("/", include_in_schema=False)
-async def ui_root():
-    if not _ui_index_path().is_file():
+@router.get("/", include_in_schema=False)
+async def ui_root(request: Request):
+    index = _ui_index_path(request)
+    if index is None or not index.is_file():
         raise HTTPException(status_code=404, detail="UI build not found")
-    return FileResponse(_ui_index_path())
+    return FileResponse(index)
 
 
-@app.get("/{full_path:path}", include_in_schema=False)
-async def ui_catchall(full_path: str):
+@router.get("/{full_path:path}", include_in_schema=False)
+async def ui_catchall(request: Request, full_path: str):
     if not full_path:
-        return await ui_root()
+        return await ui_root(request)
     if full_path.startswith(("agent", "inventory", "health", "jlcparts")):
         raise HTTPException(status_code=404, detail="Not found")
-    asset_path = _resolve_ui_asset(full_path)
+    asset_path = _resolve_ui_asset(request, full_path)
     if asset_path is not None:
         return FileResponse(asset_path)
     if "." not in Path(full_path).name:
-        return await ui_root()
+        return await ui_root(request)
     raise HTTPException(status_code=404, detail="Not found")

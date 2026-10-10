@@ -140,6 +140,22 @@ confused with inventory or conversation storage.
 
 ## HTTP and worker execution
 
+Separate application assembly from hosting. [application.py](../../application.py)
+constructs the domain, approval engine, and gateway from supplied repositories,
+supplier retrieval, and an OpenAI transport factory. It has no local configuration,
+database filename, or FastAPI dependency. Worker entry points use these services
+directly and close them when their host lifetime ends.
+
+[server.create_app](../../server.py) builds the HTTP adapter from those services.
+Each app owns its services and optional UI directory; requests use that app's
+state rather than module-level installation state. FastAPI lifespan closes the
+gateway on shutdown, following the
+[lifespan guidance](https://fastapi.tiangolo.com/advanced/events/).
+[local_app.py](../../local_app.py) is the local composition entry point: it loads
+TOML configuration, initializes logging and SQLite adapters, and assembles the
+HTTP host. Uvicorn invokes it explicitly as an application factory. Cloud
+composition and scheduling remain separate work.
+
 Keep FastAPI as the HTTP adapter while evaluating serverless hosting. Replacing
 the routing library does not solve durable state, approval continuation, or
 retry semantics. Preserving the API and local workflow avoids an unrelated

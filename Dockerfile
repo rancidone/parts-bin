@@ -43,4 +43,4 @@ ENV LOG_LEVEL=INFO \
 
 VOLUME ["/app/data"]
 
-CMD ["/app/.venv/bin/python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/.venv/bin/python", "-m", "uvicorn", "local_app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
