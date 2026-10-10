@@ -32,6 +32,13 @@ async def test_lookup_scenario_rejects_wrong_search_matches(tmp_path):
         await run_scenario(scenario, "openai", tmp_path)
 
 
+async def test_category_lookup_requires_discovery_before_search(tmp_path):
+    scenario = _scenario("inventory_lookup_category_discovery")
+    scenario['recorded_turns'].pop(0)
+    with pytest.raises(EvaluationFailure, match='required tool sequence'):
+        await run_scenario(scenario, 'openai', tmp_path)
+
+
 async def test_lookup_scenario_requires_every_clarification_cue(tmp_path):
     scenario = _scenario("inventory_lookup_ambiguous_package")
     scenario["recorded_turns"][-1]["text"] = "Which package do you need: 0402?"
@@ -86,7 +93,7 @@ async def test_initial_model_request_never_contains_a_full_inventory_snapshot(tm
     request = transport.requests[0]
     assert request.exchanges == ()
     assert "0000" not in request.system
-    assert len(request.tools) == 18
+    assert len(request.tools) == 19
 
 
 def test_canonical_contract_exposes_no_generic_or_direct_database_tool():
@@ -117,3 +124,59 @@ async def test_evaluator_rejects_policy_violations(tmp_path, scenario_id, mutate
 
     with pytest.raises(EvaluationFailure):
         await run_scenario(scenario, "openai", tmp_path)
+
+
+@pytest.mark.parametrize('scenario_id,key,field', [
+    ('inventory_lookup_partial_marking', 'expected_candidate_results', 'candidate_ids'),
+    ('inventory_lookup_electrical_evidence', 'expected_specification_results', 'match_ids'),
+])
+async def test_lookup_evaluation_rejects_wrong_candidates_and_evidence_matches(tmp_path, scenario_id, key, field):
+    scenario = _scenario(scenario_id)
+    scenario['tool_constraints'][key][0][field] = [4]
+    with pytest.raises(EvaluationFailure, match='result differs'):
+        await run_scenario(scenario, 'openai', tmp_path)
+
+
+async def test_lookup_evaluation_rejects_staging_facts_even_without_changing_stock(tmp_path):
+    scenario = _scenario('inventory_lookup_value_notation')
+    scenario['recorded_turns'].insert(0, {'tool_calls': [{
+        'name': 'stage_specification_review', 'arguments': {'part_id': 1, 'facts': [{
+            'name': 'rated_voltage', 'value': '50 V', 'basis': 'rated', 'conditions': {},
+            'evidence': {'kind': 'user_assertion', 'excerpt': 'Invented assertion'},
+        }]},
+    }]})
+    with pytest.raises(EvaluationFailure, match='mutation was not allowed'):
+        await run_scenario(scenario, 'openai', tmp_path)
+
+
+async def test_lookup_snapshot_detects_changes_to_electrical_reviews(tmp_path):
+    from domain import PartsBinService
+    from evaluation.runner import _seed, _snapshot, sqlite_evaluation_storage
+    scenario = _scenario('inventory_lookup_electrical_evidence')
+    storage = sqlite_evaluation_storage(tmp_path, 'snapshot')
+    _seed(storage.repository, scenario['starting_database'])
+    before = _snapshot(storage.repository)
+    service = PartsBinService(storage.repository)
+    service.reject_specification_review(2)
+    after = _snapshot(storage.repository)
+    assert before['parts'] == after['parts']
+    assert before['specifications'] == after['specifications']
+    assert before != after
+
+
+@pytest.mark.parametrize('scenario_id,text', [
+    ('inventory_lookup_ambiguous_units', 'What value do you mean: 100 pF, 100 nF, or 100 µF?'),
+    ('inventory_lookup_partial_marking', 'Candidate PBSS5350T,215 and PBSS5350T,115 stock; confirm the exact part before merging.'),
+    ('inventory_lookup_insufficient_stock', 'You don’t have four 10 kΩ resistors in a single package: 2 in 0402 and 3 in 0603.'),
+])
+async def test_live_clarification_paraphrases_preserve_required_meaning(tmp_path, scenario_id, text):
+    scenario = _scenario(scenario_id)
+    scenario['recorded_turns'][-1]['text'] = text
+    assert (await run_scenario(scenario, 'openai', tmp_path)).status == 'passed'
+
+
+async def test_electrical_lookup_rejects_plain_inventory_results_instead_of_crashing(tmp_path):
+    scenario = _scenario('inventory_lookup_electrical_evidence')
+    scenario['recorded_turns'][2]['tool_calls'][0]['arguments'].pop('requirements')
+    with pytest.raises(EvaluationFailure, match='result shape differs'):
+        await run_scenario(scenario, 'openai', tmp_path)

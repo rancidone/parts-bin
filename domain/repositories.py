@@ -4,7 +4,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from .models import Part
+from .models import CategorySummary, Part
 
 
 class RepositoryConflict(Exception):
@@ -61,6 +61,7 @@ class InventoryRepository(Protocol):
     """Persist supplied fields; search non-null filters by exact stored equality."""
 
     def search(self, filters: dict[str, Any]) -> list[Part]: ...
+    def list_categories(self) -> list[CategorySummary]: ...
     def get(self, part_id: int) -> Part | None: ...
     def insert(self, fields: dict[str, Any]) -> int: ...
     def increment_stock(self, part_id: int, quantity: int) -> None: ...

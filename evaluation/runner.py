@@ -1,7 +1,7 @@
 """Scenario runner shared by deterministic recordings and opt-in live models.
 
 Scenarios describe observable behaviour only: tool events, approval boundaries,
-and durable domain state.  They deliberately do not compare assistant prose.
+and durable domain state.  Lookup scenarios also check coarse semantic cues; these do not replace human review.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from agent_runtime import (
     ImageInput, ModelTurn, OpenAIResponsesRuntime, ToolCall,
 )
 
-from domain import PartsBinService
+from domain import GetPartRequest, PartsBinService
 from domain.repositories import PartsBinRepository
 from tools import PartsBinToolRegistry
 
@@ -29,7 +29,7 @@ SCENARIOS_PATH = Path(__file__).with_name("scenarios.json")
 INVENTORY_LOOKUP_SCENARIOS_PATH = Path(__file__).with_name("inventory_lookup.json")
 SCENARIO_PATHS = (SCENARIOS_PATH, INVENTORY_LOOKUP_SCENARIOS_PATH)
 MUTATIONS_REQUIRING_APPROVAL = frozenset({"update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review", "apply_specification_review", "reject_specification_review"})
-MUTATING_TOOLS = MUTATIONS_REQUIRING_APPROVAL | frozenset({"add_part", "add_stock"})
+MUTATING_TOOLS = MUTATIONS_REQUIRING_APPROVAL | frozenset({"add_part", "add_stock", "stage_specification_review", "lookup_part_specs"})
 
 
 class EvaluationFailure(AssertionError):
@@ -150,6 +150,11 @@ def _seed(repository: PartsBinRepository, state: dict[str, Any]) -> None:
                           "value": large.get("value", "10k"), "package": f"{index:04d}"})
     for part in parts:
         service.add_part(_add_request(part))
+    for entry in state.get("specifications", []):
+        part = service.get(GetPartRequest(entry['part_id']))
+        service.stage_specifications(part, entry['facts'])
+        if entry.get('accepted', False):
+            service.apply_specification_review(part.id)
     for review in state.get("pending_reviews", []):
         repository.inventory.save_pending_review(review["part_id"], review["fields"], review.get("provenance", [_provenance(name, str(value)) for name, value in review["fields"].items()]))
 
@@ -165,6 +170,8 @@ def _snapshot(repository: PartsBinRepository) -> dict[str, Any]:
     return {
         "parts": [{key: getattr(part, key) for key in ("id", "part_category", "profile", "quantity", "value", "package", "part_number", "manufacturer", "description")} for part in parts],
         "reviews": service.list_pending_reviews(),
+        "specifications": {str(part.id): repository.inventory.specifications(part.id) for part in parts},
+        "specification_reviews": repository.inventory.specification_reviews(),
         "provenance": {str(part.id): repository.inventory.list_provenance(part.id) for part in parts},
     }
 
@@ -194,6 +201,15 @@ def _assert_tools(events: list[Any], spec: dict[str, Any]) -> None:
     unexpected = set(errors) - allowed_errors
     if unexpected:
         raise EvaluationFailure(f"unexpected tool errors: {sorted(unexpected)}")
+    _assert_lookup_results(events, spec)
+    for name in MUTATIONS_REQUIRING_APPROVAL & set(names):
+        requests = [event for event in events if event.kind == "approval_request" and event.data["tool"] == name]
+        decisions = [event for event in events if event.kind == "approval_decision" and event.data["tool"] == name and event.data["approved"]]
+        if not requests or not decisions:
+            raise EvaluationFailure(f"approval bypass for {name}")
+
+
+def _assert_lookup_results(events: list[Any], spec: dict[str, Any]) -> None:
     expected_searches = spec.get("expected_search_results")
     if expected_searches is not None:
         search_results = [event.data["result"] for event in events
@@ -214,11 +230,30 @@ def _assert_tools(events: list[Any], spec: dict[str, Any]) -> None:
             if actual != expected:
                 raise EvaluationFailure(
                     f"search {index} result differs:\nexpected {expected}\nactual {actual}")
-    for name in MUTATIONS_REQUIRING_APPROVAL & set(names):
-        requests = [event for event in events if event.kind == "approval_request" and event.data["tool"] == name]
-        decisions = [event for event in events if event.kind == "approval_decision" and event.data["tool"] == name and event.data["approved"]]
-        if not requests or not decisions:
-            raise EvaluationFailure(f"approval bypass for {name}")
+    for tool, expectation, collections, counts in [
+        ('search_candidates', 'expected_candidate_results', {'candidate_ids': 'candidates'}, ['count', 'truncated']),
+        ('search_parts', 'expected_specification_results', {'match_ids': 'matches', 'incomplete_ids': 'incomplete'}, ['match_count', 'incomplete_count', 'truncated']),
+    ]:
+        expected_results = spec.get(expectation)
+        if expected_results is None:
+            continue
+        responses = [event.data['result'] for event in events
+                     if event.kind == 'tool_result' and event.data['name'] == tool]
+        if expectation == 'expected_specification_results' and spec.get('check_last_specification_result'):
+            responses = responses[-len(expected_results):]
+        if len(responses) != len(expected_results):
+            raise EvaluationFailure(f"expected {len(expected_results)} {tool} results, got {len(responses)}")
+        for index, (response, expected) in enumerate(zip(responses, expected_results, strict=True), 1):
+            if not response.get('ok'):
+                raise EvaluationFailure(f"{tool} {index} failed")
+            result = response['result']
+            if not set(counts + list(collections.values())) <= set(result):
+                raise EvaluationFailure(f"{tool} {index} result shape differs")
+            actual = {key: result[key] for key in counts}
+            for key, collection in collections.items():
+                actual[key] = sorted((row.get('part', row))['id'] for row in result[collection])
+            if actual != expected:
+                raise EvaluationFailure(f"{tool} {index} result differs: expected {expected}, actual {actual}")
 
 
 def _assert_state(snapshot: dict[str, Any], expected: dict[str, Any]) -> None:
@@ -247,6 +282,7 @@ async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, 
     workspace.mkdir(parents=True, exist_ok=True)
     storage = storage_factory(workspace, f"{scenario['id']}-{runtime}")
     _seed(storage.repository, scenario["starting_database"])
+    before = _snapshot(storage.repository)
     runtime_instance, transport = factory(runtime, storage.repository, storage.conversations,
                                           [_turn(turn) for turn in scenario["recorded_turns"]])
     events: list[Any] = []
@@ -269,16 +305,22 @@ async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, 
     # Count durable tool calls, rather than deliveries of those calls.
     events = list({(event.thread_id, event.sequence): event for event in events}.values())
     _assert_tools(events, scenario["tool_constraints"])
-    _assert_state(_snapshot(storage.repository), scenario["expected_final_state"])
+    after = _snapshot(storage.repository)
+    _assert_state(after, scenario["expected_final_state"])
+    if scenario.get("inventory_unchanged") and after != before:
+        raise EvaluationFailure("lookup changed committed inventory, pending reviews, or evidence")
+    _assert_answer(events, scenario.get("answer_assertions", {}))
+    return ScenarioResult(scenario["id"], runtime, "passed", len([event for event in events if event.kind == "tool_call"]))
+
+
+def _assert_answer(events: list[Any], assertion: dict[str, Any]) -> None:
     answers = "\n".join(event.data["text"].lower() for event in events if event.kind == "assistant_text")
-    assertion = scenario.get("answer_assertions", {})
     if assertion.get("contains_any") and not any(text.lower() in answers for text in assertion["contains_any"]):
         raise EvaluationFailure("answer omitted all required semantic cues")
     if assertion.get("contains_all") and not all(text.lower() in answers for text in assertion["contains_all"]):
         raise EvaluationFailure("answer omitted a required semantic cue")
     if any(text.lower() in answers for text in assertion.get("must_not_contain", [])):
         raise EvaluationFailure("answer included prohibited semantic cue")
-    return ScenarioResult(scenario["id"], runtime, "passed", len([event for event in events if event.kind == "tool_call"]))
 
 
 async def run_recorded(workspace: Path, *, factory: RuntimeFactory = default_runtime_factory,

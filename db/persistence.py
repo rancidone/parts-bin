@@ -410,6 +410,18 @@ def list_field_provenance(db_path: str | Path, part_id: int) -> list[dict]:
         conn.close()
 
 
+def list_categories(db_path: str | Path) -> list[dict]:
+    """Aggregate committed stock without loading individual inventory records."""
+    conn = _connect(db_path)
+    try:
+        return [dict(row) for row in conn.execute("""
+            SELECT part_category, COUNT(*) AS part_count, SUM(quantity) AS total_quantity
+            FROM parts GROUP BY part_category ORDER BY part_category
+        """).fetchall()]
+    finally:
+        conn.close()
+
+
 def query(db_path: str | Path, attrs: dict) -> list[dict]:
     """
     Query parts by structured attributes. NULL fields are wildcards.

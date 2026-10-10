@@ -20,12 +20,57 @@ def registry(tmp_path):
 @pytest.mark.asyncio
 async def test_registry_is_schema_first_and_search_is_compact(registry):
     names = [tool["name"] for tool in registry.list_tools()]
-    assert names == ["search_parts", "search_candidates", "get_part", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part", "lookup_part_specs", "list_pending_reviews", "apply_review", "reject_review", "get_provenance", "get_specification_contract", "get_specifications", "stage_specification_review", "apply_specification_review", "reject_specification_review"]
+    assert names == ["list_categories", "search_parts", "search_candidates", "get_part", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part", "lookup_part_specs", "list_pending_reviews", "apply_review", "reject_review", "get_provenance", "get_specification_contract", "get_specifications", "stage_specification_review", "apply_specification_review", "reject_specification_review"]
     added = await registry.execute("add_part", {**vars(_fields()), "quantity": 2})
     assert added["ok"] is True
     found = await registry.execute("search_parts", {"filters": {"part_category": "resistor"}})
     assert found["result"]["parts"] == [{"id": 1, "part_category": "resistor", "profile": "passive", "value": "10k", "package": "0402", "part_number": None, "quantity": 2, "manufacturer": None, "description": None}]
     assert "created_at" not in found["result"]["parts"][0]
+
+
+@pytest.mark.asyncio
+async def test_category_discovery_reports_only_committed_category_summaries(tmp_path):
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    registry = PartsBinToolRegistry(service)
+    assert await registry.execute('list_categories', {}) == {'ok': True, 'result': {'categories': []}}
+    first = service.add_part(AddPartRequest(_fields(
+        part_category='operational amplifier', profile='discrete_ic', value=None,
+        part_number='LM358', quantity=1)))
+    service.add_part(AddPartRequest(_fields(
+        part_category='operational amplifier', profile='discrete_ic', value=None,
+        part_number='UA741CN', quantity=6)))
+    service.add_part(AddPartRequest(_fields(
+        part_category='op_amp', profile='discrete_ic', value=None,
+        part_number='HA17458', quantity=0)))
+    service.repository.inventory.save_pending_review(first.id, {'part_category': 'pending category'}, [])
+    before = service.list()
+    result = await registry.execute('list_categories', {})
+    assert result == {'ok': True, 'result': {'categories': [
+        {'part_category': 'op_amp', 'part_count': 1, 'total_quantity': 0},
+        {'part_category': 'operational amplifier', 'part_count': 2, 'total_quantity': 7},
+    ]}}
+    assert service.list() == before
+    assert service.list_pending_reviews()[first.id]['fields']['part_category']['value'] == 'pending category'
+    assert not (await registry.execute('list_categories', {'sql': 'SELECT * FROM parts'}))['ok']
+
+
+@pytest.mark.asyncio
+async def test_opamp_chat_search_finds_operational_amplifiers(registry):
+    for number, quantity in [('HA17458', 1), ('LM358', 1), ('UA741CN', 6), ('UA741CP', 11)]:
+        registry.service.add_part(AddPartRequest(_fields(
+            part_category='operational amplifier', profile='discrete_ic',
+            value=None, package=None, part_number=number, quantity=quantity)))
+    registry.service.add_part(AddPartRequest(_fields(
+        part_category='audio amplifier', profile='discrete_ic', value=None,
+        part_number='LM386')))
+    found = await registry.execute('search_parts', {
+        'filters': {'part_category': 'op amp', 'profile': 'discrete_ic'}, 'limit': 100,
+    })
+    assert found['ok']
+    assert found['result']['count'] == 4
+    assert {part['part_number']: part['quantity'] for part in found['result']['parts']} == {
+        'HA17458': 1, 'LM358': 1, 'UA741CN': 6, 'UA741CP': 11,
+    }
 
 
 @pytest.mark.asyncio
@@ -84,7 +129,7 @@ async def test_registry_completes_every_inventory_workflow(tmp_path):
         response = await registry.execute(name, arguments, context=ToolExecutionContext(receipt))
         assert response["ok"], response
     assert [tool["name"] for tool in registry.list_tools()] == [
-        "search_parts", "search_candidates", "get_part", "add_part", "add_stock", "update_part",
+        "list_categories", "search_parts", "search_candidates", "get_part", "add_part", "add_stock", "update_part",
         "bulk_update_parts", "delete_part", "lookup_part_specs",
         "list_pending_reviews", "apply_review", "reject_review", "get_provenance",
         "get_specification_contract", "get_specifications", "stage_specification_review",

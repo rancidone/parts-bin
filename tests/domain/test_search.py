@@ -98,3 +98,24 @@ def test_exact_ordering_suffix_and_zero_stock(tmp_path):
     filters = {'part_number': 'PBSS5350T,215'}
     assert service.search(SearchPartsRequest(filters)) == [full]
     assert service.search(SearchPartsRequest(filters, minimum_quantity=1)) == []
+
+
+@pytest.mark.parametrize('category', [
+    'op amp', 'opamp', 'opamps', 'op-amp', 'op_amp', 'OP AMPS',
+    'operational amplifier', 'operational amplifiers',
+])
+def test_opamp_category_aliases_preserve_inventory_and_other_filters(tmp_path, category):
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    first = add(service, part_category='operational amplifier', profile='discrete_ic',
+                value=None, part_number='UA741CN', package='DIP', quantity=6)
+    second = add(service, part_category='op_amp', profile='discrete_ic',
+                 value=None, part_number='LM358', package='SOIC', quantity=1)
+    add(service, part_category='audio amplifier', profile='discrete_ic',
+        value=None, part_number='LM386')
+    before = service.list()
+    assert {part.id for part in service.search(SearchPartsRequest({'part_category': category}))} == {first.id, second.id}
+    assert service.search(SearchPartsRequest(
+        {'part_category': category, 'package': 'DIP', 'part_number': 'UA741CN'},
+        minimum_quantity=6)) == [first]
+    assert service.search(SearchPartsRequest({'part_category': category}, minimum_quantity=7)) == []
+    assert service.list() == before

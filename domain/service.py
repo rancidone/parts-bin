@@ -7,13 +7,13 @@ from .repositories import PartsBinRepository, RepositoryConflict
 from .errors import DomainError, ErrorCode
 from .models import (
     AddPartRequest, AddPartsRequest, AddStockRequest, ApplyReviewRequest, BulkUpdateRequest,
-    DeletePartRequest, FetchSpecsRequest, GetPartRequest, Part, PartFields,
+    CategorySummary, DeletePartRequest, FetchSpecsRequest, GetPartRequest, Part, PartFields,
     ProvenanceRequest, RejectReviewRequest, SearchPartsRequest, SearchCandidatesRequest,
     UpdatePartRequest, EDITABLE_PART_FIELDS,
 )
 from .normalization import normalize_part_payload, part_identity, validate_fields, clean_text
 
-from .search import values_match, nominal_value
+from .search import values_match, nominal_value, search_category
 from . import specifications
 from .pagination import validate_page, next_offset
 
@@ -52,6 +52,10 @@ class PartsBinService:
             and str(part.get("part_category", "")).lower() not in {"resistor", "capacitor", "inductor"}
         )
 
+    def list_categories(self) -> list[CategorySummary]:
+        """Discover exact committed category names, including out-of-stock records."""
+        return self.repository.inventory.list_categories()
+
     def search(self, request: SearchPartsRequest) -> list[Part]:
         if (not isinstance(request.minimum_quantity, int) or isinstance(request.minimum_quantity, bool)
                 or request.minimum_quantity < 0):
@@ -64,13 +68,20 @@ class PartsBinService:
             raise DomainError(ErrorCode.INVALID_INPUT, "Search filters must be strings or null")
         # Historical edits can contain unnormalized spellings. Compare values in
         # the domain without rewriting stored rows, timestamps, or evidence.
-        value = filters.get("value")
+        category = filters.get("part_category")
+        category_alias = category is not None and search_category(category) == "operational amplifier"
+        if category_alias:
+            filters.pop("part_category")
+        value = filters.pop("value", None)
+        candidates = self.repository.inventory.search(filters)
+        if category_alias:
+            candidates = [part for part in candidates
+                          if search_category(part.part_category) == search_category(category)]
         if value is None:
-            return [part for part in self.repository.inventory.search(filters)
+            return [part for part in candidates
                     if part.quantity >= request.minimum_quantity]
-        filters.pop("value")
         matches = []
-        for part in self.repository.inventory.search(filters):
+        for part in candidates:
             if part.value is None or part.quantity < request.minimum_quantity:
                 continue
             if part.part_category.lower() in {"resistor", "capacitor", "inductor"}:

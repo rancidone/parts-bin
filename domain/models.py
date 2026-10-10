@@ -52,6 +52,13 @@ class Part:
 
 
 @dataclass(frozen=True)
+class CategorySummary:
+    part_category: str
+    part_count: int
+    total_quantity: int
+
+
+@dataclass(frozen=True)
 class SearchPartsRequest:
     filters: Mapping[str, Any] = field(default_factory=dict)
     minimum_quantity: int = 0

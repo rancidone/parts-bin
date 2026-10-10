@@ -5,139 +5,994 @@
       "id": "inventory_lookup_value_notation",
       "starting_database": {
         "parts": [
-          {"part_category": "capacitor", "profile": "passive", "quantity": 6, "value": "100nF", "package": "0603"},
-          {"part_category": "capacitor", "profile": "passive", "quantity": 9, "value": "100nF", "package": "0402"},
-          {"part_category": "capacitor", "profile": "passive", "quantity": 4, "value": "1uF", "package": "0603"}
+          {
+            "part_category": "capacitor",
+            "profile": "passive",
+            "quantity": 6,
+            "value": "100nF",
+            "package": "0603"
+          },
+          {
+            "part_category": "capacitor",
+            "profile": "passive",
+            "quantity": 9,
+            "value": "100nF",
+            "package": "0402"
+          },
+          {
+            "part_category": "capacitor",
+            "profile": "passive",
+            "quantity": 4,
+            "value": "1uF",
+            "package": "0603"
+          }
         ]
       },
-      "conversation": [{"user": "Do I have any 0.1 µF 0603 capacitors?"}],
+      "conversation": [
+        {
+          "user": "Do I have any 0.1 µF 0603 capacitors?"
+        }
+      ],
       "allowed_approvals": {},
       "tool_constraints": {
-        "required_sequence": ["search_parts"],
-        "forbidden": ["add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part"],
-        "max_calls": 1,
-        "expected_search_results": [{"part_ids": [1], "count": 1, "truncated": false}]
+        "required_sequence": [
+          "list_categories",
+          "search_parts"
+        ],
+        "forbidden": [
+          "add_part",
+          "add_stock",
+          "update_part",
+          "bulk_update_parts",
+          "delete_part"
+        ],
+        "max_calls": 2,
+        "expected_search_results": [
+          {
+            "part_ids": [
+              1
+            ],
+            "count": 1,
+            "truncated": false
+          }
+        ]
       },
-      "expected_final_state": {"parts_count": 3, "reviews": {}},
-      "answer_assertions": {"contains_all": ["6", "0603", "0.1 µf"]},
+      "expected_final_state": {
+        "parts_count": 3,
+        "reviews": {}
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "6",
+          "0603",
+          "0.1 µf"
+        ]
+      },
       "recorded_turns": [
-        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "capacitor", "value": "0.1 µF", "package": "0603"}}}]},
-        {"text": "Yes. One committed 0603 inventory record has 6 capacitors at 100 nF, equivalent to 0.1 µF."}
-      ]
+        {
+          "tool_calls": [
+            {
+              "name": "list_categories",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "search_parts",
+              "arguments": {
+                "filters": {
+                  "part_category": "capacitor",
+                  "value": "0.1 µF",
+                  "package": "0603"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "text": "Yes. One committed 0603 inventory record has 6 capacitors at 100 nF, equivalent to 0.1 µF."
+        }
+      ],
+      "inventory_unchanged": true
     },
     {
       "id": "inventory_lookup_exact_ordering_suffix",
       "starting_database": {
         "parts": [
-          {"part_category": "transistor", "profile": "discrete_ic", "quantity": 8, "part_number": "PBSS5350T,215", "package": "SOT-23"},
-          {"part_category": "transistor", "profile": "discrete_ic", "quantity": 20, "part_number": "PBSS5350T", "package": "SOT-23"},
-          {"part_category": "transistor", "profile": "discrete_ic", "quantity": 4, "part_number": "PBSS5350T,115", "package": "SOT-23"}
+          {
+            "part_category": "transistor",
+            "profile": "discrete_ic",
+            "quantity": 8,
+            "part_number": "PBSS5350T,215",
+            "package": "SOT-23"
+          },
+          {
+            "part_category": "transistor",
+            "profile": "discrete_ic",
+            "quantity": 20,
+            "part_number": "PBSS5350T",
+            "package": "SOT-23"
+          },
+          {
+            "part_category": "transistor",
+            "profile": "discrete_ic",
+            "quantity": 4,
+            "part_number": "PBSS5350T,115",
+            "package": "SOT-23"
+          }
         ]
       },
-      "conversation": [{"user": "How many PBSS5350T,215 transistors do I have?"}],
+      "conversation": [
+        {
+          "user": "How many PBSS5350T,215 transistors do I have?"
+        }
+      ],
       "allowed_approvals": {},
       "tool_constraints": {
-        "required_sequence": ["search_parts"],
-        "forbidden": ["lookup_part_specs", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part"],
+        "required_sequence": [
+          "search_parts"
+        ],
+        "forbidden": [
+          "lookup_part_specs",
+          "add_part",
+          "add_stock",
+          "update_part",
+          "bulk_update_parts",
+          "delete_part"
+        ],
         "max_calls": 1,
-        "expected_search_results": [{"part_ids": [1], "count": 1, "truncated": false}]
+        "expected_search_results": [
+          {
+            "part_ids": [
+              1
+            ],
+            "count": 1,
+            "truncated": false
+          }
+        ]
       },
-      "expected_final_state": {"parts_count": 3, "reviews": {}},
-      "answer_assertions": {"contains_all": ["pbss5350t,215", "8"]},
+      "expected_final_state": {
+        "parts_count": 3,
+        "reviews": {}
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "pbss5350t,215",
+          "8"
+        ]
+      },
       "recorded_turns": [
-        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_number": "PBSS5350T,215"}}}]},
-        {"text": "You have 8 PBSS5350T,215 transistors in committed inventory."}
-      ]
+        {
+          "tool_calls": [
+            {
+              "name": "search_parts",
+              "arguments": {
+                "filters": {
+                  "part_number": "PBSS5350T,215"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "text": "You have 8 PBSS5350T,215 transistors in committed inventory."
+        }
+      ],
+      "inventory_unchanged": true
     },
     {
       "id": "inventory_lookup_ambiguous_package",
       "starting_database": {
         "parts": [
-          {"part_category": "resistor", "profile": "passive", "quantity": 5, "value": "10000r", "package": "0402"},
-          {"part_category": "resistor", "profile": "passive", "quantity": 7, "value": "10k", "package": "0603"},
-          {"part_category": "resistor", "profile": "passive", "quantity": 2, "value": "10 kΩ", "package": "0805"}
+          {
+            "part_category": "resistor",
+            "profile": "passive",
+            "quantity": 5,
+            "value": "10000r",
+            "package": "0402"
+          },
+          {
+            "part_category": "resistor",
+            "profile": "passive",
+            "quantity": 7,
+            "value": "10k",
+            "package": "0603"
+          },
+          {
+            "part_category": "resistor",
+            "profile": "passive",
+            "quantity": 2,
+            "value": "10 kΩ",
+            "package": "0805"
+          }
         ]
       },
-      "conversation": [{"user": "Find four 10 kΩ resistors."}],
+      "conversation": [
+        {
+          "user": "Find four 10 kΩ resistors."
+        }
+      ],
       "allowed_approvals": {},
       "tool_constraints": {
-        "required_sequence": ["search_parts"],
-        "forbidden": ["add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part"],
-        "max_calls": 1,
-        "expected_search_results": [{"part_ids": [1, 2], "count": 2, "truncated": false}]
+        "required_sequence": [
+          "list_categories",
+          "search_parts"
+        ],
+        "forbidden": [
+          "add_part",
+          "add_stock",
+          "update_part",
+          "bulk_update_parts",
+          "delete_part"
+        ],
+        "max_calls": 2,
+        "expected_search_results": [
+          {
+            "part_ids": [
+              1,
+              2
+            ],
+            "count": 2,
+            "truncated": false
+          }
+        ]
       },
-      "expected_final_state": {"parts_count": 3, "reviews": {}},
-      "answer_assertions": {"contains_all": ["which", "0402", "0603"]},
+      "expected_final_state": {
+        "parts_count": 3,
+        "reviews": {}
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "which",
+          "0402",
+          "0603"
+        ]
+      },
       "recorded_turns": [
-        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10 kΩ"}, "minimum_quantity": 4}}]},
-        {"text": "I found enough stock in both 0402 and 0603 packages. Which package do you need?"}
-      ]
+        {
+          "tool_calls": [
+            {
+              "name": "list_categories",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "search_parts",
+              "arguments": {
+                "filters": {
+                  "part_category": "resistor",
+                  "value": "10 kΩ"
+                },
+                "minimum_quantity": 4
+              }
+            }
+          ]
+        },
+        {
+          "text": "I found enough stock in both 0402 and 0603 packages. Which package do you need?"
+        }
+      ],
+      "inventory_unchanged": true
     },
     {
       "id": "inventory_lookup_insufficient_stock",
       "starting_database": {
         "parts": [
-          {"part_category": "resistor", "profile": "passive", "quantity": 2, "value": "10k", "package": "0402"},
-          {"part_category": "resistor", "profile": "passive", "quantity": 3, "value": "10000 ohms", "package": "0603"}
+          {
+            "part_category": "resistor",
+            "profile": "passive",
+            "quantity": 2,
+            "value": "10k",
+            "package": "0402"
+          },
+          {
+            "part_category": "resistor",
+            "profile": "passive",
+            "quantity": 3,
+            "value": "10000 ohms",
+            "package": "0603"
+          }
         ]
       },
-      "conversation": [{"user": "Do I have four 10 kΩ resistors available?"}],
+      "conversation": [
+        {
+          "user": "Do I have four 10 kΩ resistors available?"
+        }
+      ],
       "allowed_approvals": {},
       "tool_constraints": {
-        "required_sequence": ["search_parts", "search_parts"],
-        "forbidden": ["add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part"],
-        "max_calls": 2,
+        "required_sequence": [
+          "list_categories",
+          "search_parts",
+          "search_parts"
+        ],
+        "forbidden": [
+          "add_part",
+          "add_stock",
+          "update_part",
+          "bulk_update_parts",
+          "delete_part"
+        ],
+        "max_calls": 3,
         "expected_search_results": [
-          {"part_ids": [], "count": 0, "truncated": false},
-          {"part_ids": [1, 2], "count": 2, "truncated": false}
+          {
+            "part_ids": [],
+            "count": 0,
+            "truncated": false
+          },
+          {
+            "part_ids": [
+              1,
+              2
+            ],
+            "count": 2,
+            "truncated": false
+          }
         ]
       },
-      "expected_final_state": {"parts_count": 2, "reviews": {}},
-      "answer_assertions": {"contains_all": ["no single", "0402", "0603"]},
+      "expected_final_state": {
+        "parts_count": 2,
+        "reviews": {}
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "0402",
+          "0603"
+        ],
+        "contains_any": [
+          "no single",
+          "don’t have four of a single",
+          "do not have four of a single",
+          "neither package",
+          "don’t have four 10 kω resistors in a single package",
+          "do not have four 10 kω resistors in a single package"
+        ]
+      },
       "recorded_turns": [
-        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10 kΩ"}, "minimum_quantity": 4}}]},
-        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10 kΩ"}}}]},
-        {"text": "No single inventory record has four available. The committed stock is split between 2 in 0402 and 3 in 0603."}
-      ]
+        {
+          "tool_calls": [
+            {
+              "name": "list_categories",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "search_parts",
+              "arguments": {
+                "filters": {
+                  "part_category": "resistor",
+                  "value": "10 kΩ"
+                },
+                "minimum_quantity": 4
+              }
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "search_parts",
+              "arguments": {
+                "filters": {
+                  "part_category": "resistor",
+                  "value": "10 kΩ"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "text": "No single inventory record has four available. The committed stock is split between 2 in 0402 and 3 in 0603."
+        }
+      ],
+      "inventory_unchanged": true
     },
     {
       "id": "inventory_lookup_pending_enrichment_is_not_committed",
       "starting_database": {
         "parts": [
-          {"part_category": "capacitor", "profile": "passive", "quantity": 10, "value": "220nF", "package": "0603"},
-          {"part_category": "capacitor", "profile": "passive", "quantity": 12, "value": "100nF", "package": "0402"}
+          {
+            "part_category": "capacitor",
+            "profile": "passive",
+            "quantity": 10,
+            "value": "220nF",
+            "package": "0603"
+          },
+          {
+            "part_category": "capacitor",
+            "profile": "passive",
+            "quantity": 12,
+            "value": "100nF",
+            "package": "0402"
+          }
         ],
         "pending_reviews": [
-          {"part_id": 1, "fields": {"value": "0.1uF"}}
+          {
+            "part_id": 1,
+            "fields": {
+              "value": "0.1uF"
+            }
+          }
         ]
       },
-      "conversation": [{"user": "Do I have 0.1 µF capacitors in 0603?"}],
+      "conversation": [
+        {
+          "user": "Do I have 0.1 µF capacitors in 0603?"
+        }
+      ],
       "allowed_approvals": {},
       "tool_constraints": {
-        "required_sequence": ["search_parts", "list_pending_reviews"],
-        "forbidden": ["apply_review", "reject_review", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part"],
-        "max_calls": 2,
-        "expected_search_results": [{"part_ids": [], "count": 0, "truncated": false}]
+        "required_sequence": [
+          "list_categories",
+          "search_parts",
+          "list_pending_reviews",
+          "get_part"
+        ],
+        "forbidden": [
+          "apply_review",
+          "reject_review",
+          "add_part",
+          "add_stock",
+          "update_part",
+          "bulk_update_parts",
+          "delete_part"
+        ],
+        "max_calls": 4,
+        "expected_search_results": [
+          {
+            "part_ids": [],
+            "count": 0,
+            "truncated": false
+          }
+        ]
       },
       "expected_final_state": {
         "parts_count": 2,
-        "part_assertions": {"1": {"value": "220n", "package": "0603", "quantity": 10}},
+        "part_assertions": {
+          "1": {
+            "value": "220n",
+            "package": "0603",
+            "quantity": 10
+          }
+        },
         "reviews": {
           "1": {
-            "fields": {"value": {"accepted": true, "value": "0.1uF"}},
+            "fields": {
+              "value": {
+                "accepted": true,
+                "value": "0.1uF"
+              }
+            },
             "provenance": [
-              {"field_name": "value", "field_value": "0.1uF", "source_tier": "supplier", "source_kind": "recorded_fixture", "source_locator": "fixture://supplier", "extraction_method": "recorded", "confidence_marker": "medium", "conflict_status": "conflict", "normalization_method": null, "evidence": "recorded"}
+              {
+                "field_name": "value",
+                "field_value": "0.1uF",
+                "source_tier": "supplier",
+                "source_kind": "recorded_fixture",
+                "source_locator": "fixture://supplier",
+                "extraction_method": "recorded",
+                "confidence_marker": "medium",
+                "conflict_status": "conflict",
+                "normalization_method": null,
+                "evidence": "recorded"
+              }
             ],
             "outcome": "saved"
           }
         }
       },
-      "answer_assertions": {"contains_all": ["no committed", "pending", "review"]},
+      "answer_assertions": {
+        "contains_all": [
+          "pending",
+          "review"
+        ],
+        "contains_any": [
+          "no committed",
+          "don’t have a committed",
+          "do not have a committed",
+          "no matching committed"
+        ]
+      },
       "recorded_turns": [
-        {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "capacitor", "value": "0.1 µF", "package": "0603"}}}]},
-        {"tool_calls": [{"name": "list_pending_reviews", "arguments": {}}]},
-        {"text": "There is no committed 0.1 µF 0603 match. One 0603 capacitor has that value only as a pending review, so I did not count it as inventory."}
+        {
+          "tool_calls": [
+            {
+              "name": "list_categories",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "search_parts",
+              "arguments": {
+                "filters": {
+                  "part_category": "capacitor",
+                  "value": "0.1 µF",
+                  "package": "0603"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "list_pending_reviews",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "get_part",
+              "arguments": {
+                "part_id": 1
+              }
+            }
+          ]
+        },
+        {
+          "text": "There is no committed 0.1 µF 0603 match. One 0603 capacitor has that value only as a pending review, so I did not count it as inventory."
+        }
+      ],
+      "inventory_unchanged": true
+    },
+    {
+      "id": "inventory_lookup_category_discovery",
+      "starting_database": {
+        "parts": [
+          {
+            "part_category": "operational amplifier",
+            "profile": "discrete_ic",
+            "quantity": 6,
+            "part_number": "UA741CN"
+          },
+          {
+            "part_category": "operational amplifier",
+            "profile": "discrete_ic",
+            "quantity": 1,
+            "part_number": "LM358"
+          },
+          {
+            "part_category": "audio amplifier",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "LM386"
+          }
+        ]
+      },
+      "conversation": [
+        {
+          "user": "What opamps do I have?"
+        }
+      ],
+      "allowed_approvals": {},
+      "tool_constraints": {
+        "required_sequence": [
+          "list_categories",
+          "search_parts"
+        ],
+        "max_calls": 2,
+        "expected_search_results": [
+          {
+            "part_ids": [
+              1,
+              2
+            ],
+            "count": 2,
+            "truncated": false
+          }
+        ]
+      },
+      "expected_final_state": {
+        "parts_count": 3,
+        "reviews": {}
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "ua741cn",
+          "6",
+          "lm358",
+          "1"
+        ]
+      },
+      "recorded_turns": [
+        {
+          "tool_calls": [
+            {
+              "name": "list_categories",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "search_parts",
+              "arguments": {
+                "filters": {
+                  "part_category": "operational amplifier"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "text": "Your committed operational amplifier inventory contains 6 UA741CN and 1 LM358."
+        }
+      ],
+      "inventory_unchanged": true
+    },
+    {
+      "id": "inventory_lookup_partial_marking",
+      "starting_database": {
+        "parts": [
+          {
+            "part_category": "transistor",
+            "profile": "discrete_ic",
+            "quantity": 8,
+            "part_number": "PBSS5350T,215",
+            "manufacturer": "Nexperia",
+            "description": "PNP transistor, marking 50T"
+          },
+          {
+            "part_category": "transistor",
+            "profile": "discrete_ic",
+            "quantity": 4,
+            "part_number": "PBSS5350T,115",
+            "manufacturer": "Nexperia"
+          },
+          {
+            "part_category": "transistor",
+            "profile": "discrete_ic",
+            "quantity": 0,
+            "part_number": "PBSS5350T"
+          },
+          {
+            "part_category": "transistor",
+            "profile": "discrete_ic",
+            "quantity": 20,
+            "part_number": "UNRELATED"
+          }
+        ]
+      },
+      "conversation": [
+        {
+          "user": "I found a part marked 50T. What candidate stock do I have?"
+        }
+      ],
+      "allowed_approvals": {},
+      "inventory_unchanged": true,
+      "tool_constraints": {
+        "required_sequence": [
+          "search_candidates"
+        ],
+        "max_calls": 4,
+        "expected_candidate_results": [
+          {
+            "candidate_ids": [
+              1,
+              2,
+              3
+            ],
+            "count": 3,
+            "truncated": false
+          }
+        ]
+      },
+      "expected_final_state": {
+        "parts_count": 4
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "candidate",
+          "pbss5350t,215",
+          "pbss5350t,115"
+        ],
+        "contains_any": [
+          "confirm",
+          "which",
+          "exact part",
+          "package"
+        ]
+      },
+      "recorded_turns": [
+        {
+          "tool_calls": [
+            {
+              "name": "search_candidates",
+              "arguments": {
+                "query": "50T"
+              }
+            }
+          ]
+        },
+        {
+          "text": "Candidate stock: 8 PBSS5350T,215, 4 PBSS5350T,115, and 0 PBSS5350T. A marking does not establish exact identity. Which package is the marked part in?"
+        }
       ]
+    },
+    {
+      "id": "inventory_lookup_ambiguous_units",
+      "starting_database": {
+        "parts": [
+          {
+            "part_category": "capacitor",
+            "profile": "passive",
+            "quantity": 7,
+            "value": "100nF",
+            "package": "0603"
+          }
+        ]
+      },
+      "conversation": [
+        {
+          "user": "Do I have 100 capacitors? I mean the value, not the count."
+        }
+      ],
+      "allowed_approvals": {},
+      "inventory_unchanged": true,
+      "tool_constraints": {
+        "required_sequence": [],
+        "max_calls": 4
+      },
+      "expected_final_state": {
+        "parts_count": 1
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "pf",
+          "nf"
+        ],
+        "contains_any": [
+          "unit",
+          "value"
+        ]
+      },
+      "recorded_turns": [
+        {
+          "text": "What unit do you mean for the value 100: pF, nF, or µF?"
+        }
+      ]
+    },
+    {
+      "id": "inventory_lookup_electrical_evidence",
+      "starting_database": {
+        "parts": [
+          {
+            "part_category": "resistor",
+            "profile": "passive",
+            "quantity": 4,
+            "value": "10k",
+            "package": "0603",
+            "part_number": "R-EXACT,1"
+          },
+          {
+            "part_category": "resistor",
+            "profile": "passive",
+            "quantity": 8,
+            "value": "10k",
+            "package": "0402",
+            "part_number": "R-EXACT,2"
+          }
+        ],
+        "specifications": [
+          {
+            "part_id": 1,
+            "facts": [
+              {
+                "name": "tolerance",
+                "value": "1 %",
+                "basis": "maximum",
+                "conditions": {},
+                "evidence": {
+                  "kind": "source",
+                  "excerpt": "Synthetic evaluation passage: tolerance 1 %.",
+                  "url": "https://example.com/synthetic-resistor.pdf",
+                  "page": 1,
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "retrieved_at": "2026-10-10T12:00:00+00:00",
+                  "part_number": "R-EXACT,1"
+                }
+              },
+              {
+                "name": "rated_power",
+                "value": "0.25 W",
+                "basis": "rated",
+                "conditions": {
+                  "ambient_temperature": "25 °C"
+                },
+                "evidence": {
+                  "kind": "source",
+                  "excerpt": "Synthetic evaluation passage: rated_power 0.25 W.",
+                  "url": "https://example.com/synthetic-resistor.pdf",
+                  "page": 1,
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "retrieved_at": "2026-10-10T12:00:00+00:00",
+                  "part_number": "R-EXACT,1"
+                }
+              }
+            ],
+            "accepted": true
+          },
+          {
+            "part_id": 2,
+            "facts": [
+              {
+                "name": "tolerance",
+                "value": "1 %",
+                "basis": "maximum",
+                "conditions": {},
+                "evidence": {
+                  "kind": "user_assertion",
+                  "excerpt": "Synthetic evaluation passage: tolerance 1 %."
+                }
+              },
+              {
+                "name": "rated_power",
+                "value": "0.25 W",
+                "basis": "rated",
+                "conditions": {
+                  "ambient_temperature": "25 °C"
+                },
+                "evidence": {
+                  "kind": "user_assertion",
+                  "excerpt": "Synthetic evaluation passage: rated_power 0.25 W."
+                }
+              }
+            ],
+            "accepted": true
+          },
+          {
+            "part_id": 2,
+            "facts": [
+              {
+                "name": "tolerance",
+                "value": "1 %",
+                "basis": "maximum",
+                "conditions": {},
+                "evidence": {
+                  "kind": "source",
+                  "excerpt": "Synthetic evaluation passage: tolerance 1 %.",
+                  "url": "https://example.com/synthetic-resistor.pdf",
+                  "page": 1,
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "retrieved_at": "2026-10-10T12:00:00+00:00",
+                  "part_number": "R-EXACT,2"
+                }
+              },
+              {
+                "name": "rated_power",
+                "value": "0.25 W",
+                "basis": "rated",
+                "conditions": {
+                  "ambient_temperature": "25 °C"
+                },
+                "evidence": {
+                  "kind": "source",
+                  "excerpt": "Synthetic evaluation passage: rated_power 0.25 W.",
+                  "url": "https://example.com/synthetic-resistor.pdf",
+                  "page": 1,
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "retrieved_at": "2026-10-10T12:00:00+00:00",
+                  "part_number": "R-EXACT,2"
+                }
+              }
+            ],
+            "accepted": false
+          }
+        ]
+      },
+      "conversation": [
+        {
+          "user": "Find four 10 kΩ resistors with tolerance at most 1% and rated power at least 0.25 W at ambient temperature 25 °C. Do pending ratings count?"
+        }
+      ],
+      "allowed_approvals": {},
+      "inventory_unchanged": true,
+      "tool_constraints": {
+        "required_sequence": [
+          "list_categories",
+          "get_specification_contract",
+          "search_parts"
+        ],
+        "max_calls": 4,
+        "expected_specification_results": [
+          {
+            "match_ids": [
+              1
+            ],
+            "incomplete_ids": [
+              2
+            ],
+            "match_count": 1,
+            "incomplete_count": 1,
+            "truncated": false
+          }
+        ]
+      },
+      "expected_final_state": {
+        "parts_count": 2
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "r-exact,1",
+          "25",
+          "pending",
+          "incomplete",
+          "0603"
+        ]
+      },
+      "recorded_turns": [
+        {
+          "tool_calls": [
+            {
+              "name": "list_categories",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "get_specification_contract",
+              "arguments": {
+                "category": "resistor"
+              }
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "search_parts",
+              "arguments": {
+                "filters": {
+                  "part_category": "resistor",
+                  "value": "10 kΩ"
+                },
+                "minimum_quantity": 4,
+                "requirements": [
+                  {
+                    "name": "tolerance",
+                    "value": "1 %",
+                    "basis": "maximum",
+                    "conditions": {},
+                    "comparison": "lte"
+                  },
+                  {
+                    "name": "rated_power",
+                    "value": "0.25 W",
+                    "basis": "rated",
+                    "conditions": {
+                      "ambient_temperature": "25 °C"
+                    },
+                    "comparison": "gte"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "text": "The 0603 R-EXACT,1 record has four parts with accepted source ratings of 1% and 0.25 W at 25 °C. R-EXACT,2 is incomplete: user assertions and pending ratings do not confirm suitability. Do you need 0603 or 0402?"
+        }
+      ],
+      "live_tool_constraints": {
+        "max_calls": 7,
+        "check_last_specification_result": true
+      }
     }
   ]
 }
