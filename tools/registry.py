@@ -181,6 +181,8 @@ class PartsBinToolRegistry:
             return contract(args['category'])
         if name == 'get_specifications':
             return self.service.get_specifications(args['part_id'])
+        if name == 'list_pending_specification_reviews':
+            return self.service.specification_review_page(**args)
         if name == 'stage_specification_review':
             # Models may record user assertions, but cannot promote their own
             # invented source metadata to independently sourced evidence.
@@ -346,6 +348,7 @@ _TOOL_DEFINITIONS = [
     _tool("get_provenance", "Get accepted field provenance for one part.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
     _tool('get_specification_contract', 'Discover supported fields, units, qualifiers, and comparisons for any inventory category. Unsupported categories remain valid inventory.', {'category': {'type': 'string', 'minLength': 1}}, required=['category']),
     _tool('get_specifications', 'Read accepted electrical facts and pending specification review for one exact part. Pending facts are not confirmed.', {'part_id': {'type': 'integer', 'minimum': 1}}, required=['part_id']),
+    _tool('list_pending_specification_reviews', 'Discover pending electrical reviews separately from accepted facts and base-metadata reviews. Returns committed part identity and proposed fact names only; use get_specifications with a returned part_id to inspect proposed values, evidence, conditions, and accepted facts before requesting approval. Optional part_category and part_number filters match exact committed fields, preserving ordering suffixes. Pages are ordered by part_id; start with offset 0 and follow next_offset with unchanged filters and limit until null. count covers all matching pending reviews. Restart pagination if reviews or inventory change.', {'part_id': {'type': 'integer', 'minimum': 1}, 'part_category': {'type': 'string', 'minLength': 1}, 'part_number': {'type': 'string', 'minLength': 1}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}, 'offset': {'type': 'integer', 'minimum': 0}}),
     _tool('stage_specification_review', 'Stage explicitly user-asserted electrical facts for review. Quote the user assertion; do not invent source evidence. Assertions do not confirm source-backed search requirements.', {'part_id': {'type': 'integer', 'minimum': 1}, 'facts': _FACTS_SCHEMA}, required=['part_id', 'facts']),
     _tool('apply_specification_review', 'Accept the pending electrical facts for this exact part, preserving source passages, conditions, and evidence kind. Approval does not turn user assertions into source evidence.', {'part_id': {'type': 'integer', 'minimum': 1}}, required=['part_id']),
     _tool('reject_specification_review', 'Discard a pending electrical specification review without changing accepted facts.', {'part_id': {'type': 'integer', 'minimum': 1}}, required=['part_id']),

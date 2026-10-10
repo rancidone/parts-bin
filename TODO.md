@@ -18,9 +18,6 @@ electrical lookup are improved.
 - Expose supplied-datasheet ingestion through a narrow agent tool accepting an
   exact inventory target and source URL. Retrieve evidence and stage electrical
   facts through the shared review/approval flow.
-- Add bounded discovery of pending electrical specification reviews without
-  requiring the agent to know each part ID. Keep proposals separate from accepted
-  facts.
 - Extend specification and condition definitions from representative source-backed
   requests, including operating ranges, derating, and additional categories.
   Define op-amp specifications explicitly, distinguishing operating limits from

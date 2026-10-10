@@ -71,7 +71,12 @@ inspection.
 If a tool result is omitted from model context, inspect its saved result in chat
 history. Narrow read filters or request a smaller page. Pending-review discovery
 supports exact ordering codes, equivalent nominal values, and individual part IDs;
-provenance is available for an individual review.
+provenance is available for an individual review. Use
+`list_pending_specification_reviews` for electrical reviews, optionally filtering
+by exact committed category, ordering code, or part ID. Follow `next_offset` with
+unchanged filters and page size; restart if reviews or inventory change. Discovery
+returns identities and proposed fact names; inspect `get_specifications` for a
+selected part's values, conditions, evidence, and accepted facts before approval.
 
 `context_budget_exceeded` and `model_response_incomplete` end an execution without
 automatic retry. Inspect saved outcomes and stock before starting a narrower
