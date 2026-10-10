@@ -192,3 +192,25 @@ def test_edit_normalizes_value_and_agent_search_finds_it(client):
     assert edited.json()['part']['value'] == '22k'
     found = service.search(SearchPartsRequest({'part_category': 'resistor', 'value': '22K'}))
     assert [part.id for part in found] == [added.id]
+
+
+def test_quantity_adjustments_use_current_stock_and_preserve_reviews(client):
+    from domain import AddPartRequest, PartFields
+
+    http, _ = client
+    service = http.app.state.services.domain
+    part = service.add_part(AddPartRequest(PartFields(part_category='resistor', profile='passive', quantity=1, value='10k')))
+    service.repository.inventory.save_pending_review(part.id, {'description': 'pending'}, [])
+    reviews = http.get('/inventory/pending').json()
+    url = f'/inventory/{part.id}/quantity'
+    assert http.post(url, json={'delta': -1}).json()['part']['quantity'] == 0
+    assert http.post(url, json={'delta': -1}).status_code == 422
+    assert http.post(url, json={'delta': 1}).json()['part']['quantity'] == 1
+    assert http.post(url, json={'delta': 1}).json()['part']['quantity'] == 2
+    assert http.get('/inventory/pending').json() == reviews
+    assert http.post('/inventory/999/quantity', json={'delta': 1}).status_code == 404
+
+
+@pytest.mark.parametrize('body', [{}, {'delta': True}, {'delta': 1.0}, {'delta': '1'}, {'delta': 0}, {'delta': 2}, {'delta': -2}, {'delta': 1, 'quantity': 10}])
+def test_quantity_adjustments_reject_invalid_requests(client, body):
+    assert client[0].post('/inventory/1/quantity', json=body).status_code == 422

@@ -1,6 +1,7 @@
 import { NavLink, useMatch, useNavigate } from 'react-router'
 import { Chat } from './Chat'
 import { Inventory } from './Inventory'
+import { QuantityProvider } from './QuantityProvider'
 import styles from './App.module.css'
 
 export default function App() {
@@ -15,7 +16,7 @@ export default function App() {
   const tabClass = ({ isActive }: { isActive: boolean }) => `${styles.tab} ${isActive ? styles.active : ''}`
 
   return (
-    <div className={styles.app}>
+    <QuantityProvider><div className={styles.app}>
       <nav className={styles.nav}>
         <span className={styles.logo}>Parts Bin</span>
         <div className={styles.tabs}>
@@ -32,6 +33,6 @@ export default function App() {
         <div style={{ display: inventoryActive ? 'contents' : 'none' }}><Inventory active={inventoryActive} selectedPartId={selectedPartId} onClearSelection={() => navigate('/inventory')} /></div>
         {!chatActive && !inventoryActive && <p role="alert">Page not found. Choose Chat or Inventory above.</p>}
       </main>
-    </div>
+    </div></QuantityProvider>
   )
 }

@@ -93,6 +93,12 @@ class AddStockRequest:
 
 
 @dataclass(frozen=True)
+class AdjustStockRequest:
+    part_id: int
+    delta: int
+
+
+@dataclass(frozen=True)
 class UpdatePartRequest:
     part_id: int
     fields: Mapping[str, Any]

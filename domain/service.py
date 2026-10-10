@@ -6,7 +6,7 @@ from .repositories import PartsBinRepository, RepositoryConflict
 
 from .errors import DomainError, ErrorCode
 from .models import (
-    AddPartRequest, AddPartsRequest, AddStockRequest, ApplyReviewRequest, BulkUpdateRequest,
+    AddPartRequest, AddPartsRequest, AddStockRequest, AdjustStockRequest, ApplyReviewRequest, BulkUpdateRequest,
     CategorySummary, DeletePartRequest, FetchSpecsRequest, GetPartRequest, Part, PartFields,
     ProvenanceRequest, RejectReviewRequest, SearchPartsRequest, SearchCandidatesRequest,
     UpdatePartRequest, IngestDatasheetRequest, EDITABLE_PART_FIELDS,
@@ -309,6 +309,16 @@ class PartsBinService:
         self.get(GetPartRequest(request.part_id))
         self.repository.inventory.increment_stock(request.part_id, request.quantity)
         return self.get(GetPartRequest(request.part_id))
+
+    def adjust_stock(self, request: AdjustStockRequest) -> Part:
+        if not isinstance(request.delta, int) or isinstance(request.delta, bool) or request.delta not in {-1, 1}:
+            raise DomainError(ErrorCode.INVALID_INPUT, "stock adjustment must be -1 or 1")
+        with self.transaction() as (service, repository):
+            current = service.get(GetPartRequest(request.part_id))
+            if current.quantity + request.delta < 0:
+                raise DomainError(ErrorCode.INVALID_INPUT, "quantity cannot be negative")
+            repository.inventory.increment_stock(request.part_id, request.delta)
+            return service.get(GetPartRequest(request.part_id))
 
     def update_part(self, request: UpdatePartRequest) -> Part:
         current = self.get(GetPartRequest(request.part_id))

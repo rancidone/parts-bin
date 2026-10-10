@@ -1,3 +1,4 @@
+import { QuantityControl } from './QuantityControl'
 import type { Part } from './types'
 import styles from './PartCard.module.css'
 
@@ -19,7 +20,7 @@ export function PartCard({ part, added, onOpenPart }: Props) {
       {part.description && <div className={styles.desc}>{part.description}</div>}
       <div className={styles.footer}>
         {part.id != null && onOpenPart && <button className={styles.openBtn} onClick={() => onOpenPart(part.id!)}>View in inventory</button>}
-        <span className={styles.qty}>Qty: {part.quantity}</span>
+        <QuantityControl part={part} />
         {added !== undefined && (
           <span className={styles.badge}>{added ? 'Added' : 'Updated'}</span>
         )}
