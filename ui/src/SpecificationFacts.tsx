@@ -9,7 +9,7 @@ export type SpecificationState = { outcome?: string; extraction_assessment?: Ass
 const label = (text: string) => text.replaceAll('_', ' ')
 
 export function SpecificationFacts({ facts, reviewing = false }: { facts: Fact[]; reviewing?: boolean }) {
-  if (!facts.length) return <p className={styles.note}>No accepted electrical facts yet.</p>
+  if (!facts.length) return <p className={styles.note}>{reviewing ? 'No electrical specs to review.' : 'No electrical specs saved yet.'}</p>
   return <div className={styles.facts}>{facts.map(fact => <div className={styles.fact} key={fact.name}>
     <div className={styles.factHeading}><span>{label(fact.name)}</span><strong>{fact.value}</strong><span className={styles.basis}>{label(fact.basis)}</span></div>
     <div className={styles.conditions}>{Object.entries(fact.conditions).map(([key, value]) => `${label(key)}: ${value}`).join(' · ') || 'No conditions stated'}
@@ -86,7 +86,7 @@ export function SpecificationResult({ value }: { value: SpecificationState }) {
     {incomplete.map(item => <SpecificationMatch key={item.part.id} part={item.part} missing={item.missing_or_unqualified} />)}
     {searching && !matches.length && !incomplete.length && <p className={styles.note}>No inventory records meet these requirements.</p>}
     {value.truncated && <p className={styles.note}>Showing {matches.length} confirmed and {incomplete.length} incomplete records. Narrow your search to see other candidates.</p>}
-    {value.facts && <section className={styles.card}><strong>Accepted electrical facts{value.part_id ? ` · Part #${value.part_id}` : ''}</strong><SpecificationFacts facts={value.facts} /></section>}
+    {value.facts && <section className={styles.card}><strong>Electrical specs{value.part_id ? ` · Part #${value.part_id}` : ''}</strong><SpecificationFacts facts={value.facts} /></section>}
     {value.pending_review && <div><p className={styles.overview}>Pending specification review</p><SpecificationReview review={value.pending_review} partId={value.part_id ?? 'unknown'} /></div>}
   </section>
 }
