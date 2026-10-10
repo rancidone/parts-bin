@@ -4,81 +4,84 @@ This is a planning list, not implementation evidence. Remove entries when the
 work no longer needs tracking; use code, tests, and run output to inspect behavior.
 Decisions and rationale belong in [ADRs](docs/adr/README.md).
 
-Cloud experiments are deferred while these local workflows and evidence-backed
-lookup are improved.
+Cloud experiments remain deferred while local ingestion and evidence-backed
+electrical lookup are improved.
 
-## Electrical requirements and enrichment
+## Next: electrical requirements and enrichment
 
 - Extend supplied-source extraction to the electrical fact/review contract. Start
-  with the resistor query: four 10 kΩ parts, tolerance at most 1%, and rated power
-  at least 0.25 W under the stated conditions. Evaluate representative capacitor,
-  BJT, MOSFET, inductor, transformer, and switch sources independently; these are
-  initial categories, not an exhaustive taxonomy.
-- Measure live extraction and natural-language interpretation separately from
-  deterministic matching. Verify exact variants, qualifiers, missing facts, useful
-  clarification, and source passages before accepting results.
+  with four 10 kΩ resistors, tolerance at most 1%, and rated power at least 0.25 W
+  under stated conditions. Evaluate capacitor, BJT, MOSFET, inductor, transformer,
+  and switch sources independently; these are initial categories, not an
+  exhaustive taxonomy. Preserve exact variants, qualifiers, source passages,
+  identity, and quantity through validation and review.
+- Expose supplied-datasheet ingestion through a narrow agent tool accepting an
+  exact inventory target and source URL. Retrieve evidence and stage electrical
+  facts through the shared review/approval flow.
+- Add bounded discovery of pending electrical specification reviews without
+  requiring the agent to know each part ID. Keep proposals separate from accepted
+  facts.
+- Extend specification and condition definitions from representative source-backed
+  requests, including operating ranges, derating, and additional categories.
+  Define op-amp specifications explicitly, distinguishing operating limits from
+  absolute maxima and evaluating exact variants and missing facts.
 - Define identity for connectors, modules, kits, and unmarked stock from concrete
   ingestion failures. Consider typed category attributes and explicit variant
   identity without inventing ordering codes or merging uncertain stock. Rehearse
   any migration on copies while preserving IDs, quantities, and provenance.
-- Extend specification and condition definitions from representative requests,
-  including operating ranges, derating, additional component categories, and
-  explicit variant identity for stock without an ordering code. Preserve evidence
-  and distinguish assertions, pending proposals, and accepted source facts.
-- Measure candidate-read costs and result sizes before adding indexed specification
-  queries or pagination; use the existing local repository first.
+- Measure candidate-read costs and result sizes before adding indexed
+  specification queries; use the existing local repository first.
 
-## Enrichment simplification
+## Source discovery and extraction evaluation
 
-- Exercise source-backed extraction against the representative
-  [acceptance cases](evaluation/enrichment/acceptance.json). Start with a supplied
-  datasheet to separate extraction quality from source discovery.
-- Select a bounded retrieval/model approach using measured correctness, useful
-  clarification, latency, and cost. Remove source paths that do not justify their
-  maintenance burden.
-- Connect proposals to domain validation and review; check failed retrieval,
-  conflicting identity, and data preservation through executable tests.
-- Add reusable enrichment results and in-flight deduplication with bounded paid
-  stages. Keep accepted provenance independent of cache expiry; exercise refresh,
-  transient failure, and interrupted-job retry behavior.
-- Apply the [storage boundaries](docs/adr/0005-storage-and-retention.md): keep photos
-  out of durable history/queues and discard retrieved documents after extraction.
+- Evaluate live supplied-source extraction against the representative
+  [acceptance cases](evaluation/enrichment/acceptance.json). Separate extraction
+  quality from source discovery, and evaluate lookup of newly extracted electrical
+  facts separately from deterministic matching. Review exact variants, qualifiers,
+  missing facts, useful clarification, source passages, latency, and cost.
+- Select a bounded retrieval/model approach using those measurements. Remove
+  source paths that do not justify their maintenance burden. Distinguish failed
+  retrieval from no matching part.
+- Keep local OCR photos in memory instead of writing temporary image files,
+  following the [storage boundaries](docs/adr/0005-storage-and-retention.md).
 
 ## Durable ingestion experiment
+
+Before starting this experiment, resolve the cloud constraints listed below.
 
 - Define the acceptance scenario: identify a photo or request clarification,
   retrieve evidence for the exact part, stage a review, restart while awaiting
   approval, then apply the approved operation once despite duplicate delivery.
-  Honor the existing ephemeral-photo policy; persist derived candidates and
-  progress rather than image bytes. If an interrupted photo stage cannot resume,
-  request a fresh image explicitly.
-- Resolve the budget, region, access, and recovery constraints needed for a small
-  AWS experiment. Compare Lambda durable functions with Step Functions Standard
-  using the same scenario; verify Python/async and Terraform integration.
+  Persist derived candidates and progress rather than image bytes. If an
+  interrupted photo stage cannot resume, request a fresh image explicitly.
+- Compare Lambda durable functions with Step Functions Standard using the same
+  scenario; verify Python/async and Terraform integration and measure paid-stage
+  retries, latency, and cost.
 - Demonstrate authenticated progress delivery, browser reconnect, explicit
   cancellation, concurrent requests, worker replacement, and retry behavior.
   Keep model/tool context distinct from user-visible conversation events.
-- Record the orchestration, persistence, and ingress tradeoffs in
-  [cloud hosting decisions](docs/adr/0008-deferred-aws-direction.md), using run artifacts for
-  correctness, latency, and cost evidence. Do not select services by implication.
+- Record orchestration, persistence, and ingress tradeoffs in numbered ADRs,
+  superseding the [deferred cloud direction](docs/adr/0008-deferred-aws-direction.md)
+  when decisions change. Use run artifacts for correctness, latency, and cost
+  evidence; do not select services by implication.
 
 ## Cloud work
 
-- Use repository-injected scenarios plus adapter-specific atomicity, concurrency,
-  and recovery checks to evaluate a persistence candidate. Rehearse migration on
-  a copy, preserving identities, evidence, ordering, and retry protection.
 - Resolve budget, intended access, region, acceptable downtime, maximum data loss,
   and recovery time before dependent infrastructure choices.
-- Use the durable ingestion experiment to select cloud persistence, orchestration,
-  and ingress before expanding the deployment. Compare idle and realistic usage
-  costs, including paid AI/retrieval stages and retries; justify each added service
-  against the smallest stack that meets the requirements.
-- Implement the selected cloud storage adapters against the inventory/approval
+- Use repository-injected scenarios plus adapter-specific atomicity, concurrency,
+  and recovery checks to evaluate persistence candidates. Rehearse migration on
+  a copy, preserving identities, evidence, ordering, and retry protection.
+- Use the durable ingestion experiment to select persistence, orchestration, and
+  ingress. Compare idle and realistic usage costs, including paid AI/retrieval
+  stages and retries; justify each service against the smallest suitable stack.
+- Implement selected cloud storage adapters against the inventory/approval
   unit-of-work and conversation repository contracts. Exercise the same domain,
-  atomicity, retry, and recovery scenarios on both local and cloud storage;
-  migrate a copy of existing data and verify inventory, evidence, and history.
-- Build reproducible AWS infrastructure with Terraform, preserving local operation.
-- Address secret delivery, release automation, monitoring, backup and restoration.
+  atomicity, retry, and recovery scenarios on local and cloud storage; migrate a
+  copy and verify inventory, evidence, and history.
+- Build reproducible AWS serverless infrastructure with Terraform, preserving
+  local operation. Provide HTTPS, authentication, secure configuration, release
+  automation, monitoring, and tested backup/restore.
 - Demonstrate fresh-account deployment, upgrade/rollback, recovery, performance,
   and teardown. Record reusable procedures, not permanent pass/fail claims.
 
