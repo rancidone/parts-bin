@@ -9,7 +9,8 @@ import tomllib
 
 import httpx
 
-from domain import GetPartRequest, PartsBinService
+from domain import GetPartRequest, PartsBinService, IngestDatasheetRequest
+from ingestion.datasheet import DatasheetFetcher
 from db.enrichment_cache import SQLiteEnrichmentCache
 from db.repository import SQLitePartsBinRepository
 from domain.errors import DomainError
@@ -23,6 +24,12 @@ async def run(args: argparse.Namespace) -> dict:
     if not db_path.is_file():
         raise EnrichmentError("Inventory database must already exist")
     service = PartsBinService(SQLitePartsBinRepository(db_path))
+    openai = config.get("agent", {}).get("openai", {})
+    if getattr(args, 'electrical', False):
+        service = PartsBinService(service.repository, datasheet_fetcher=DatasheetFetcher(
+            api_key=openai.get('api_key', ''), model=args.model,
+            cache=SQLiteEnrichmentCache(db_path), refresh=args.refresh))
+        return await service.ingest_datasheet(IngestDatasheetRequest(args.part_id, args.source_url))
     part = service.get(GetPartRequest(args.part_id))
     if not part.part_number:
         raise EnrichmentError("Part needs an exact part number before enrichment")
@@ -45,6 +52,7 @@ def main() -> None:
     parser.add_argument("--model", required=True, help="Explicit OpenAI model; uncached calls are billable")
     parser.add_argument("--config", type=Path, default=Path(os.environ.get("PARTS_BIN_CONFIG", "config.toml")))
     parser.add_argument("--refresh", action="store_true", help="Bypass a fresh result; can incur another model call")
+    parser.add_argument('--electrical', action='store_true', help='Stage electrical facts instead of metadata')
     args = parser.parse_args()
     try:
         result = asyncio.run(run(args))

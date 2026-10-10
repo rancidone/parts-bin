@@ -115,6 +115,12 @@ class FetchSpecsRequest:
 
 
 @dataclass(frozen=True)
+class IngestDatasheetRequest:
+    part_id: int
+    source_url: str
+
+
+@dataclass(frozen=True)
 class ProvenanceRequest:
     part_id: int
 

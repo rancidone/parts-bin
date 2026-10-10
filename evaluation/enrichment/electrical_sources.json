@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "purpose": "Primary-source live electrical extraction cases. Review instructions are expectations, never model input or observed results.",
+  "cases": [
+    {
+      "id": "four_10k_resistors",
+      "category": "resistor",
+      "part_number": "RS02C10K00FS7017",
+      "manufacturer": "Vishay Dale",
+      "quantity": 4,
+      "value": "10k",
+      "url": "https://www.vishay.com/docs/30204/rsns.pdf",
+      "expected_outcome": "proposal",
+      "review": [
+        "Resistance 10 kΩ and F tolerance 1% come from the exact S70/17 ordering example on page 2.",
+        "Power for RS02C...17 is 2.5 W under characteristic U at 25 °C; do not substitute the 3.25 W characteristic V rating.",
+        "All three facts must be evidenced before confirming four matching resistors."
+      ]
+    },
+    {
+      "id": "capacitor_voltage_conditions",
+      "category": "capacitor",
+      "part_number": "MKP1848C51050JK2",
+      "manufacturer": "Vishay Roederstein",
+      "quantity": 4,
+      "value": "1uF",
+      "url": "https://www.vishay.com/docs/26015/mkp1848cdclink.pdf",
+      "expected_outcome": "proposal",
+      "review": [
+        "Exact first ordering row: 1 µF, 500 V nominal DC at 85 °C, J tolerance 5%.",
+        "600 V operating at 70 °C and 350 V operating at 105 °C are distinct from the nominal 500 V rating.",
+        "Preserve measuring frequency and terminal variant; do not infer other pin-count variants."
+      ]
+    },
+    {
+      "id": "bjt_exact_gain_variant",
+      "category": "bjt",
+      "part_number": "BC33725BU",
+      "manufacturer": "onsemi",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.onsemi.com/pdf/datasheet/bc337-fsc-d.pdf",
+      "expected_outcome": "proposal",
+      "review": [
+        "Preserve the 25 gain group and BU shipping suffix from the ordering table.",
+        "NPN, collector-emitter absolute maximum 45 V, continuous collector absolute maximum 800 mA; preserve ambient temperature 25 °C.",
+        "Minimum DC gain for the 25 group is 160 at IC 100 mA and VCE 1 V; do not take the 40 group or typical value."
+      ]
+    },
+    {
+      "id": "mosfet_current_and_gate_conditions",
+      "category": "mosfet",
+      "part_number": "IRLZ44PbF",
+      "manufacturer": "Vishay Siliconix",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.vishay.com/docs/91328/irlz44.pdf",
+      "expected_outcome": "proposal",
+      "review": [
+        "Preserve PbF ordering suffix; N-channel.",
+        "Drain-source absolute maximum 60 V; continuous 50 A at case 25 °C and VGS 5 V; pulsed 200 A has pulse-width/junction limits.",
+        "RDS(on) maximum 0.028 Ω at VGS 5 V and ID 31 A; gate threshold is a 1–2 V range, not full enhancement."
+      ]
+    },
+    {
+      "id": "inductor_saturation_and_rms",
+      "category": "inductor",
+      "part_number": "LPS4018-223MRC",
+      "manufacturer": "Coilcraft",
+      "quantity": 4,
+      "value": "22uH",
+      "url": "https://www.coilcraft.com/getmedia/31b05c96-4c4c-4498-8dbb-fe092de76bad/lps4018.pdf",
+      "expected_outcome": "proposal",
+      "review": [
+        "Map the full MRC ordering example to the 223MR_ table row without dropping termination/packaging.",
+        "22 µH ±20%; inductance test 100 kHz, 0.1 Vrms.",
+        "Isat columns are defined by separate 10%, 20%, 30% inductance drops at 25 °C; Irms columns are defined by 20 °C or 40 °C temperature rise, not absolute maximum current."
+      ]
+    },
+    {
+      "id": "transformer_ratio_and_missing_ratings",
+      "category": "transformer",
+      "part_number": "TA7618-ALD",
+      "manufacturer": "Coilcraft",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.coilcraft.com/getmedia/f080b1aa-a575-4b78-94e5-0976b1d2673a/ta7618.pdf",
+      "expected_outcome": "proposal",
+      "review": [
+        "Preserve the D packaging suffix; turns ratio primary:secondary is 1:4, or 0.25 as a decimal primary/secondary ratio.",
+        "5000 Vrms isolation for one minute is not primary/secondary operating voltage.",
+        "Leave unsupported VA and operating voltage ratings unknown; preserve source test conditions."
+      ]
+    },
+    {
+      "id": "switch_low_current_variant",
+      "category": "switch",
+      "part_number": "D2F-01F",
+      "manufacturer": "OMRON",
+      "quantity": 4,
+      "value": null,
+      "url": "https://omronfs.omron.com/en_US/ecb/products/pdf/en-d2f.pdf",
+      "expected_outcome": "proposal",
+      "review": [
+        "D2F-01F is the low-force, micro-load SPDT variant.",
+        "Micro-load rating is 0.1 A at 30 VDC; do not substitute the standard D2F 3 A at 125 VAC.",
+        "Preserve DC, resistive-load and paired current/voltage qualifiers, ambient 20 ±2 °C, humidity 65 ±5% and 30 operations/min; preserve exact F suffix."
+      ]
+    },
+    {
+      "id": "resistor_missing_exact_ordering",
+      "category": "resistor",
+      "part_number": "CRCW080510K0FKEA",
+      "manufacturer": "Vishay",
+      "quantity": 4,
+      "value": "10k",
+      "url": "https://www.vishay.com/docs/20035/dcrcwe3.pdf",
+      "expected_outcome": "needs_clarification",
+      "review": [
+        "The policy requires literal exact identity. Family and code-component tables alone do not establish this full ordering code.",
+        "Do not invent a full-code quote or propose unsupported facts."
+      ]
+    },
+    {
+      "id": "wrong_document",
+      "category": "resistor",
+      "part_number": "RS02C10K00FS7017",
+      "manufacturer": "Vishay Dale",
+      "quantity": 4,
+      "value": "10k",
+      "url": "https://www.coilcraft.com/getmedia/f080b1aa-a575-4b78-94e5-0976b1d2673a/ta7618.pdf",
+      "expected_outcome": "no_match",
+      "review": [
+        "Transformer document is unrelated to the resistor; no facts should be staged."
+      ]
+    },
+    {
+      "id": "retrieval_failure_nexperia",
+      "category": "bjt",
+      "part_number": "PBSS5350T",
+      "manufacturer": "Nexperia",
+      "quantity": 4,
+      "value": null,
+      "url": "https://assets.nexperia.com/documents/data-sheet/PBSS5350T.pdf",
+      "expected_outcome": "retrieval_failure",
+      "review": [
+        "Record HTTP retrieval failure separately from model no_match; no paid extraction or staged facts."
+      ]
+    },
+    {
+      "id": "transformer_missing_packaging_variant",
+      "category": "transformer",
+      "part_number": "TA7618-AL",
+      "manufacturer": "Coilcraft",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.coilcraft.com/getmedia/f080b1aa-a575-4b78-94e5-0976b1d2673a/ta7618.pdf",
+      "expected_outcome": "needs_clarification",
+      "review": [
+        "TA7618-AL_ requires a packaging code. Ask for the exact code; do not choose D or B automatically."
+      ]
+    }
+  ]
+}

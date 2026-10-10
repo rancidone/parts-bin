@@ -9,15 +9,6 @@ electrical lookup are improved.
 
 ## Next: electrical requirements and enrichment
 
-- Extend supplied-source extraction to the electrical fact/review contract. Start
-  with four 10 kΩ resistors, tolerance at most 1%, and rated power at least 0.25 W
-  under stated conditions. Evaluate capacitor, BJT, MOSFET, inductor, transformer,
-  and switch sources independently; these are initial categories, not an
-  exhaustive taxonomy. Preserve exact variants, qualifiers, source passages,
-  identity, and quantity through validation and review.
-- Expose supplied-datasheet ingestion through a narrow agent tool accepting an
-  exact inventory target and source URL. Retrieve evidence and stage electrical
-  facts through the shared review/approval flow.
 - Extend specification and condition definitions from representative source-backed
   requests, including operating ranges, derating, and additional categories.
   Define op-amp specifications explicitly, distinguishing operating limits from
@@ -37,10 +28,13 @@ electrical lookup are improved.
   excerpt omits the requested part. Preserve unknown fields until supported.
   Recheck clarification and photo identification when changing prompts or models,
   using small, explicitly bounded live experiments.
-- Evaluate lookup of newly extracted electrical facts separately from
-  deterministic matching. Review exact variants, operating versus absolute
-  limits, conditions, source passages, quantity preservation through approval,
-  latency, and cost. Mocked extraction checks do not establish live quality.
+- Expand the [electrical source cases](evaluation/enrichment/electrical_sources.json)
+  with new variants, operating ranges and ambiguous identities.
+- Measure repeatability of electrical table interpretation across models and
+  sources. Check global test conditions, min/max endpoints, paired load ratings
+  and reference-circuit values; authentic citations can still support an incorrect
+  proposal. Use independent source review, latency and measured usage when
+  selecting a model; structural checks cannot establish factual quality.
 - Measure automatic source discovery separately from supplied-source extraction
   before choosing integrations. Remove source paths that do not justify their
   maintenance burden; distinguish retrieval failure from no matching part.

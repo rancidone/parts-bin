@@ -68,6 +68,7 @@ SPECIFICATIONS = {
 
 # SI prefixes are case-sensitive. Ratio and percent have no prefixes.
 _PREFIXES = {'': 0, 'p': -12, 'n': -9, 'u': -6, 'µ': -6, 'μ': -6, 'm': -3, 'k': 3, 'M': 6, 'G': 9}
+MAX_CONDITIONS = 12
 
 
 def invalid(message: str) -> None:
@@ -119,7 +120,7 @@ def numeric_value(raw: str, unit: str) -> Decimal:
 
 
 def conditions(raw: Any) -> dict[str, str]:
-    if not isinstance(raw, dict) or len(raw) > 8:
+    if not isinstance(raw, dict) or len(raw) > MAX_CONDITIONS:
         invalid('Conditions must be a bounded mapping of explicit names to strings')
     if any(not isinstance(key, str) or not key.strip() or len(key) > 80 or
            not isinstance(value, str) or not value.strip() or len(value) > 200
@@ -180,8 +181,17 @@ def validate_facts(category: str, raw: list[dict], *, part_number: str | None) -
             invalid('Every fact requires a bounded supporting passage')
         if evidence['kind'] == 'source':
             required = {'kind', 'excerpt', 'url', 'page', 'sha256', 'retrieved_at', 'part_number'}
-            if set(evidence) != required:
+            if set(evidence) not in (required, required | {'supporting_passages'}):
                 invalid('Source evidence requires URL, page, hash, retrieval time, and exact ordering code')
+            passages = evidence.get('supporting_passages', [])
+            if not isinstance(passages, list) or len(passages) > 3:
+                invalid('Source evidence supports at most three additional passages')
+            for passage in passages:
+                if (not isinstance(passage, dict) or set(passage) != {'page', 'excerpt'}
+                        or type(passage['page']) is not int or passage['page'] < 1
+                        or not isinstance(passage['excerpt'], str) or not passage['excerpt'].strip()
+                        or len(passage['excerpt']) > 1200):
+                    invalid('Supporting passages require a positive page and bounded source text')
             try:
                 url = urlsplit(evidence['url']) if isinstance(evidence['url'], str) else None
             except ValueError:

@@ -28,6 +28,13 @@ Enrichment proposes evidence-backed changes without altering quantity or silentl
 replacing committed facts. Old records remain valid without fabricated provenance.
 User assertions must stay distinguishable from sourced facts.
 
+Generic passive parts skip automatic manufacturer lookup. Assortment and kit
+additions use `add_part` with `enrich=false` for each included type, preserving
+user-supplied details without triggering supplier retrieval or extraction. The
+assistant also honors explicit requests to skip enrichment. A skipped addition
+can be enriched later with an explicit lookup request; skipping is not a failure
+to retry.
+
 ## Conversation and cost
 
 Keep provider failures visible and preserve historical conversation identity.

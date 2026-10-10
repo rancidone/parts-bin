@@ -1,7 +1,7 @@
 import type { Part } from './types'
 import styles from './SpecificationFacts.module.css'
 
-type Fact = { name: string; value: string; basis: string; conditions: Record<string, string>; evidence: { kind: string; excerpt: string; url?: string; page?: number } }
+type Fact = { name: string; value: string; basis: string; conditions: Record<string, string>; evidence: { kind: string; excerpt: string; url?: string; page?: number; supporting_passages?: { page: number; excerpt: string }[] } }
 type Review = { facts: Fact[]; snapshot: { metadata: { part_number: string | null; package: string | null; part_category: string } } }
 type Result = { matches?: { part: Part; supporting_facts: Fact[] }[]; incomplete?: { part: Part; missing_or_unqualified: string[] }[]; facts?: Fact[]; part_id?: number; pending_review?: Review | null; truncated?: boolean; match_count?: number; incomplete_count?: number }
 
@@ -19,6 +19,10 @@ export function SpecificationFacts({ facts, reviewing = false }: { facts: Fact[]
       <div className={styles.evidenceBody}>
         {fact.evidence.kind === 'source' && <a href={fact.evidence.url} target="_blank" rel="noreferrer">Source document · page {fact.evidence.page}</a>}
         <blockquote>{fact.evidence.excerpt}</blockquote>
+        {fact.evidence.kind === 'source' && fact.evidence.supporting_passages?.map((passage, index) => <div key={index}>
+          <a href={fact.evidence.url} target="_blank" rel="noreferrer">Supporting source passage · page {passage.page}</a>
+          <blockquote>{passage.excerpt}</blockquote>
+        </div>)}
       </div>
     </details>
   </div>)}</div>

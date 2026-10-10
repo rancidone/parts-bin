@@ -17,7 +17,7 @@ from domain import (
     AddPartRequest, AddStockRequest, ApplyReviewRequest, BulkUpdateRequest,
     DeletePartRequest, DomainError, FetchSpecsRequest, GetPartRequest,
     PartFields, PartsBinService, ProvenanceRequest, RejectReviewRequest,
-    SearchPartsRequest, SearchCandidatesRequest, UpdatePartRequest, ErrorCode,
+    SearchPartsRequest, SearchCandidatesRequest, UpdatePartRequest, IngestDatasheetRequest, ErrorCode,
 )
 from domain.repositories import StoredOperation
 from domain.specifications import contract
@@ -140,11 +140,11 @@ class PartsBinToolRegistry:
                 return previous.result
             bound = PartsBinToolRegistry(service)
             result = await bound._dispatch(name, args, enrich=False)
-            if name == "add_part" and service.should_enrich(result):
+            if name == "add_part" and service.should_enrich(result, enabled=args.get("enrich", True)):
                 # A crash after commit must not automatically repeat paid retrieval.
                 result["enrichment"] = {"status": "interrupted", "retry_tool": "lookup_part_specs"}
             repository.operations.insert(StoredOperation(context.operation_id, name, args, result))
-        if name == "add_part" and self.service.should_enrich(result):
+        if name == "add_part" and self.service.should_enrich(result, enabled=args.get("enrich", True)):
             result = await self._enrich_added(result)
             with self.service.repository.transaction() as repository:
                 repository.operations.save_result(context.operation_id, result)
@@ -181,6 +181,8 @@ class PartsBinToolRegistry:
             return contract(args['category'])
         if name == 'get_specifications':
             return self.service.get_specifications(args['part_id'])
+        if name == 'ingest_datasheet':
+            return await self.service.ingest_datasheet(IngestDatasheetRequest(args['part_id'], args['source_url']))
         if name == 'list_pending_specification_reviews':
             return self.service.specification_review_page(**args)
         if name == 'stage_specification_review':
@@ -201,7 +203,9 @@ class PartsBinToolRegistry:
             fields = {key: args.get(key) for key in _FIELDS}
             part = self.service.add_part(AddPartRequest(PartFields(**fields)))
             result = _compact_part(part)
-            if enrich and self.service.should_enrich(result):
+            if args.get("enrich") is False:
+                result["enrichment"] = {"status": "skipped"}
+            elif enrich and self.service.should_enrich(result):
                 result = await self._enrich_added(result)
             return result
         if name == "add_stock":
@@ -336,7 +340,7 @@ _TOOL_DEFINITIONS = [
         "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100},
     }, required=["query"]),
     _tool("get_part", "Get one committed part by id.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
-    _tool("add_part", "Add one distinct part.", _FIELDS, required=["part_category", "profile", "quantity"]),
+    _tool("add_part", "Add one distinct part. Set enrich=false for assortment/kit contents, generic stock, or when the user requests no manufacturer lookup. Omitted or true uses automatic enrichment for eligible discrete/IC parts; passive parts skip automatic lookup. Skipping preserves supplied fields and allows an explicit lookup_part_specs request later.", {**_FIELDS, "enrich": {"type": "boolean"}}, required=["part_category", "profile", "quantity"]),
     _tool("add_stock", "Add positive stock to one part.", {"part_id": {"type": "integer", "minimum": 1}, "quantity": {"type": "integer", "minimum": 1}}, required=["part_id", "quantity"]),
     _tool("update_part", "Update explicit fields on one part.", {"part_id": {"type": "integer", "minimum": 1}, "fields": _fields_schema(min_properties=1)}, required=["part_id", "fields"]),
     _tool("bulk_update_parts", "Update explicit fields on an explicit part selection.", {"part_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}}, "fields": _fields_schema(min_properties=1)}, required=["part_ids", "fields"]),
@@ -349,6 +353,7 @@ _TOOL_DEFINITIONS = [
     _tool('get_specification_contract', 'Discover supported fields, units, qualifiers, and comparisons for any inventory category. Unsupported categories remain valid inventory.', {'category': {'type': 'string', 'minLength': 1}}, required=['category']),
     _tool('get_specifications', 'Read accepted electrical facts and pending specification review for one exact part. Pending facts are not confirmed.', {'part_id': {'type': 'integer', 'minimum': 1}}, required=['part_id']),
     _tool('list_pending_specification_reviews', 'Discover pending electrical reviews separately from accepted facts and base-metadata reviews. Returns committed part identity and proposed fact names only; use get_specifications with a returned part_id to inspect proposed values, evidence, conditions, and accepted facts before requesting approval. Optional part_category and part_number filters match exact committed fields, preserving ordering suffixes. Pages are ordered by part_id; start with offset 0 and follow next_offset with unchanged filters and limit until null. count covers all matching pending reviews. Restart pagination if reviews or inventory change.', {'part_id': {'type': 'integer', 'minimum': 1}, 'part_category': {'type': 'string', 'minLength': 1}, 'part_number': {'type': 'string', 'minLength': 1}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}, 'offset': {'type': 'integer', 'minimum': 0}}),
+    _tool('ingest_datasheet', 'Retrieve a supplied HTTPS manufacturer PDF for one exact inventory part and stage evidenced electrical facts for review. Requires a committed exact ordering code and supported category; clarify unmarked or ambiguous stock first. Preserve suffixes, qualifiers, conditions and quantity. No web discovery or automatic acceptance. Inspect get_specifications and request apply_specification_review for approval. Retrieval failure differs from no_match; do not automatically retry failed paid extraction.', {'part_id': {'type': 'integer', 'minimum': 1}, 'source_url': {'type': 'string', 'minLength': 1}}, required=['part_id', 'source_url']),
     _tool('stage_specification_review', 'Stage explicitly user-asserted electrical facts for review. Quote the user assertion; do not invent source evidence. Assertions do not confirm source-backed search requirements.', {'part_id': {'type': 'integer', 'minimum': 1}, 'facts': _FACTS_SCHEMA}, required=['part_id', 'facts']),
     _tool('apply_specification_review', 'Accept the pending electrical facts for this exact part, preserving source passages, conditions, and evidence kind. Approval does not turn user assertions into source evidence.', {'part_id': {'type': 'integer', 'minimum': 1}}, required=['part_id']),
     _tool('reject_specification_review', 'Discard a pending electrical specification review without changing accepted facts.', {'part_id': {'type': 'integer', 'minimum': 1}}, required=['part_id']),

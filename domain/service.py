@@ -9,7 +9,7 @@ from .models import (
     AddPartRequest, AddPartsRequest, AddStockRequest, ApplyReviewRequest, BulkUpdateRequest,
     CategorySummary, DeletePartRequest, FetchSpecsRequest, GetPartRequest, Part, PartFields,
     ProvenanceRequest, RejectReviewRequest, SearchPartsRequest, SearchCandidatesRequest,
-    UpdatePartRequest, EDITABLE_PART_FIELDS,
+    UpdatePartRequest, IngestDatasheetRequest, EDITABLE_PART_FIELDS,
 )
 from .normalization import normalize_part_payload, part_identity, validate_fields, clean_text
 
@@ -18,21 +18,25 @@ from . import specifications
 from .pagination import validate_page, next_offset
 
 SpecFetcher = Callable[[str], Awaitable[dict[str, Any]]]
+DatasheetFetcher = Callable[[Part, str], Awaitable[dict[str, Any]]]
 _EDITABLE = EDITABLE_PART_FIELDS
 
 
 class PartsBinService:
     """The sole owner of inventory identity, validation, and enrichment review rules."""
 
-    def __init__(self, repository: PartsBinRepository, *, spec_fetcher: SpecFetcher | None = None):
+    def __init__(self, repository: PartsBinRepository, *, spec_fetcher: SpecFetcher | None = None,
+                 datasheet_fetcher: DatasheetFetcher | None = None):
         self.repository = repository
         self.spec_fetcher = spec_fetcher
+        self.datasheet_fetcher = datasheet_fetcher
 
     @contextmanager
     def transaction(self):
         """Bind domain operations to the repository's unit of work."""
         with self.repository.transaction() as repository:
-            yield PartsBinService(repository, spec_fetcher=self.spec_fetcher), repository
+            yield PartsBinService(repository, spec_fetcher=self.spec_fetcher,
+                                  datasheet_fetcher=self.datasheet_fetcher), repository
 
     def approval_snapshot(self, part_ids: tuple[int, ...]) -> dict:
         """Bind an approval to committed targets and their staged evidence."""
@@ -45,9 +49,10 @@ class PartsBinService:
                               "specification_review": specification_reviews.get(part_id)} for part_id, part in parts.items()}
 
     @staticmethod
-    def should_enrich(part: Mapping[str, Any]) -> bool:
+    def should_enrich(part: Mapping[str, Any], *, enabled: bool = True) -> bool:
         return bool(
-            part.get("part_number")
+            enabled
+            and part.get("part_number")
             and part.get("profile") == "discrete_ic"
             and str(part.get("part_category", "")).lower() not in {"resistor", "capacitor", "inductor"}
         )
@@ -187,6 +192,37 @@ class PartsBinService:
         existing = self.repository.inventory.specifications(original.id)
         if not self.repository.inventory.stage_specifications(original, checked, existing):
             raise DomainError(ErrorCode.CONFLICT, 'Identity, specifications, or pending specification review changed')
+
+    async def ingest_datasheet(self, request: IngestDatasheetRequest) -> dict:
+        original = self.get(GetPartRequest(request.part_id))
+        if not original.part_number:
+            raise DomainError(ErrorCode.INVALID_INPUT, 'An exact inventory ordering code is required; clarify identity first')
+        if not specifications.contract(original.part_category)['supported']:
+            raise DomainError(ErrorCode.INVALID_INPUT, 'This category has no electrical specification contract')
+        if not isinstance(request.source_url, str) or not 1 <= len(request.source_url) <= 2048:
+            raise DomainError(ErrorCode.INVALID_INPUT, 'A bounded supplied source URL is required')
+        before = self.get_specifications(original.id)
+        if before['pending_review'] is not None:
+            raise DomainError(ErrorCode.CONFLICT, 'Resolve the pending specification review before another extraction')
+        if self.datasheet_fetcher is None:
+            raise DomainError(ErrorCode.ENRICHMENT_UNAVAILABLE, 'Supplied datasheet extraction is not configured')
+        candidate = await self.datasheet_fetcher(original, request.source_url)
+        outcome = candidate['outcome']
+        if outcome not in {'proposal', 'needs_clarification', 'no_match'}:
+            raise DomainError(ErrorCode.INVALID_INPUT, 'Invalid datasheet extraction outcome')
+        facts = candidate['facts']
+        if outcome != 'proposal' and facts:
+            raise DomainError(ErrorCode.INVALID_INPUT, 'Unresolved identity must not stage facts')
+        if facts:
+            # Retrieval takes place outside the unit of work. Bind staging to both
+            # the original identity and accepted facts seen before retrieval.
+            with self.transaction() as (service, _):
+                if service.get_specifications(original.id)['facts'] != before['facts']:
+                    raise DomainError(ErrorCode.CONFLICT, 'Accepted specifications changed during extraction')
+                service.stage_specifications(original, facts)
+        return {'part_id': original.id, 'outcome': outcome,
+                'clarification': candidate.get('clarification'), 'review_staged': bool(facts),
+                **self.get_specifications(original.id)}
 
     def apply_specification_review(self, part_id: int) -> dict:
         part = self.get(GetPartRequest(part_id))

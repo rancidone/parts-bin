@@ -128,6 +128,13 @@ async def _digikey_lookup_detailed(
                 },
                 timeout=20.0,
             )
+            if resp.status_code == 404:
+                _logger.info("digikey lookup no match", extra={
+                    "part_number": part_number,
+                    "status_code": resp.status_code,
+                    "total_latency_ms": _elapsed_ms(lookup_started),
+                })
+                return {"specs": None, "debug": None, "status": "no_match"}
             resp.raise_for_status()
             data = resp.json()
             _logger.info("digikey productdetails fetched", extra={

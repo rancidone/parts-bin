@@ -155,6 +155,30 @@ uv run pytest tests/evaluation/test_enrichment_check.py
 
 ## Supplied-source extraction exercise
 
+For electrical extraction, use the bounded runner with the
+[primary-source cases](enrichment/electrical_sources.json):
+
+```sh
+PARTS_BIN_LIVE_EVAL=1 uv run --env-file .env python -m evaluation.live_electrical \
+  --model YOUR_MODEL --workspace /private/tmp/parts-bin-live-electrical
+```
+
+The environment file supplies `OPENAI_API_KEY`; keep it untracked. Each run creates
+fresh disposable inventory and makes at most one Responses request per case.
+Use `--case CASE_ID` to select cases. Retrieval failures make no model request,
+and provider HTTP failures stop the run without automatic retries. The runner
+does not use the application's inventory or configuration.
+
+Keep the resulting report outside the repository. It records source hashes,
+model usage, latency, candidate passages, failure classifications and approval,
+restart, replay and quantity checks. Approval in these disposable databases tests
+mechanics only. Independently inspect the cited source pages for exact identity,
+values, basis, complete conditions and omitted facts, and record that review
+alongside the report. In particular, check rating temperature, min/max endpoints,
+continuous/pulsed current and current/voltage pairs. Genuine passages can still
+be misinterpreted. A completed run exits 2 because semantic review is required;
+it never labels a candidate factually correct from structural checks alone.
+
 Use the operator command on an isolated copy of the inventory/configuration first.
 Choose an existing part ID whose exact part number is `PBSS5350T`; the command does
 not create parts. Set `PARTS_BIN_ENRICHMENT_MODEL` to the OpenAI model you want to
