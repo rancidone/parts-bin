@@ -56,6 +56,46 @@ async function fixture(context: BrowserContext, initial: AgentEvent[]) {
     failHistory: (failed: boolean) => { historyUnavailable = failed } }
 }
 
+test('assistant Markdown tables render in streamed replies and restored history', async ({ context, page }) => {
+  const text = `You have four op-amp records in your inventory:
+
+| Part | Package | Quantity | Manufacturer |
+|---|---|---|---|
+| UA741CP | SOIC | 11 | Texas Instruments |
+| LM358 | Not recorded | 1 | Not recorded |
+| UA741CN | DIP | 6 | STMicroelectronics |
+| HA17458 | DIP | 1 | Not recorded |
+
+**Verified** with [source](https://example.com).
+
+<script>window.markdownExecuted = true</script>
+[unsafe](javascript:alert(1))`
+  const reply = event(2, 'assistant_text', { text, execution_id: 'work' })
+  const f = await fixture(context, [])
+  await page.setViewportSize({ width: 390, height: 844 })
+  await f.open(page)
+  f.respond(route => { f.histories.set('current', [user, reply, done]); return stream(route, [user, reply, done]) })
+  await page.getByRole('textbox', { name: 'Message' }).fill('Show op-amps')
+  await page.getByRole('button', { name: 'Send message' }).click()
+  const check = async () => {
+    const table = page.getByRole('table')
+    await expect(table).toBeVisible()
+    await expect(table.getByRole('columnheader')).toHaveText(['Part', 'Package', 'Quantity', 'Manufacturer'])
+    await expect(table.getByRole('row')).toHaveCount(5)
+    await expect(table.getByRole('cell', { name: 'UA741CP', exact: true })).toBeVisible()
+    await expect(page.locator('strong').filter({ hasText: 'Verified' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'source', exact: true })).toHaveAttribute('href', 'https://example.com')
+    await expect(page.locator('a[href^="javascript:"]')).toHaveCount(0)
+    expect(await page.evaluate(() => 'markdownExecuted' in window)).toBe(false)
+    const region = page.getByRole('region', { name: 'Response table' })
+    expect(await region.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  }
+  await check()
+  await page.reload()
+  await check()
+})
+
 test('interrupted response requires read-only reconnect before explicit resume', async ({ context, page }) => {
   const f = await fixture(context, [])
   await f.open(page)
