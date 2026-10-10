@@ -292,6 +292,79 @@ def test_ui_refresh_distinguishes_source_failure_without_changing_stock(client):
     assert service.get(GetPartRequest(part.id)) == part
 
 
+@pytest.mark.parametrize('initial_outcome', ['retrieval_failure', 'no_match', 'needs_clarification'])
+def test_refresh_retries_electrical_extraction_with_supplier_replacement_url(client, initial_outcome):
+    from unittest.mock import AsyncMock, call
+    from domain import DomainError, ErrorCode, GetPartRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    part = opamp_for_refresh(service)
+    replacement = 'https://www.ti.com/lit/ds/symlink/lm358b.pdf'
+    facts = sourced_opamp_facts()
+    facts[0]['evidence']['url'] = replacement
+    first = (DomainError(ErrorCode.ENRICHMENT_UNAVAILABLE, 'PDF retrieval failed')
+             if initial_outcome == 'retrieval_failure' else {'outcome': initial_outcome, 'facts': []})
+    service.datasheet_fetcher = AsyncMock(side_effect=[first, {'outcome': 'proposal', 'facts': facts}])
+    service.spec_fetcher = AsyncMock(return_value={
+        'outcome': 'saved', 'chosen_updates': {'datasheet_url': replacement}, 'durable_provenance': []})
+
+    response = http.post(f'/inventory/{part.id}/refresh')
+
+    assert response.status_code == 200
+    assert response.json()['proposed_updates'] == {'datasheet_url': replacement}
+    electrical = response.json()['electrical']
+    assert electrical['review_staged'] and electrical['pending_review']['facts'] == facts
+    assert electrical['facts'] == []
+    assert service.get(GetPartRequest(part.id)) == part
+    assert service.list_pending_reviews()[part.id]['fields']['datasheet_url']['value'] == replacement
+    service.spec_fetcher.assert_awaited_once_with(part.part_number)
+    assert service.datasheet_fetcher.await_args_list == [call(part, part.datasheet_url), call(part, replacement)]
+
+
+@pytest.mark.parametrize('replacement', [None, 'https://www.ti.com/lit/ds/symlink/lm358.pdf'])
+def test_refresh_does_not_retry_electrical_extraction_without_a_new_supplier_url(client, replacement):
+    from unittest.mock import AsyncMock
+    http, _ = client
+    service = http.app.state.services.domain
+    part = opamp_for_refresh(service)
+    service.datasheet_fetcher = AsyncMock(return_value={'outcome': 'no_match', 'facts': []})
+    service.spec_fetcher = AsyncMock(return_value={
+        'outcome': 'saved' if replacement else 'no_match',
+        'chosen_updates': {'datasheet_url': replacement} if replacement else {}, 'durable_provenance': []})
+
+    response = http.post(f'/inventory/{part.id}/refresh')
+
+    assert response.status_code == 200
+    assert response.json()['electrical']['outcome'] == 'no_match'
+    service.datasheet_fetcher.assert_awaited_once_with(part, part.datasheet_url)
+    service.spec_fetcher.assert_awaited_once_with(part.part_number)
+
+
+def test_refresh_reports_replacement_failure_without_retrying_again(client):
+    from unittest.mock import AsyncMock, call
+    from domain import DomainError, ErrorCode, GetPartRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    part = opamp_for_refresh(service)
+    replacement = 'https://www.ti.com/lit/ds/symlink/lm358b.pdf'
+    service.datasheet_fetcher = AsyncMock(side_effect=[
+        {'outcome': 'no_match', 'facts': []},
+        DomainError(ErrorCode.ENRICHMENT_UNAVAILABLE, 'Replacement PDF retrieval failed')])
+    service.spec_fetcher = AsyncMock(return_value={
+        'outcome': 'saved', 'chosen_updates': {'datasheet_url': replacement}, 'durable_provenance': []})
+
+    response = http.post(f'/inventory/{part.id}/refresh')
+
+    assert response.status_code == 200
+    electrical = response.json()['electrical']
+    assert electrical['outcome'] == 'retrieval_failure'
+    assert electrical['clarification'] == 'Replacement PDF retrieval failed'
+    assert electrical['pending_review'] is None and electrical['facts'] == []
+    assert service.get(GetPartRequest(part.id)) == part
+    service.spec_fetcher.assert_awaited_once_with(part.part_number)
+    assert service.datasheet_fetcher.await_args_list == [call(part, part.datasheet_url), call(part, replacement)]
+
+
 @pytest.mark.parametrize('category', ['resistor', 'connector', 'module', 'unmarked stock'])
 def test_all_categories_can_save_and_clear_datasheet_links(client, category):
     from domain import AddPartRequest, GetPartRequest, PartFields

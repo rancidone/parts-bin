@@ -27,14 +27,25 @@ then retry. Candidate discovery does not stage variant metadata or change stock.
 
 When a part has a saved datasheet link, Inventory Fetch specs instead uses that
 source through the supplied-PDF electrical extractor. All categories can store
-an HTTPS link; automatic extraction still requires an exact part identity and
+an HTTPS link; automatic extraction still requires a recorded part number and
 a supported electrical category. Links on other hosts remain available to open,
 but the extractor enforces its approved-host policy. Without a saved link,
 supplier lookup can propose a datasheet link alongside metadata and use it for
-electrical extraction. Metadata and electrical reviews remain separate. Resolve
+electrical extraction. If extraction from a saved link fails, finds no matching
+part, or needs clarification, refresh requests supplier metadata. When that
+lookup proposes a different datasheet URL, the same refresh attempts electrical
+extraction from the replacement once. An unchanged link is not retried.
+Metadata and electrical reviews remain separate. Resolve
 a pending electrical review before another extraction; reload and open Show
 electrical specifications to recover the review. Accept/dismiss checks the
 displayed review through the shared server approval engine, preserving stock.
+
+Saving a datasheet link associates that document with the inventory part; no
+separate identity override is needed for electrical extraction. Inventory labels
+can omit shipping or package suffixes. Shared, evidenced ratings can be proposed
+without renaming the part. Ratings that depend on an unresolved electrical grade
+remain unknown, and clearly unrelated documents or manufacturer conflicts still
+fail. A supplier-proposed link requires identity evidence until saved.
 
 The optional `datasheet_url` column is added on application startup. Existing
 rows receive null; IDs, quantities, evidence, reviews and conversation history

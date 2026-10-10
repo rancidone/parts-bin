@@ -70,3 +70,18 @@ test('counts distinguish full results from the returned subset', () => {
   assert.ok(html.includes('3 need evidence or conditions'))
   assert.ok(html.includes('Showing 1 confirmed and 0 incomplete records.'))
 })
+
+test('extraction separates the result and missing specs from collapsed diagnostics', () => {
+  const html = render({ clarification: 'The PDF has no extractable text.', facts: [],
+    extraction_assessment: { confidence_score: 0, score_explanation: 'Coverage is not correctness.',
+      missing_fields: ['rated_power', 'tolerance'], reasons: ['Source context was omitted.'],
+      relevant_pages: [{ page: 2, reason: 'Ratings', url: 'https://example.com/source.pdf#page=2' }] } })
+  assert.ok(html.includes('Datasheet extraction'))
+  assert.ok(html.includes('0% coverage'))
+  assert.ok(html.includes('<li>rated power</li>'))
+  assert.ok(html.includes('<li>tolerance</li>'))
+  assert.ok(html.includes('The PDF has no extractable text.'))
+  assert.ok(html.includes('Open datasheet pages'))
+  assert.ok(html.includes('Extraction details'))
+  assert.ok(!html.includes('open=""'))
+})

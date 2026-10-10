@@ -23,7 +23,8 @@ class DatasheetFetcher:
         try:
             return await enrich(part.part_number, part.manufacturer, source_url,
                                 api_key=self.api_key, model=self.model, cache=self.cache,
-                                category=part.part_category, refresh=self.refresh)
+                                category=part.part_category, refresh=self.refresh,
+                                linked_part=part.datasheet_url == source_url)
         except EnrichmentError as exc:
             raise DomainError(ErrorCode.ENRICHMENT_UNAVAILABLE, str(exc)) from exc
         except (httpx.HTTPError, TimeoutError, OSError, ValueError) as exc:

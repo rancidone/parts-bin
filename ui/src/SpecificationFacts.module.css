@@ -2,7 +2,23 @@
 .results { display: flex; flex-direction: column; gap: 10px; width: 580px; max-width: 100%; }
 .overview { margin: 0 0 2px; line-height: 1.5; }
 .overview span { color: var(--spec-muted); }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; min-width: 0; font-size: .9rem; line-height: 1.6; }
+.card a, .card a:visited { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.coverage { color: var(--spec-muted); font-size: .8rem; white-space: nowrap; }
+.clarification { margin: 14px 0; overflow-wrap: anywhere; }
+.missing { margin-top: 14px; }
+.missing strong { font-size: .8rem; color: var(--spec-muted); }
+.missing ul { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 8px 0 0; }
+.missing li { padding: 4px 9px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: .8rem; }
+.diagnostics { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 10px; }
+.diagnostics summary { cursor: pointer; padding: 4px 0; font-weight: 500; }
+.diagnostics ul { padding-left: 20px; }
+.diagnostics li { margin: 6px 0; }
+.pageLinks { list-style: none; padding: 0 !important; }
+.pageLinks li { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.pageLinks a { padding: 4px 0; }
+.pageLinks span { color: var(--spec-muted); font-size: .8rem; }
+.card a:focus-visible, .diagnostics summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
 .cardHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
 .identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
 .identity strong { font-size: .95rem; }
@@ -31,5 +47,5 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .results, .card { --spec-muted: #b0b0b0; --spec-pass: #8bd5aa; --spec-incomplete: #e9c484; }
+  .results, .card { --spec-muted: #b0b0b0; --spec-pass: #8bd5aa; --spec-incomplete: #e9c484; --accent: #8bb8ff; }
 }
