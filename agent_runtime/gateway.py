@@ -70,6 +70,26 @@ class AgentGateway:
         self._runtime_name(thread_id)
         return self._stream(lambda receive: self.submit(thread_id, text, image=image, on_event=receive))
 
+    async def resume(self, thread_id: str, execution_id: str, *, image: ImageInput | None = None,
+                     on_event: Callable[[ConversationEvent], None] | None = None) -> tuple[ConversationEvent, ...]:
+        runtime_name = self._runtime_name(thread_id)
+        started = perf_counter()
+        try:
+            runtime = await self._runtime_for(thread_id)
+            return (await runtime.run(thread_id, "", execution_id=execution_id,
+                                      image=image, on_event=on_event)).events
+        except Exception as exc:
+            events = self._failure(thread_id, runtime_name, "execution_resume_failed", str(exc),
+                                   latency_ms=(perf_counter() - started) * 1000)
+            if on_event is not None:
+                for event in events:
+                    on_event(event)
+            return events
+
+    def resume_stream(self, thread_id: str, execution_id: str, *, image: ImageInput | None = None) -> AsyncIterator[ConversationEvent]:
+        self._runtime_name(thread_id)
+        return self._stream(lambda receive: self.resume(thread_id, execution_id, image=image, on_event=receive))
+
     def approval_stream(self, thread_id: str, response: ApprovalResponse) -> AsyncIterator[ConversationEvent]:
         self._runtime_name(thread_id)
         return self._stream(lambda receive: self.respond_to_approval(thread_id, response, on_event=receive))

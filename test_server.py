@@ -64,6 +64,7 @@ def test_historical_conversations_are_readable_but_cannot_continue(client, runti
     assert "preserved history" in client[0].get("/agent/threads/old-thread/events").text
     assert client[0].post("/agent/threads/old-thread/messages", data={"message": "continue"}).status_code == 409
     assert client[0].post("/agent/threads/old-thread/approvals", json={"request_id": "old", "approved": True}).status_code == 409
+    assert client[0].post("/agent/threads/old-thread/resume", data={"execution_id": "old"}).status_code == 409
     assert server._conversation_store.runtime_for("old-thread") == runtime
 
 
@@ -71,6 +72,30 @@ def test_inventory_still_opens(client):
     response = client[0].get("/inventory")
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_resume_endpoint_checks_execution_identity(client):
+    thread = client[0].post("/agent/threads").json()["thread_id"]
+    assert client[0].post(f"/agent/threads/{thread}/resume", data={"execution_id": " "}).status_code == 422
+    assert client[0].post("/agent/threads/missing/resume", data={"execution_id": "missing"}).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_resume_endpoint_replays_completed_execution_without_model_call(tmp_path, monkeypatch):
+    from agent_runtime import AgentGateway, ModelTurn
+    from agent_runtime.test_runtime import build_runtime
+
+    runtime, transport, store = build_runtime(tmp_path, [ModelTurn("done")])
+    gateway = AgentGateway(store, lambda: runtime)
+    monkeypatch.setattr(server, "_agent_gateway", gateway)
+    thread = gateway.create_thread()
+    events = await gateway.submit(thread, "hello")
+    response = await server.resume_agent_execution(thread, events[0].data["execution_id"], None)
+    chunks = [chunk async for chunk in response.body_iterator]
+    assert len(chunks) == 3
+    assert '"status": "completed"' in chunks[-1]
+    assert len(transport.requests) == 1
+    assert gateway.events(thread) == events
 
 
 @pytest.mark.asyncio

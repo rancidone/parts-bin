@@ -10,9 +10,10 @@ from typing import Any
 from uuid import uuid4
 
 from domain.models import Part
-from domain.repositories import ApprovalRepository, InventoryRepository, RepositoryConflict, StoredApproval
+from domain.repositories import ApprovalRepository, InventoryRepository, OperationRepository, ExecutionRepository, RepositoryConflict, StoredApproval
 
 from . import persistence
+from .execution import SQLiteExecutionRepository, SQLiteOperationRepository
 
 
 def _encode(value: Any) -> str:
@@ -127,6 +128,8 @@ class _SQLiteSavepoint:
 class SQLitePartsBinRepository:
     inventory: InventoryRepository
     approvals: ApprovalRepository
+    operations: OperationRepository
+    executions: ExecutionRepository
 
     def __init__(self, database: str | Path):
         self.database = database
@@ -144,10 +147,21 @@ class SQLitePartsBinRepository:
                     decision INTEGER CHECK(decision IN (0, 1)),
                     result_json TEXT
                 )""")
+                conn.execute("""CREATE TABLE IF NOT EXISTS agent_operations (
+                    operation_id TEXT PRIMARY KEY, tool_name TEXT NOT NULL,
+                    arguments_json TEXT NOT NULL, result_json TEXT NOT NULL)""")
+                conn.execute("""CREATE TABLE IF NOT EXISTS agent_executions (
+                    execution_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL,
+                    context_json TEXT NOT NULL, status TEXT NOT NULL,
+                    worker_id TEXT, lease_until REAL NOT NULL)""")
+                conn.execute("""CREATE TABLE IF NOT EXISTS agent_execution_approvals (
+                    request_id TEXT PRIMARY KEY, execution_id TEXT NOT NULL)""")
         finally:
             conn.close()
         self.inventory = SQLiteInventoryRepository(database)
         self.approvals = SQLiteApprovalRepository(database)
+        self.operations = SQLiteOperationRepository(database)
+        self.executions = SQLiteExecutionRepository(database)
         self._connection: persistence.TransactionConnection | None = None
 
     @classmethod
@@ -157,6 +171,8 @@ class SQLitePartsBinRepository:
         instance.storage_id = owner.storage_id
         instance.inventory = SQLiteInventoryRepository(connection)
         instance.approvals = SQLiteApprovalRepository(connection)
+        instance.operations = SQLiteOperationRepository(connection)
+        instance.executions = SQLiteExecutionRepository(connection)
         instance._connection = connection
         return instance
 

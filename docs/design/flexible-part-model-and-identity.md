@@ -26,6 +26,24 @@ reconstruct the user's original wording; do not invent it during migration.
 
 ## Decision criteria
 
+The same modeling question applies to enrichment. Resistors need resistance,
+tolerance, power, and temperature coefficient; transistors need device type,
+qualified voltage/current limits, and gain; audio ICs need supply range, channels,
+and performance under stated test conditions. Prefer a common inventory record
+with typed category-specific specifications over making every part share all
+possible fields. Each proposed fact still needs evidence and domain validation.
+Unknown values must remain unknown, and proposed specifications must pass review.
+
+Flexible shape does not require choosing NoSQL. [DynamoDB items can have distinct
+attributes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.CoreComponents.html),
+while [PostgreSQL JSONB supports flexible documents and indexing](https://www.postgresql.org/docs/current/datatype-json.html).
+DynamoDB queries are organized around keys and secondary indexes. Establish the
+needed cross-category and numeric searches before comparing storage options.
+Keep accepted specifications inside the authoritative repository boundary;
+adding a separate enrichment database would add synchronization and recovery
+work. This is a modeling direction to evaluate, not a selected cloud backend or
+an approved schema migration.
+
 Use concrete ingestion and search failures to justify additional structure.
 Determine which attributes must be searchable and which only need display before
 choosing a schema. Preserve quantity, identity, and provenance across migration.

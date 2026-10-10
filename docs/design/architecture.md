@@ -88,9 +88,30 @@ effect. A changed target requires a fresh proposal and approval. This conservati
 policy also rejects intervening quantity changes instead of silently applying
 an old review to new stock state.
 
-Keep provider calls outside this transaction. Approval continuation covers the
-approval-gated tools; it does not establish recovery or deduplication for an
-entire model turn, ordinary additions, enrichment retrieval, or event publication.
+Keep provider calls outside this transaction.
+
+### Execution recovery
+
+Persist the original request, provider response items, queued calls, and results
+separately from visible history. Checkpoint model output before executing tools;
+continue the same call queue after approval instead of asking a model to
+reconstruct it. Images remain ephemeral. An interrupted initial photo request
+needs resubmission if no derived response was checkpointed.
+
+Give each execution step a stable operation identity. Commit ordinary additions
+and stock increments with their saved outcomes in the inventory unit of work,
+as with approved effects. Publish events with stable identities so replay does
+not create duplicate conversation records. A worker lease fences checkpoint
+updates and inventory mutations; it is not a scheduler or a guarantee about
+external requests.
+
+Treat interrupted retrieval conservatively: recover the inventory outcome and
+report the incomplete lookup instead of automatically repeating a paid request.
+An explicit lookup can start a fresh attempt. A model request interrupted before
+its response checkpoint has an uncertain provider outcome; explicit execution
+resume may issue that request again. These boundaries cannot promise exactly-once
+provider billing. Cloud scheduling, browser recovery controls, cancellation,
+and adapter-specific leases remain separate deployment work.
 
 ### Authoritative records
 

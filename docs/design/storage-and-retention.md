@@ -3,7 +3,11 @@
 ## Keep the installation small
 
 Preserve inventory, accepted provenance, conversations, and approval state across
-execution replacement. Treat enrichment caches and completed-job diagnostics as
+execution replacement. Preserve execution checkpoints and mutation outcome IDs
+with them: retry protection depends on those authoritative records. Retention of
+mutation outcomes requires an explicit retry horizon and recovery decision;
+completed-job diagnostic cleanup must not remove them.
+Treat enrichment caches and completed-job diagnostics as
 disposable. Their loss may cause another lookup, but must not lose stock or repeat
 an inventory mutation.
 

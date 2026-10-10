@@ -61,7 +61,34 @@ approval or denial.
 Proposals created by older versions with in-memory approvals cannot be safely
 reconstructed from conversation prose or events. Ask the assistant for a fresh
 proposal if an old approval ID is unknown; do not infer consent from history.
-These procedures recover approval operations, not an interrupted model turn.
+Historical approval IDs without an execution checkpoint require a fresh proposal.
+
+Agent events carry an execution ID. To resume an interrupted execution, replay
+the conversation's events, take the ID of the unfinished request, and submit it
+to the resume endpoint rather than sending the same message again:
+
+```sh
+curl -N -X POST "http://localhost:8000/agent/threads/$thread_id/resume" \
+  -F "execution_id=$execution_id"
+```
+
+Use the original approval endpoint with the same request ID for a waiting
+decision. Resume preserves model/tool context and pending calls. Replayed events
+keep their original sequence; consumers must deduplicate by thread and sequence.
+A live worker prevents another worker from claiming the execution. After abrupt
+process loss its lease may take five minutes to expire; normal cancellation
+releases ownership. An expired worker cannot checkpoint or mutate inventory.
+
+An interrupted supplier lookup reports an incomplete outcome; explicitly ask for
+a new lookup if needed. Resume can repeat a model request whose response was not
+checkpointed, so check usage when recovering an uncertain paid request. Photo
+bytes are never checkpointed. If initial image analysis was interrupted, provide
+a fresh photo with resume (`-F "photo=@part.jpg"`); if resuming without the photo
+already failed with `image_resubmission_required`, start a new photo message.
+
+Retain execution checkpoints, operation outcomes, and event identity records in
+backups alongside inventory and conversations. The UI currently replays visible
+history; execution resume is an API procedure, not an automatic browser retry.
 
 Identify the inventory and conversation database paths from your configuration.
 They may share a file. Protect configuration separately and retain historical

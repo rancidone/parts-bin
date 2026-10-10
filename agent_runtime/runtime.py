@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any, Callable, Protocol
+from uuid import uuid4
 
-from tools import PartsBinToolRegistry
+from tools import PartsBinToolRegistry, ToolExecutionContext
 
 from .approval import ApprovalEngine
 from .models import ApprovalResponse, ConversationEvent, ImageInput, ModelTurn, RuntimeResult
@@ -17,6 +18,7 @@ SYSTEM_INSTRUCTIONS = """You are the Parts Bin assistant. Inventory facts must b
 Use electronics knowledge to identify named components, distinguishing it from stored inventory facts. Add common identifiable ICs with a functional category and meaningful description, rather than a generic IC label. Do not invent manufacturer, package, or electrical specifications from an ambiguous base part number. Preserve user-provided quantity and package.
 Search before adding stock. A matching base part number does not establish that different package variants are the same stock. Clarify before merging uncertain variants. 'I have 10, not 100' sets quantity to 10; it is not an increment.
 Adding an identified IC stages supplier details automatically; inspect the enrichment outcome. Use lookup_part_specs to retry unavailable lookups or enrich existing parts. Explain lookup failures or pending reviews; staged proposals are not committed facts. Submit update_part or apply_review for corrections and accepted enrichment so the server presents approval controls. Do not ask for approval only in prose or claim tools cannot be approved in this session.
+If retrieval was interrupted, report it and ask the user for a new lookup request. Do not automatically retry that paid stage within the recovering execution.
 """
 JSON_TOOL_ENVELOPE = '{"type":"parts_bin_tool_call","name":"<registered tool name>","arguments":{}}'
 
@@ -43,6 +45,24 @@ class _TurnState:
     image: ImageInput | None
     exchanges: list[dict[str, Any]] = field(default_factory=list)
     history: tuple[dict[str, str], ...] = ()
+    round: int = 0
+    pending: dict[str, Any] | None = None
+    call_index: int = 0
+    approval_id: str | None = None
+    had_image: bool = False
+    error: dict[str, Any] | None = None
+
+    def checkpoint(self) -> dict[str, Any]:
+        # Image bytes never enter durable execution state.
+        return {"user_text": self.user_text, "exchanges": self.exchanges, "history": self.history,
+                "round": self.round, "pending": self.pending, "call_index": self.call_index,
+                "approval_id": self.approval_id, "had_image": self.had_image, "error": self.error}
+
+    @classmethod
+    def restore(cls, thread_id: str, context: dict[str, Any], image: ImageInput | None):
+        return cls(thread_id, context["user_text"], image, list(context["exchanges"]),
+                   tuple(context["history"]), context["round"], context["pending"],
+                   context["call_index"], context["approval_id"], context["had_image"], context["error"])
 
 
 class OpenAIResponsesRuntime:
@@ -66,102 +86,163 @@ class OpenAIResponsesRuntime:
 
     async def run(self, thread_id: str, user_text: str, *, image: ImageInput | None = None,
                   approval_response: ApprovalResponse | None = None,
+                  execution_id: str | None = None,
                   on_event: Callable[[ConversationEvent], None] | None = None) -> RuntimeResult:
         self.store.create_thread(thread_id, self.runtime)
+        executions = self.registry.service.repository.executions
+        if approval_response is not None:
+            record = executions.for_approval(thread_id, approval_response.request_id)
+            if record is None:
+                raise ValueError("Unknown approval execution for this conversation")
+            if execution_id is not None and execution_id != record.execution_id:
+                raise ValueError("Approval belongs to another execution")
+            execution_id = record.execution_id
+        initial = None
+        if execution_id is None:
+            execution_id = uuid4().hex
+            history = tuple(
+                {"role": "user" if event.kind == "user_message" else "assistant", "text": str(event.data["text"])}
+                for event in self.store.events(thread_id)
+                if event.kind in {"user_message", "assistant_text"} and event.data.get("text")
+            )
+            initial = _TurnState(thread_id, user_text, image, history=history,
+                                 had_image=image is not None).checkpoint()
+        worker_id = uuid4().hex
+        record = executions.claim(thread_id, execution_id, worker_id, initial)
+        state = _TurnState.restore(thread_id, record.context, image)
         emitted: list[ConversationEvent] = []
         started = perf_counter()
         domain_outcome: str | None = None
 
-        def emit(kind: str, data: dict[str, Any]) -> None:
-            event = self.store.append(ConversationEvent(kind, thread_id, self.runtime, data))
+        def emit(key: str, kind: str, data: dict[str, Any]) -> None:
+            event = self.store.append_once(ConversationEvent(kind, thread_id, self.runtime,
+                {**data, "execution_id": execution_id}), f"{execution_id}:{key}")
+            if event in emitted:
+                return
             emitted.append(event)
-            if on_event is not None:
+            if on_event is not None and record.status not in {"completed", "failed"}:
                 on_event(event)
+
+        def save(status: str = "ready") -> None:
+            executions.save(execution_id, worker_id, state.checkpoint(), status)
 
         def finish(status: str) -> RuntimeResult:
             self.telemetry.turn_finished(thread_id, self.runtime, latency_ms=(perf_counter() - started) * 1000,
                                          status=status, domain_outcome=domain_outcome)
-            return RuntimeResult(tuple(emitted), status)  # type: ignore[arg-type]
+            return RuntimeResult(tuple(emitted), status, execution_id)  # type: ignore[arg-type]
 
-        if approval_response is not None:
-            try:
-                request = self.approvals.decide(thread_id, approval_response.request_id, approval_response.approved)
-            except ValueError as exc:
-                emit("error", {"code": "invalid_approval_response", "message": str(exc)})
-                emit("completed", {"status": "failed"})
-                return finish("failed")
-            emit("approval_decision", {"request_id": request.request_id, "tool": request.tool_name,
-                                       "approved": approval_response.approved})
-            self.telemetry.approval_decided(thread_id, self.runtime, request.tool_name, approval_response.approved)
+        def terminal(status: str) -> RuntimeResult:
+            if state.error:
+                emit("error", "error", state.error)
+            elif state.pending and state.pending.get("text"):
+                emit(f"text:{state.round}", "assistant_text", {"text": state.pending["text"]})
+            emit("terminal", "completed", {"status": status})
+            finish(status)
+            # Replay all saved events so a caller can recover a missed acknowledgement.
+            return RuntimeResult(tuple(event for event in self.store.events(thread_id)
+                                       if event.data.get("execution_id") == execution_id), status, execution_id)
 
-        history = tuple(
-            {"role": "user" if event.kind == "user_message" else "assistant", "text": str(event.data.get("text", ""))}
-            for event in self.store.events(thread_id)
-            if event.kind in {"user_message", "assistant_text"} and event.data.get("text")
-        )
-        emit("user_message", {"text": user_text, "image": None if image is None else {"media_type": image.media_type}})
-        state = _TurnState(thread_id, user_text, image, history=history)
-        if approval_response is not None and not approval_response.approved:
-            state.exchanges.append({"type": "approval_denied", "request_id": approval_response.request_id})
-
-        # Resume the exact approved operation without model reconstruction.
-        if approval_response is not None and approval_response.approved:
-            emit("tool_call", {"call_id": request.request_id, "name": request.tool_name, "arguments": request.arguments})
-            self.telemetry.tool_started(thread_id, self.runtime, request.tool_name, request.arguments)
-            tool_started = perf_counter()
-            result = await self.approvals.execute(request, self.registry)
-            self.telemetry.tool_finished(thread_id, self.runtime, request.tool_name, request.arguments,
-                                         latency_ms=(perf_counter() - tool_started) * 1000, result=result)
-            emit("tool_result", {"call_id": request.request_id, "name": request.tool_name, "arguments": request.arguments, "result": result})
-            state.exchanges.append({"type": "tool_result", "call_id": request.request_id,
-                                    "name": request.tool_name, "arguments": request.arguments, "result": result})
-            if result.get("ok"):
-                domain_outcome = _domain_outcome(request.tool_name, result)
-
-        for tool_turn in range(self.max_tool_turns + 1):
-            if tool_turn == self.max_tool_turns:
-                emit("error", {"code": "tool_loop_limit", "message": f"Tool loop exceeded {self.max_tool_turns} turns"})
-                emit("completed", {"status": "failed"})
-                self.telemetry.loop_limit(thread_id, self.runtime, self.max_tool_turns)
-                return finish("failed")
-            try:
-                turn = await self._complete(state)
-            except Exception:
-                self.telemetry.runtime_failure(thread_id, self.runtime, "model_transport_failed")
-                raise
-            if turn.response_output:
-                # Keep provider reasoning/function items for the next request in this
-                # turn; these are not user-visible events or telemetry.
-                state.exchanges.append({"type": "model_output", "items": turn.response_output})
-            if turn.text:
-                emit("assistant_text", {"text": turn.text})
-            if not turn.tool_calls:
-                emit("completed", {"status": "completed"})
-                return finish("completed")
-            for call in turn.tool_calls:
-                emit("tool_call", {"call_id": call.call_id, "name": call.name, "arguments": call.arguments})
-                self.telemetry.tool_started(thread_id, self.runtime, call.name, call.arguments)
-                tool_started = perf_counter()
-                try:
-                    result = await self.registry.execute(call.name, call.arguments)
-                except Exception:
-                    self.telemetry.runtime_failure(thread_id, self.runtime, "tool_executor_failed")
-                    raise
-                self.telemetry.tool_finished(thread_id, self.runtime, call.name, call.arguments,
-                                             latency_ms=(perf_counter() - tool_started) * 1000, result=result)
-                if result.get("error", {}).get("code") == "approval_required":
-                    request = self.approvals.request(thread_id, call.name, call.arguments, service=self.registry.service)
-                    emit("approval_request", {"request_id": request.request_id, "tool": call.name,
-                                              "target": call.arguments.get("part_id", call.arguments.get("part_ids", "selection")),
-                                              "effect": _approval_effect(call.name, call.arguments), "arguments": call.arguments})
-                    emit("completed", {"status": "awaiting_approval"})
-                    return finish("awaiting_approval")
-                emit("tool_result", {"call_id": call.call_id, "name": call.name, "result": result})
-                if result.get("ok"):
-                    domain_outcome = _domain_outcome(call.name, result)
-                state.exchanges.append({"type": "tool_result", "call_id": call.call_id,
-                                        "name": call.name, "arguments": call.arguments, "result": result})
-        raise AssertionError("unreachable")
+        try:
+            if approval_response is not None:
+                # Validate even a duplicate decision on an already completed execution.
+                self.approvals.decide(thread_id, approval_response.request_id, approval_response.approved)
+            if record.status in {"completed", "failed"}:
+                result = terminal(record.status)
+                if on_event is not None:
+                    for event in result.events:
+                        on_event(event)
+                return result
+            emit("user", "user_message", {"text": state.user_text,
+                "image": None if not state.had_image else {"media_type": image.media_type if image else "image/*"}})
+            if state.had_image and state.round == 0 and image is None:
+                state.error = {"code": "image_resubmission_required", "message": "The interrupted image request needs a fresh photo; image bytes are not stored"}
+                save("failed")
+                return terminal("failed")
+            while True:
+                if state.pending is None:
+                    if state.round >= self.max_tool_turns:
+                        state.error = {"code": "tool_loop_limit", "message": f"Tool loop exceeded {self.max_tool_turns} turns"}
+                        save("failed")
+                        self.telemetry.loop_limit(thread_id, self.runtime, self.max_tool_turns)
+                        return terminal("failed")
+                    turn = await self._complete(state)
+                    if turn.response_output:
+                        state.exchanges.append({"type": "model_output", "items": turn.response_output})
+                    state.round += 1
+                    state.pending = {"text": turn.text, "calls": [
+                        {"name": call.name, "arguments": call.arguments, "call_id": call.call_id}
+                        for call in turn.tool_calls]}
+                    state.call_index = 0
+                    # Persist model output, including provider reasoning, before any effect.
+                    save()
+                if state.pending["text"]:
+                    emit(f"text:{state.round}", "assistant_text", {"text": state.pending["text"]})
+                calls = state.pending["calls"]
+                if not calls:
+                    save("completed")
+                    return terminal("completed")
+                while state.call_index < len(calls):
+                    call = calls[state.call_index]
+                    step = f"{state.round}:{state.call_index}"
+                    name, args = call["name"], call["arguments"]
+                    emit(f"call:{step}", "tool_call", {key: call[key] for key in ("name", "arguments", "call_id")})
+                    if state.approval_id:
+                        request_id = state.approval_id
+                        # A decision persisted before a crash can continue on explicit resume.
+                        approved = self.approvals.repository.approvals.get(thread_id, request_id).decision
+                        if approved is None:
+                            emit(f"approval:{step}", "approval_request", {
+                                "request_id": request_id, "tool": name, "arguments": args,
+                                "target": args.get("part_id", args.get("part_ids", "selection")),
+                                "effect": _approval_effect(name, args)})
+                            emit(f"paused:{step}", "completed", {"status": "awaiting_approval"})
+                            return finish("awaiting_approval")
+                        request = self.approvals.decide(thread_id, request_id, approved)
+                        emit(f"decision:{step}", "approval_decision", {"request_id": request_id,
+                            "tool": name, "approved": approved})
+                        self.telemetry.approval_decided(thread_id, self.runtime, name, approved)
+                    if "result" not in call:
+                        self.telemetry.tool_started(thread_id, self.runtime, name, args)
+                        tool_started = perf_counter()
+                        if state.approval_id:
+                            result = await self.approvals.execute(request, self.registry,
+                                execution_id=execution_id, worker_id=worker_id) if approved else {
+                                "ok": False, "error": {"code": "approval_denied", "message": "User declined this operation", "details": {}}}
+                        elif call.get("retrieval_started") or (name == "lookup_part_specs" and _lookup_interrupted(state, args.get("part_id"))):
+                            result = {"ok": False, "error": {"code": "retrieval_interrupted",
+                                "message": "Lookup was interrupted; explicitly request lookup_part_specs to retry", "details": {}}}
+                        else:
+                            if name == "lookup_part_specs":
+                                call["retrieval_started"] = True
+                                save()
+                            result = await self.registry.execute(name, args, context=ToolExecutionContext(
+                                operation_id=f"{execution_id}:{step}", execution_id=execution_id, worker_id=worker_id))
+                        self.telemetry.tool_finished(thread_id, self.runtime, name, args,
+                            latency_ms=(perf_counter() - tool_started) * 1000, result=result)
+                        if result.get("error", {}).get("code") == "approval_required":
+                            request = self.approvals.request(thread_id, name, args, service=self.registry.service)
+                            state.approval_id = request.request_id
+                            save("awaiting_approval")
+                            continue
+                        call["result"] = result
+                        state.exchanges.append({"type": "tool_result", **call, "result": result})
+                        # Result is durable before publication. Cursor advances afterwards.
+                        save()
+                    result = call["result"]
+                    emit(f"result:{step}", "tool_result", {"call_id": call["call_id"], "name": name,
+                        "arguments": args, "result": result})
+                    if result.get("ok"):
+                        domain_outcome = _domain_outcome(name, result)
+                    state.call_index += 1
+                    state.approval_id = None
+                    save()
+                state.pending = None
+                save()
+        except Exception:
+            self.telemetry.runtime_failure(thread_id, self.runtime, "execution_interrupted")
+            raise
+        finally:
+            executions.release(execution_id, worker_id)
 
     async def _complete(self, state: _TurnState) -> ModelTurn:
         tools = tuple({"type": "function", "name": tool["name"],
@@ -182,3 +263,19 @@ def _approval_effect(tool_name: str, arguments: dict[str, Any]) -> str:
     if isinstance(fields, list):
         return f"{tool_name}: reject {', '.join(fields)}"
     return tool_name.replace("_", " ")
+
+
+def _lookup_interrupted(state: _TurnState, part_id: int | None) -> bool:
+    """Require a new user turn before retrying an uncertain paid stage."""
+    for exchange in state.exchanges:
+        if exchange["type"] != "tool_result":
+            continue
+        result = exchange["result"]
+        if (exchange["name"] == "lookup_part_specs" and exchange["arguments"].get("part_id") == part_id
+                and result.get("error", {}).get("code") == "retrieval_interrupted"):
+            return True
+        added = result.get("result", {})
+        if (exchange["name"] == "add_part" and added.get("id") == part_id
+                and added.get("enrichment", {}).get("status") == "interrupted"):
+            return True
+    return False

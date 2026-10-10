@@ -56,11 +56,14 @@ class ApprovalEngine:
             repository.approvals.set_decision(request_id, approved)
             return self._request(record)
 
-    async def execute(self, request: ApprovalRequest, registry: PartsBinToolRegistry) -> dict:
+    async def execute(self, request: ApprovalRequest, registry: PartsBinToolRegistry, *,
+                      execution_id: str | None = None, worker_id: str | None = None) -> dict:
         """Replay saved results before checking targets; never reconstruct arguments."""
         self._check_database(registry.service)
         targets = registry.approval_targets(request.tool_name, request.arguments)
         with registry.service.transaction() as (service, repository):
+            if execution_id and worker_id:
+                repository.executions.assert_owned(execution_id, worker_id)
             record = repository.approvals.get(request.thread_id, request.request_id)
             if record is None or record.decision is not True or self._request(record) != request:
                 raise ValueError("Operation has no matching approval")

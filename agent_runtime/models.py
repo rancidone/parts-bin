@@ -60,3 +60,4 @@ class ApprovalResponse:
 class RuntimeResult:
     events: tuple[ConversationEvent, ...]
     status: Literal["completed", "awaiting_approval", "failed"]
+    execution_id: str | None = None
