@@ -116,6 +116,9 @@ async def test_opening_existing_database_preserves_history_and_provider_state(tm
         pytest.fail("Historical conversation must not start a provider")
     gateway = AgentGateway(store, must_not_start)
     assert gateway.events("old")[0].data == {"text": "keep me"}
+    assert [thread.payload() for thread in gateway.threads()] == [
+        {"thread_id": "old", "runtime": provider, "title": "keep me", "last_sequence": 1}
+    ]
     with pytest.raises(UnsupportedRuntimeError):
         await gateway.submit("old", "continue")
     with pytest.raises(UnsupportedRuntimeError):

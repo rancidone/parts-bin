@@ -7,7 +7,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-from agent_runtime.models import ConversationEvent, RuntimeName
+from agent_runtime.models import ConversationEvent, ConversationSummary, RuntimeName
 from agent_runtime.store import RuntimeSelectionError, UnsupportedRuntimeError
 
 
@@ -60,6 +60,29 @@ class SQLiteConversationRepository:
             row = conn.execute("SELECT runtime FROM agent_threads WHERE thread_id = ?", (thread_id,)).fetchone()
         return None if row is None else row["runtime"]
 
+    def threads(self) -> list[ConversationSummary]:
+        """List retained threads without changing or attempting to run any of them."""
+        with self._connection() as conn:
+            rows = conn.execute("""
+                SELECT t.rowid AS thread_order, t.thread_id, t.runtime,
+                       COALESCE(MAX(e.sequence), 0) AS last_sequence
+                FROM agent_threads t
+                LEFT JOIN agent_events e ON e.thread_id = t.thread_id
+                GROUP BY t.rowid, t.thread_id, t.runtime
+                ORDER BY thread_order DESC
+            """).fetchall()
+            summaries = []
+            for row in rows:
+                events = conn.execute("""
+                    SELECT kind, data_json FROM agent_events
+                    WHERE thread_id = ? AND kind IN ('user_message', 'assistant_text')
+                    ORDER BY sequence
+                """, (row["thread_id"],)).fetchall()
+                summaries.append(ConversationSummary(
+                    row["thread_id"], row["runtime"], _conversation_title(events), row["last_sequence"]
+                ))
+        return summaries
+
     def append(self, event: ConversationEvent) -> ConversationEvent:
         return self._append(event, None)
 
@@ -97,3 +120,18 @@ class SQLiteConversationRepository:
             ).fetchall()
         return [ConversationEvent(row["kind"], thread_id, row["runtime"], json.loads(row["data_json"]), row["sequence"])
                 for row in rows]
+
+
+def _conversation_title(rows: list[sqlite3.Row]) -> str:
+    fallback = "Empty conversation"
+    for preferred_kind in ("user_message", "assistant_text"):
+        for row in rows:
+            if row["kind"] != preferred_kind:
+                continue
+            data = json.loads(row["data_json"])
+            text = " ".join(str(data.get("text", "")).split())
+            if text:
+                return text[:61] + "…" if len(text) > 62 else text
+            if preferred_kind == "user_message" and data.get("image"):
+                fallback = "Photo request"
+    return fallback

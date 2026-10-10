@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from agent_runtime import ConversationEvent, RuntimeSelectionError
+from agent_runtime import ConversationEvent, ConversationSummary, RuntimeSelectionError
 from db.conversations import SQLiteConversationRepository
 
 
@@ -64,3 +64,34 @@ def test_delivery_identity_cannot_cross_conversations(tmp_path):
         store.append_once(ConversationEvent("assistant_text", "other", "openai", {"text": "other"}), "result")
     assert store.events("first") == [saved]
     assert store.events("other") == []
+
+
+def test_lists_newest_conversations_with_provider_and_bounded_title(tmp_path):
+    path = tmp_path / "events.db"
+    store = SQLiteConversationRepository(path)
+    store.create_thread("current", "openai")
+    store.append(ConversationEvent("user_message", "current", "openai",
+                                   {"text": "  Find   all 10k resistors  "}))
+    with sqlite3.connect(path) as conn:
+        conn.execute("INSERT INTO agent_threads(thread_id, runtime) VALUES (?, ?)", ("historical", "codex"))
+    store.append(ConversationEvent("assistant_text", "historical", "codex", {"text": "Preserved answer"}))
+
+    assert store.threads() == [
+        ConversationSummary("historical", "codex", "Preserved answer", 1),
+        ConversationSummary("current", "openai", "Find all 10k resistors", 1),
+    ]
+
+    store.append(ConversationEvent("assistant_text", "current", "openai", {"text": "Later answer"}))
+    assert SQLiteConversationRepository(path).threads()[1] == ConversationSummary(
+        "current", "openai", "Find all 10k resistors", 2
+    )
+
+
+def test_empty_and_photo_only_conversations_have_usable_titles(tmp_path):
+    store = SQLiteConversationRepository(tmp_path / "events.db")
+    store.create_thread("empty", "openai")
+    store.create_thread("photo", "openai")
+    store.append(ConversationEvent("user_message", "photo", "openai", {"text": "", "image": {"media_type": "image/png"}}))
+    summaries = {thread.thread_id: thread for thread in store.threads()}
+    assert summaries["empty"].title == "Empty conversation"
+    assert summaries["photo"].title == "Photo request"
