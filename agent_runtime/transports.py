@@ -12,7 +12,10 @@ from .runtime import ModelRequest
 
 
 class OpenAIResponsesTransport:
-    def __init__(self, *, api_key: str, model: str, base_url: str = "https://api.openai.com/v1", client: httpx.AsyncClient | None = None):
+    def __init__(self, *, api_key: str, model: str, base_url: str = "https://api.openai.com/v1", client: httpx.AsyncClient | None = None, max_output_tokens: int | None = None):
+        if max_output_tokens is not None and (not isinstance(max_output_tokens, int) or isinstance(max_output_tokens, bool) or max_output_tokens < 1):
+            raise ValueError("max_output_tokens must be a positive integer")
+        self.max_output_tokens = max_output_tokens
         self.api_key, self.model, self.base_url = api_key, model, base_url.rstrip("/")
         self.client = client or httpx.AsyncClient(timeout=60.0)
 
@@ -41,7 +44,8 @@ class OpenAIResponsesTransport:
         response = await self.client.post(f"{self.base_url}/responses", headers={"Authorization": f"Bearer {self.api_key}"},
             json={"model": self.model, "instructions": request.system, "input": input_items,
                   "tools": list(request.tools), "tool_choice": "auto", "store": False,
-                  "parallel_tool_calls": False})
+                  "parallel_tool_calls": False,
+                  **({"max_output_tokens": self.max_output_tokens} if self.max_output_tokens is not None else {})})
         response.raise_for_status()
         payload = response.json()
         text: list[str] = []

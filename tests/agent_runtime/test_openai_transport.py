@@ -40,6 +40,7 @@ async def test_tool_continuation_preserves_response_items_without_duplicate_call
     assert result.status == "completed"
     assert len(requests) == 2
     first, second = requests
+    assert "max_output_tokens" not in first
     assert first["store"] is False
     assert first["parallel_tool_calls"] is False
     assert first["input"][0]["content"][1]["image_url"] == "data:image/png;base64,AA=="
@@ -74,3 +75,9 @@ async def test_provider_error_is_not_a_successful_empty_answer():
         transport = OpenAIResponsesTransport(api_key="test-only", model="test-model", client=client)
         with pytest.raises(httpx.HTTPStatusError):
             await transport.complete(ModelRequest("instructions", "hello", None, (), ()))
+
+
+@pytest.mark.parametrize("limit", [0, -1, True, 1.5])
+def test_output_budget_rejects_invalid_limits(limit):
+    with pytest.raises(ValueError, match="positive integer"):
+        OpenAIResponsesTransport(api_key="test-only", model="test-model", max_output_tokens=limit)

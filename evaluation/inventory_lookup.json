@@ -93,7 +93,7 @@
         ]
       },
       "expected_final_state": {"parts_count": 2, "reviews": {}},
-      "answer_assertions": {"contains_all": ["no single", "0402", "0603"]},
+      "answer_assertions": {"contains_all": ["0402", "0603"], "contains_any": ["no single", "don’t have four of a single", "do not have four of a single", "neither package"]},
       "recorded_turns": [
         {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10 kΩ"}, "minimum_quantity": 4}}]},
         {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "resistor", "value": "10 kΩ"}}}]},
@@ -114,9 +114,9 @@
       "conversation": [{"user": "Do I have 0.1 µF capacitors in 0603?"}],
       "allowed_approvals": {},
       "tool_constraints": {
-        "required_sequence": ["search_parts", "list_pending_reviews"],
+        "required_sequence": ["search_parts", "list_pending_reviews", "get_part"],
         "forbidden": ["apply_review", "reject_review", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part"],
-        "max_calls": 2,
+        "max_calls": 3,
         "expected_search_results": [{"part_ids": [], "count": 0, "truncated": false}]
       },
       "expected_final_state": {
@@ -132,10 +132,11 @@
           }
         }
       },
-      "answer_assertions": {"contains_all": ["no committed", "pending", "review"]},
+      "answer_assertions": {"contains_all": ["pending", "review"], "contains_any": ["no committed", "don’t have a committed", "do not have a committed", "no matching committed"]},
       "recorded_turns": [
         {"tool_calls": [{"name": "search_parts", "arguments": {"filters": {"part_category": "capacitor", "value": "0.1 µF", "package": "0603"}}}]},
         {"tool_calls": [{"name": "list_pending_reviews", "arguments": {}}]},
+        {"tool_calls": [{"name": "get_part", "arguments": {"part_id": 1}}]},
         {"text": "There is no committed 0.1 µF 0603 match. One 0603 capacitor has that value only as a pending review, so I did not count it as inventory."}
       ]
     }
