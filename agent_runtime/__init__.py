@@ -2,12 +2,12 @@
 
 from .approval import ApprovalEngine, ApprovalRequest
 from .gateway import AgentGateway
-from .models import ApprovalResponse, ConversationEvent, ImageInput, ModelTurn, RuntimeResult, ToolCall
+from .models import ApprovalResponse, ConversationEvent, ConversationSummary, ImageInput, ModelTurn, RuntimeResult, ToolCall
 from .runtime import OpenAIResponsesRuntime
 from .store import ConversationRepository, RuntimeSelectionError, UnsupportedRuntimeError
 from .telemetry import AgentTelemetry
 from .transports import OpenAIResponsesTransport
 
 __all__ = ["AgentGateway", "AgentTelemetry", "ApprovalEngine", "ApprovalRequest", "ApprovalResponse",
-           "ConversationEvent", "ConversationRepository", "ImageInput", "ModelTurn", "OpenAIResponsesRuntime",
+           "ConversationEvent", "ConversationRepository", "ConversationSummary", "ImageInput", "ModelTurn", "OpenAIResponsesRuntime",
            "OpenAIResponsesTransport", "RuntimeResult", "RuntimeSelectionError", "UnsupportedRuntimeError", "ToolCall"]

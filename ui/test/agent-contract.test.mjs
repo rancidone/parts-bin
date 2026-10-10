@@ -2,20 +2,23 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { AgentSession, approvalDecision, unfinishedExecutions, readEventStream } from '../src/agentSession.ts'
 
-const event = (sequence, kind, data = {}, runtime = 'openai') => ({ kind, sequence, data, runtime, thread_id: 'thread' })
+const event = (sequence, kind, data = {}, runtime = 'openai', threadId = 'thread') => ({ kind, sequence, data, runtime, thread_id: threadId })
 const user = event(1, 'user_message', { text: 'hello', execution_id: 'work' })
 const done = event(3, 'completed', { status: 'completed', execution_id: 'work' })
 const encode = events => events.map(item => `event: agent_event\ndata: ${JSON.stringify(item)}\n\n`).join('')
 const response = events => new Response(encode(events))
+const summary = (thread_id = 'thread', runtime = 'openai', title = 'hello', last_sequence = 3) => ({ thread_id, runtime, title, last_sequence })
+const list = (threads = [summary()]) => Response.json({ threads })
+const isList = (url, init) => url === '/agent/threads' && !init?.method
 function storage() {
   const data = new Map()
   return { data, getItem: key => data.get(key), setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) }
 }
-function fixture(history = []) {
+function fixture(history = [], threads = [summary()]) {
   const saved = storage()
   saved.setItem('parts-bin.current-thread', 'thread')
   const requests = []
-  let reply = async () => response(history)
+  let reply = async (url, init) => isList(url, init) ? list(threads) : response(history)
   const fetcher = async (url, init) => { requests.push({ url, init }); return reply(url, init) }
   const session = new AgentSession(fetcher, saved)
   return { session, saved, requests, respond: callback => { reply = callback } }
@@ -45,8 +48,8 @@ test('reload and repeated replay restore ordered history without duplicate messa
   assert.deepEqual(f.session.getSnapshot().events.map(item => item.sequence), [1, 2, 3])
   assert.equal(f.session.getSnapshot().restored, true)
   assert.equal(unfinishedExecutions(f.session.getSnapshot().events).length, 0)
-  assert.ok(f.requests.every(item => item.url.endsWith('/events') && !item.init?.method))
-  const reloaded = new AgentSession(async () => response([user, done]), f.saved)
+  assert.ok(f.requests.every(item => (item.url === '/agent/threads' || item.url.endsWith('/events')) && !item.init?.method))
+  const reloaded = new AgentSession(async (url, init) => isList(url, init) ? list() : response([user, done]), f.saved)
   await reloaded.restore()
   assert.equal(reloaded.getSnapshot().threadId, 'thread')
 })
@@ -74,7 +77,7 @@ test('failed restore retains its ID and blocks messages until history is recover
   assert.equal(f.session.getSnapshot().restored, false)
   await f.session.submit('do not send')
   assert.equal(f.requests.length, 1)
-  f.respond(async () => response([]))
+  f.respond(async (url, init) => isList(url, init) ? list() : response([]))
   assert.equal(await f.session.refresh(), true)
   assert.equal(f.session.getSnapshot().restored, true)
 })
@@ -82,14 +85,14 @@ test('failed restore retains its ID and blocks messages until history is recover
 test('truncated mutation streams require read-only recovery and never resubmit automatically', async () => {
   const f = fixture([])
   await f.session.restore()
-  f.respond(async () => response([user]))
+  f.respond(async (url, init) => isList(url, init) ? list() : response([user]))
   assert.equal(await f.session.submit('hello'), false)
   assert.match(f.session.getSnapshot().error, /interrupted/)
   assert.equal(f.session.getSnapshot().restored, false)
   const requests = f.requests.length
   assert.equal(await f.session.submit('hello'), false)
   assert.equal(f.requests.length, requests)
-  f.respond(async () => response([user]))
+  f.respond(async (url, init) => isList(url, init) ? list() : response([user]))
   await f.session.refresh()
   assert.equal(unfinishedExecutions(f.session.getSnapshot().events)[0].id, 'work')
   assert.equal(f.requests.filter(item => item.init?.method === 'POST').length, 1)
@@ -105,6 +108,7 @@ test('one guard prevents overlapping submit, approval, resume, and refresh', asy
   assert.equal(await f.session.submit('overlap'), false)
   assert.equal(await f.session.decide('approval', false), false)
   assert.equal(await f.session.resume('work'), false)
+  assert.equal(await f.session.selectConversation('other'), false)
   assert.equal(await f.session.refresh(), false)
   f.session.newChat()
   assert.equal(f.session.getSnapshot().threadId, 'thread')
@@ -141,7 +145,7 @@ test('explicit resume refreshes history first and sends the original execution I
     return response([user, done])
   })
   assert.equal(await f.session.resume('work'), true)
-  assert.deepEqual(f.requests.slice(1).map(item => item.url), ['/agent/threads/thread/events', '/agent/threads/thread/resume'])
+  assert.deepEqual(f.requests.slice(2).map(item => item.url), ['/agent/threads/thread/events', '/agent/threads/thread/resume'])
   assert.equal(f.session.getSnapshot().events.length, 2)
 })
 
@@ -183,11 +187,11 @@ test('gateway failure does not falsely mark an interrupted execution as terminal
 })
 
 test('retired-provider history is readable without issuing new provider work', async () => {
-  const f = fixture([event(1, 'assistant_text', { text: 'old' }, 'codex')])
+  const f = fixture([event(1, 'assistant_text', { text: 'old' }, 'codex')], [summary('thread', 'codex', 'old', 1)])
   await f.session.restore()
   assert.equal(await f.session.submit('continue'), false)
   assert.match(f.session.getSnapshot().error, /retired provider/)
-  assert.equal(f.requests.length, 1)
+  assert.equal(f.requests.length, 2)
 })
 
 test('new chat changes only the browser pointer and never deletes server history', async () => {
@@ -196,7 +200,7 @@ test('new chat changes only the browser pointer and never deletes server history
   f.session.newChat()
   assert.equal(f.session.getSnapshot().threadId, null)
   assert.equal(f.saved.data.size, 0)
-  assert.equal(f.requests.length, 1)
+  assert.equal(f.requests.length, 2)
 })
 
 test('a server startup failure does not discard an unacknowledged draft as successful', async () => {
@@ -224,4 +228,50 @@ test('an interrupted approval response does not send a second decision automatic
   assert.equal(f.session.getSnapshot().restored, false)
   assert.equal(approvalDecision(f.session.getSnapshot().events, 'review'), true)
   assert.equal(f.requests.filter(item => item.init?.method === 'POST').length, 1)
+})
+
+test('conversation selection replaces history with read-only replay and never starts work', async () => {
+  const oldEvent = event(1, 'assistant_text', { text: 'preserved' }, 'codex', 'old')
+  const f = fixture([user, done], [summary(), summary('old', 'codex', 'preserved', 1)])
+  await f.session.restore()
+  f.respond(async url => url.endsWith('/old/events') ? response([oldEvent]) : response([user, done]))
+  assert.equal(await f.session.selectConversation('old'), true)
+  assert.equal(f.session.getSnapshot().threadId, 'old')
+  assert.deepEqual(f.session.getSnapshot().events, [oldEvent])
+  assert.equal(f.saved.getItem('parts-bin.current-thread'), 'old')
+  assert.equal(f.requests.filter(item => item.init?.method === 'POST').length, 0)
+  assert.equal(await f.session.submit('do not replay through OpenAI'), false)
+  assert.match(f.session.getSnapshot().error, /retired provider/)
+})
+
+test('failed selection keeps the current conversation and its draft-safe restored state', async () => {
+  const f = fixture([user, done], [summary(), summary('other', 'openai', 'other chat', 1)])
+  await f.session.restore()
+  f.respond(async () => Response.json({ detail: 'Unavailable' }, { status: 503 }))
+  assert.equal(await f.session.selectConversation('other'), false)
+  assert.equal(f.session.getSnapshot().threadId, 'thread')
+  assert.deepEqual(f.session.getSnapshot().events, [user, done])
+  assert.equal(f.session.getSnapshot().restored, true)
+  assert.equal(f.saved.getItem('parts-bin.current-thread'), 'thread')
+})
+
+test('open tabs keep independent active histories when one tab selects another conversation', async () => {
+  const saved = storage()
+  saved.setItem('parts-bin.current-thread', 'thread')
+  const other = event(1, 'assistant_text', { text: 'other' }, 'openai', 'other')
+  const threads = [summary(), summary('other', 'openai', 'other', 1)]
+  const requests = []
+  const fetcher = async (url, init) => {
+    requests.push({ url, init })
+    if (isList(url, init)) return list(threads)
+    return url.endsWith('/other/events') ? response([other]) : response([user, done])
+  }
+  const first = new AgentSession(fetcher, saved)
+  const second = new AgentSession(fetcher, saved)
+  await Promise.all([first.restore(), second.restore()])
+  assert.equal(await first.selectConversation('other'), true)
+  assert.equal(first.getSnapshot().threadId, 'other')
+  assert.equal(second.getSnapshot().threadId, 'thread')
+  assert.deepEqual(second.getSnapshot().events, [user, done])
+  assert.equal(requests.filter(item => item.init?.method === 'POST').length, 0)
 })

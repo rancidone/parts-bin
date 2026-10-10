@@ -8,9 +8,12 @@ import type { AgentEvent, Part } from './types'
 import styles from './Chat.module.css'
 
 export function Chat() {
-  const { events, pending, submit, decide, refresh, resume, newChat, error, restored } = useAgent()
+  const { events, conversations, threadId, pending, submit, decide, refresh, resume, newChat,
+    selectConversation, error, restored } = useAgent()
   const unfinished = unfinishedExecutions(events)
-  const readOnly = events.some(event => event.runtime !== 'openai')
+  const selected = conversations.find(item => item.thread_id === threadId)
+  const readOnly = selected?.runtime !== undefined && selected.runtime !== 'openai'
+    || events.some(event => event.runtime !== 'openai')
   const [text, setText] = useState('')
   const [photo, setPhoto] = useState<File>()
   const [photoPreview, setPhotoPreview] = useState<string>()
@@ -39,7 +42,19 @@ export function Chat() {
 
   return <div className={styles.container}>
     <div className={styles.toolbar}>
-      <span role="status">{!restored && !pending ? 'Refresh history to reconnect' : pending ? (restored ? 'Working…' : 'Restoring conversation…') : readOnly ? 'Read-only conversation' : unfinished.some(item => item.status === 'awaiting_approval') ? 'Awaiting approval' : unfinished.length ? 'Unfinished work' : events.length ? 'Ready' : 'New conversation'}</span>
+      <label className={styles.conversationPicker}>Conversation
+        <select aria-label="Conversation" disabled={pending} value={threadId ?? ''} onChange={event => {
+          const next = event.target.value
+          if (!next) { newChat(); setText(''); clearPhoto(); return }
+          void selectConversation(next).then(accepted => { if (accepted) { setText(''); clearPhoto() } })
+        }}>
+          <option value="">New conversation</option>
+          {conversations.map(conversation => <option key={conversation.thread_id} value={conversation.thread_id}>
+            {conversation.title} · {providerLabel(conversation.runtime)}
+          </option>)}
+        </select>
+      </label>
+      <span className={styles.status} role="status">{!restored && !pending ? 'Refresh history to reconnect' : pending ? (restored ? 'Working…' : 'Restoring conversation…') : readOnly ? 'Read-only conversation' : unfinished.some(item => item.status === 'awaiting_approval') ? 'Awaiting approval' : unfinished.length ? 'Unfinished work' : events.length ? 'Ready' : 'New conversation'}</span>
       <button className={styles.inlineActionBtn} disabled={pending} onClick={() => void refresh()}>Refresh history</button>
       <button className={styles.inlineActionBtn} disabled={pending} onClick={() => { newChat(); setText(''); clearPhoto() }}>New chat</button>
     </div>
@@ -70,6 +85,10 @@ export function Chat() {
       </div>
     </form>
   </div>
+}
+
+function providerLabel(runtime: string) {
+  return runtime === 'openai' ? 'OpenAI' : `${runtime} (read-only)`
 }
 
 function EventBubble({ event, decide, disabled, decision }: { event: AgentEvent; decide: (requestId: string, approved: boolean) => Promise<boolean>; disabled: boolean; decision?: boolean }) {
