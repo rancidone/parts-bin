@@ -9,7 +9,6 @@ import sqlite3
 import pytest
 
 from db.persistence import (
-    export_csv,
     init_db,
     list_all,
     list_field_provenance,
@@ -175,23 +174,6 @@ class TestQuery:
         upsert(db, PASSIVE_RESISTOR)
         results = query(db, {"part_category": "resistor", "value": "47k"})
         assert results == []
-
-
-class TestExportCsv:
-    def test_column_order(self, db):
-        upsert(db, PASSIVE_RESISTOR)
-        rows = list_all(db)
-        csv_str = export_csv(rows)
-        header = csv_str.splitlines()[0]
-        assert header == "part_category,value,package,quantity,part_number,manufacturer,description"
-
-    def test_row_content(self, db):
-        upsert(db, PASSIVE_RESISTOR)
-        rows = list_all(db)
-        csv_str = export_csv(rows)
-        lines = csv_str.splitlines()
-        assert "resistor" in lines[1]
-        assert "10k" in lines[1]
 
 
 class TestFieldProvenance:

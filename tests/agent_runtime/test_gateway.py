@@ -3,7 +3,8 @@ from __future__ import annotations
 import pytest
 from db.repository import SQLitePartsBinRepository
 
-from agent_runtime import AgentGateway, ApprovalEngine, ConversationStore, ModelTurn, OpenAIResponsesRuntime
+from agent_runtime import AgentGateway, ApprovalEngine, ModelTurn, OpenAIResponsesRuntime
+from db.conversations import SQLiteConversationRepository
 from agent_runtime.runtime import ModelRequest
 from domain import PartsBinService
 from tools import PartsBinToolRegistry
@@ -16,7 +17,7 @@ class TextTransport:
 
 @pytest.mark.asyncio
 async def test_gateway_persists_and_resumes_one_normalized_stream(tmp_path):
-    store = ConversationStore(tmp_path / "conversations.db")
+    store = SQLiteConversationRepository(tmp_path / "conversations.db")
 
     def make_runtime():
         repository = SQLitePartsBinRepository(tmp_path / "parts.db")
@@ -34,7 +35,7 @@ async def test_gateway_persists_and_resumes_one_normalized_stream(tmp_path):
 
 @pytest.mark.asyncio
 async def test_gateway_turns_runtime_startup_failure_into_events(tmp_path):
-    store = ConversationStore(tmp_path / "conversations.db")
+    store = SQLiteConversationRepository(tmp_path / "conversations.db")
     gateway = AgentGateway(store, lambda: (_ for _ in ()).throw(RuntimeError("not configured")))
     thread_id = gateway.create_thread()
     emitted = await gateway.submit(thread_id, "hello")
@@ -59,7 +60,7 @@ async def test_gateway_streams_tool_activity_before_model_finishes(tmp_path):
             await release.wait()
             return ModelTurn("Finished")
 
-    store = ConversationStore(tmp_path / "conversation.db")
+    store = SQLiteConversationRepository(tmp_path / "conversation.db")
     repository = SQLitePartsBinRepository(tmp_path / "parts.db")
     gateway = AgentGateway(store, lambda: OpenAIResponsesRuntime(PausedTransport(),
         registry=PartsBinToolRegistry(PartsBinService(repository)), store=store, approvals=ApprovalEngine(repository)))
@@ -81,7 +82,7 @@ async def test_gateway_preserves_partial_events_on_stream_failure(tmp_path):
     class BrokenTransport:
         async def complete(self, request):
             raise RuntimeError("provider stopped")
-    store = ConversationStore(tmp_path / "conversation.db")
+    store = SQLiteConversationRepository(tmp_path / "conversation.db")
     repository = SQLitePartsBinRepository(tmp_path / "parts.db")
     gateway = AgentGateway(store, lambda: OpenAIResponsesRuntime(BrokenTransport(),
         registry=PartsBinToolRegistry(PartsBinService(repository)), store=store, approvals=ApprovalEngine(repository)))
@@ -110,7 +111,7 @@ async def test_opening_existing_database_preserves_history_and_provider_state(tm
         conn.execute("INSERT INTO agent_events VALUES ('old', 1, 'assistant_text', ?, ?)", (provider, '{"text":"keep me"}'))
         conn.execute("INSERT INTO agent_codex_sessions VALUES ('old', 'saved-session')")
 
-    store = ConversationStore(database)
+    store = SQLiteConversationRepository(database)
     def must_not_start():
         pytest.fail("Historical conversation must not start a provider")
     gateway = AgentGateway(store, must_not_start)

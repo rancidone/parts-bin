@@ -7,6 +7,7 @@ import os
 
 import pytest
 from db.repository import SQLitePartsBinRepository
+from db.conversations import SQLiteConversationRepository
 from starlette.testclient import TestClient
 
 with TemporaryDirectory() as setup_dir:
@@ -21,8 +22,8 @@ from db.persistence import init_db
 def client(tmp_path):
     db_path = tmp_path / "parts.db"
     init_db(db_path)
-    from agent_runtime import AgentGateway, ApprovalEngine, ConversationStore
-    store = ConversationStore(db_path)
+    from agent_runtime import AgentGateway, ApprovalEngine
+    store = SQLiteConversationRepository(db_path)
     gateway = AgentGateway(store, server._make_agent_runtime)
     repository = SQLitePartsBinRepository(db_path)
     with patch.object(server, "_DB_PATH", db_path), patch.object(server, "_repository", repository), patch.object(server, "_conversation_store", store), patch.object(server, "_approval_engine", ApprovalEngine(repository)), patch.object(server, "_agent_gateway", gateway):
@@ -83,7 +84,7 @@ def test_resume_endpoint_checks_execution_identity(client):
 @pytest.mark.asyncio
 async def test_resume_endpoint_replays_completed_execution_without_model_call(tmp_path, monkeypatch):
     from agent_runtime import AgentGateway, ModelTurn
-    from agent_runtime.test_runtime import build_runtime
+    from tests.agent_runtime.test_runtime import build_runtime
 
     runtime, transport, store = build_runtime(tmp_path, [ModelTurn("done")])
     gateway = AgentGateway(store, lambda: runtime)
@@ -101,7 +102,7 @@ async def test_resume_endpoint_replays_completed_execution_without_model_call(tm
 @pytest.mark.asyncio
 async def test_message_endpoint_returns_sse_before_turn_finishes(tmp_path, monkeypatch):
     import asyncio
-    from agent_runtime import AgentGateway, ApprovalEngine, ConversationStore, ModelTurn, OpenAIResponsesRuntime, ToolCall
+    from agent_runtime import AgentGateway, ApprovalEngine, ModelTurn, OpenAIResponsesRuntime, ToolCall
     from domain import PartsBinService
     from tools import PartsBinToolRegistry
     release = asyncio.Event()
@@ -119,7 +120,7 @@ async def test_message_endpoint_returns_sse_before_turn_finishes(tmp_path, monke
             finally:
                 stopped.set()
 
-    store = ConversationStore(tmp_path / "conversation.db")
+    store = SQLiteConversationRepository(tmp_path / "conversation.db")
     repository = SQLitePartsBinRepository(tmp_path / "parts.db")
     gateway = AgentGateway(store, lambda: OpenAIResponsesRuntime(PausedTransport(),
         registry=PartsBinToolRegistry(PartsBinService(repository)), store=store, approvals=ApprovalEngine(repository)))

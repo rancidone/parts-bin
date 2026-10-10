@@ -12,6 +12,14 @@ used inventory workload and to learn cloud identity, durable state, and operatio
 Serverless shifts operational responsibility; it does not eliminate it or guarantee
 a lower bill. Database, retrieval, model, logging, and networking costs matter too.
 
+Keeping costs down by using only necessary services is a project goal. Start with
+the smallest stack that meets correctness, security, and recovery requirements.
+Reuse capabilities in the selected database before adding a separate search,
+vector, or cache service. Add a service when representative measurements show
+why the simpler approach is insufficient and justify the ongoing expense and
+maintenance. Evaluate idle cost, realistic task volume, retries, data transfer,
+and cost per successful task; do not assume a serverless label means cheap.
+
 ## Alternatives and consequences
 
 A single VM with Docker and a persistent SQLite disk is a simpler port of a local

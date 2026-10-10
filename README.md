@@ -53,6 +53,9 @@ outside the image; see [backup and recovery](docs/operations.md#backup-and-recov
 
 ## Development checks
 
+Python tests live in `tests/`, mirroring the source directories. Pytest discovers
+the suite there; run a focused subset with, for example, `uv run pytest tests/domain`.
+
 ```sh
 uv run pytest
 npm run lint --prefix ui

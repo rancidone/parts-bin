@@ -72,6 +72,19 @@ remain separate from authoritative storage. Select a cloud database and migratio
 procedure before adding its adapter; do not introduce a runtime picker or an
 unimplemented cloud backend as part of this boundary.
 
+Keep the conversation contract and provider-identity errors in the agent package;
+the SQLite conversation adapter belongs in [db/conversations.py](../../db/conversations.py).
+Entry points construct it explicitly. The adapter owns connections, schema setup,
+event ordering, and atomic delivery deduplication; the gateway and runtime consume
+only the contract. Preserve existing event sequences and historical provider
+identity when changing adapters.
+
+Scenario evaluation must seed and inspect state through the injected repositories
+used by the runtime. A local storage factory can allocate isolated SQLite files;
+the scenario runner must not open another database behind an adapter's back.
+This lets future cloud adapters exercise the same domain and agent scenarios.
+Concurrency, atomicity, and recovery also need adapter-specific tests.
+
 ### Approval continuation
 
 Keep approval requests, final decisions, and mutation outcomes in the inventory
@@ -146,5 +159,6 @@ See [cloud hosting](cloud-hosting.md), [enrichment](enrichment.md), and
 Start with [domain/](../../domain/), [tools/registry.py](../../tools/registry.py),
 [agent_runtime/](../../agent_runtime/), and [server.py](../../server.py).
 Persistence definitions belong in [db/](../../db/) and
-[conversation storage](../../agent_runtime/store.py). Follow their tests for
+[the conversation contract](../../agent_runtime/store.py). CSV presentation lives
+outside persistence in [inventory_export.py](../../inventory_export.py). Follow their tests for
 behavioral assertions rather than maintaining a second specification here.
