@@ -4,7 +4,7 @@ from typing import Any, Mapping
 
 EDITABLE_PART_FIELDS = frozenset({
     "part_category", "profile", "value", "package", "part_number",
-    "quantity", "manufacturer", "description",
+    "quantity", "manufacturer", "description", "datasheet_url",
 })
 
 
@@ -26,6 +26,7 @@ class PartFields:
     part_number: str | None = None
     manufacturer: str | None = None
     description: str | None = None
+    datasheet_url: str | None = None
 
     @classmethod
     def from_mapping(cls, fields: Mapping[str, Any]) -> "PartFields":
@@ -45,6 +46,7 @@ class Part:
     description: str | None
     created_at: str
     updated_at: str
+    datasheet_url: str | None = None
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> "Part":

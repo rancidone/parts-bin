@@ -214,3 +214,135 @@ def test_quantity_adjustments_use_current_stock_and_preserve_reviews(client):
 @pytest.mark.parametrize('body', [{}, {'delta': True}, {'delta': 1.0}, {'delta': '1'}, {'delta': 0}, {'delta': 2}, {'delta': -2}, {'delta': 1, 'quantity': 10}])
 def test_quantity_adjustments_reject_invalid_requests(client, body):
     assert client[0].post('/inventory/1/quantity', json=body).status_code == 422
+
+
+def opamp_for_refresh(service):
+    from domain import AddPartRequest, PartFields
+    return service.add_part(AddPartRequest(PartFields(
+        'operational amplifier', 'discrete_ic', 4, part_number='LM358BIDR',
+        datasheet_url='https://www.ti.com/lit/ds/symlink/lm358.pdf')))
+
+
+def sourced_opamp_facts():
+    return [{'name': 'minimum_supply_voltage', 'value': '3 V', 'basis': 'operating_minimum',
+             'conditions': {'ambient_temperature': '-40 to 85 °C', 'supply_convention': 'total rail-to-rail'},
+             'evidence': {'kind': 'source', 'url': 'https://www.ti.com/lit/ds/symlink/lm358.pdf',
+                          'page': 5, 'excerpt': 'LM358B LM358BA 3 36 V', 'sha256': 'a' * 64,
+                          'retrieved_at': '2026-10-10T00:00:00Z', 'part_number': 'LM358BIDR'}}]
+
+
+def test_ui_refresh_stages_opamp_electrical_facts_and_requires_displayed_review(client):
+    from unittest.mock import AsyncMock
+    from domain import GetPartRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    part = opamp_for_refresh(service)
+    service.spec_fetcher = AsyncMock()
+    service.datasheet_fetcher = AsyncMock(return_value={'outcome': 'proposal', 'facts': sourced_opamp_facts()})
+    refreshed = http.post(f'/inventory/{part.id}/refresh')
+    assert refreshed.status_code == 200
+    electrical = refreshed.json()['electrical']
+    assert electrical['review_staged'] and electrical['facts'] == []
+    service.spec_fetcher.assert_not_awaited()
+    service.datasheet_fetcher.assert_awaited_once_with(part, part.datasheet_url)
+    read = http.get(f'/inventory/{part.id}/specifications')
+    assert read.json()['pending_review'] == electrical['pending_review']
+    rejected = http.post(f'/inventory/{part.id}/specifications/decide', json={'review': {}, 'approved': True})
+    assert rejected.status_code == 409
+    assert service.get_specifications(part.id)['facts'] == []
+    accepted = http.post(f'/inventory/{part.id}/specifications/decide', json={
+        'review': electrical['pending_review'], 'approved': True})
+    assert accepted.status_code == 200
+    assert accepted.json()['facts'] == sourced_opamp_facts()
+    assert accepted.json()['pending_review'] is None
+    assert service.get(GetPartRequest(part.id)).quantity == 4
+    repeated = http.post(f'/inventory/{part.id}/specifications/decide', json={
+        'review': electrical['pending_review'], 'approved': True})
+    assert repeated.status_code == 409
+    assert service.get_specifications(part.id)['facts'] == sourced_opamp_facts()
+
+
+def test_ui_electrical_review_survives_refresh_and_dismissal_keeps_accepted_facts(client):
+    from unittest.mock import AsyncMock
+    http, _ = client
+    service = http.app.state.services.domain
+    part = opamp_for_refresh(service)
+    service.stage_specifications(part, sourced_opamp_facts())
+    service.datasheet_fetcher = AsyncMock()
+    refresh = http.post(f'/inventory/{part.id}/refresh').json()
+    assert refresh['electrical']['outcome'] == 'pending_review'
+    service.datasheet_fetcher.assert_not_awaited()
+    dismissed = http.post(f'/inventory/{part.id}/specifications/decide', json={
+        'review': refresh['electrical']['pending_review'], 'approved': False})
+    assert dismissed.status_code == 200
+    assert dismissed.json()['pending_review'] is None and dismissed.json()['facts'] == []
+
+
+def test_ui_refresh_distinguishes_source_failure_without_changing_stock(client):
+    from unittest.mock import AsyncMock
+    from domain import DomainError, ErrorCode, GetPartRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    part = opamp_for_refresh(service)
+    service.datasheet_fetcher = AsyncMock(side_effect=DomainError(ErrorCode.ENRICHMENT_UNAVAILABLE, 'PDF retrieval failed'))
+    response = http.post(f'/inventory/{part.id}/refresh')
+    assert response.status_code == 200
+    assert response.json()['electrical']['outcome'] == 'retrieval_failure'
+    assert response.json()['electrical']['pending_review'] is None
+    assert service.get(GetPartRequest(part.id)) == part
+
+
+@pytest.mark.parametrize('category', ['resistor', 'connector', 'module', 'unmarked stock'])
+def test_all_categories_can_save_and_clear_datasheet_links(client, category):
+    from domain import AddPartRequest, GetPartRequest, PartFields
+    http, _ = client
+    service = http.app.state.services.domain
+    part = service.add_part(AddPartRequest(PartFields(category, 'discrete_ic', 2)))
+    saved = http.patch(f'/inventory/{part.id}', json={'part': {'datasheet_url': 'https://example.com/source.pdf'}})
+    assert saved.status_code == 200
+    assert saved.json()['part']['datasheet_url'] == 'https://example.com/source.pdf'
+    assert service.get(GetPartRequest(part.id)).quantity == 2
+    cleared = http.patch(f'/inventory/{part.id}', json={'part': {'datasheet_url': None}})
+    assert cleared.status_code == 200 and cleared.json()['part']['datasheet_url'] is None
+
+
+@pytest.mark.parametrize('url', ['javascript:alert(1)', 'http://example.com/a.pdf', 'https://user:password@example.com/a.pdf', 'https://example.com/ bad', 'https://example.com/' + 'x' * 2048])
+def test_inventory_rejects_invalid_datasheet_link(client, url):
+    http, _ = client
+    part = opamp_for_refresh(http.app.state.services.domain)
+    assert http.patch(f'/inventory/{part.id}', json={'part': {'datasheet_url': url}}).status_code == 422
+
+
+def test_supplier_datasheet_discovery_stages_link_and_electrical_review_separately(client):
+    from unittest.mock import AsyncMock
+    from domain import GetPartRequest, UpdatePartRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    part = opamp_for_refresh(service)
+    part = service.update_part(UpdatePartRequest(part.id, {'datasheet_url': None}))
+    link = 'https://www.ti.com/lit/ds/symlink/lm358.pdf'
+    service.spec_fetcher = AsyncMock(return_value={'outcome': 'saved', 'chosen_updates': {'datasheet_url': link},
+                                                 'durable_provenance': []})
+    service.datasheet_fetcher = AsyncMock(return_value={'outcome': 'proposal', 'facts': sourced_opamp_facts()})
+    response = http.post(f'/inventory/{part.id}/refresh')
+    assert response.status_code == 200
+    assert response.json()['proposed_updates'] == {'datasheet_url': link}
+    assert response.json()['electrical']['review_staged']
+    assert service.list_pending_reviews()[part.id]['fields']['datasheet_url']['value'] == link
+    assert service.get(GetPartRequest(part.id)) == part
+    service.datasheet_fetcher.assert_awaited_once_with(part, link)
+
+
+def test_datasheet_link_on_unsupported_category_remains_available_without_extraction(client):
+    from unittest.mock import AsyncMock
+    from domain import AddPartRequest, GetPartRequest, PartFields
+    http, _ = client
+    service = http.app.state.services.domain
+    part = service.add_part(AddPartRequest(PartFields('connector', 'discrete_ic', 2,
+        datasheet_url='https://example.com/connector.pdf')))
+    service.datasheet_fetcher = AsyncMock()
+    response = http.post(f'/inventory/{part.id}/refresh')
+    assert response.status_code == 200
+    assert response.json()['electrical']['outcome'] == 'unsupported'
+    assert service.get(GetPartRequest(part.id)).datasheet_url == part.datasheet_url
+    service.datasheet_fetcher.assert_not_awaited()

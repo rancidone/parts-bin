@@ -16,6 +16,7 @@ CASES = [
     ('capacitor', 'rated_voltage', '50 V', '0.05 kV', 'rated'),
     ('bjt', 'continuous_collector_current', '500 mA', '0.5 A', 'absolute_maximum_continuous'),
     ('mosfet', 'on_resistance', '100 mΩ', '0.1 Ω', 'maximum'),
+    ('diode', 'forward_voltage', '700 mV', '0.7 V', 'maximum'),
     ('inductor', 'saturation_current', '500 mA', '0.5 A', 'saturation'),
     ('transformer', 'rated_apparent_power', '10 VA', '0.01 kVA', 'rated'),
     ('switch', 'rated_current', '500 mA', '0.5 A', 'rated'),
@@ -53,7 +54,13 @@ def search(service, category, requirements, **kwargs):
 def test_each_initial_category_review_and_inclusive_search(tmp_path, category, name, stored, requested, basis):
     repository, service, part = setup(tmp_path, category)
     proposed = fact(name, stored, basis)
-    if category == 'capacitor':
+    if category == 'bjt':
+        proposed['conditions'] = {'ambient_temperature': '25 °C'}
+    elif category == 'mosfet':
+        proposed['conditions'] = {'gate_source_voltage': '10 V', 'drain_current': '500 mA', 'junction_temperature': '25 °C'}
+    elif category == 'diode':
+        proposed['conditions'] = {'forward_current': '10 mA', 'junction_temperature': '25 °C'}
+    elif category == 'capacitor':
         proposed['conditions'] = {'rating_temperature': '85 °C', 'current_type': 'DC'}
     service.stage_specifications(part, [proposed])
     query = [requirement(proposed, requested)]
@@ -73,15 +80,15 @@ def test_each_initial_category_review_and_inclusive_search(tmp_path, category, n
 
 
 def test_nonexhaustive_catalog_and_extensible_definitions(tmp_path, monkeypatch):
-    repository, service, part = setup(tmp_path, 'diode')
-    assert service.get(GetPartRequest(part.id)).part_category == 'diode'
-    assert contract('diode')['supported'] is False
-    monkeypatch.setitem(SPECIFICATIONS, 'diode', {'forward_voltage': SpecificationDefinition('V', 'maximum')})
-    assert contract('diode')['supported'] is True
+    repository, service, part = setup(tmp_path, 'photodiode')
+    assert service.get(GetPartRequest(part.id)).part_category == 'photodiode'
+    assert contract('photodiode')['supported'] is False
+    monkeypatch.setitem(SPECIFICATIONS, 'photodiode', {'forward_voltage': SpecificationDefinition('V', 'maximum')})
+    assert contract('photodiode')['supported'] is True
     proposed = fact('forward_voltage', '700 mV', 'maximum')
     service.stage_specifications(part, [proposed])
     service.apply_specification_review(part.id)
-    assert search(service, 'diode', [requirement(proposed, '0.7 V', 'lte')])['match_count'] == 1
+    assert search(service, 'photodiode', [requirement(proposed, '0.7 V', 'lte')])['match_count'] == 1
 
 
 @pytest.mark.parametrize('raw,unit', [('1 A', 'V'), ('1', 'W'), ('NaN W', 'W'), ('1e3 W', 'W'), ('-1 W', 'W'), ('1 MW', '%')])
@@ -210,7 +217,8 @@ def test_invalid_source_or_wrong_ordering_code_is_not_staged(tmp_path, key, valu
 
 def test_assertions_conditions_and_pulsed_ratings_never_confirm_different_requirement(tmp_path):
     _, service, part = setup(tmp_path, 'mosfet')
-    pulse = fact('pulsed_drain_current', '10 A', 'absolute_maximum_pulsed')
+    pulse = fact('pulsed_drain_current', '10 A', 'absolute_maximum_pulsed',
+                 conditions={'pulse_duration': '10 µs', 'case_temperature': '25 °C'})
     assertion = fact('on_resistance', '0.1 Ω', 'maximum', kind='user_assertion')
     service.stage_specifications(part, [pulse, assertion])
     service.apply_specification_review(part.id)

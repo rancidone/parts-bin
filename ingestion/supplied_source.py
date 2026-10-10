@@ -22,12 +22,12 @@ from pdfminer.layout import LTContainer, LTTextLine
 from ingestion.cache import EnrichmentCache
 from ingestion.errors import EnrichmentError
 
-POLICY_VERSION = "supplied-pdf-v13"
+POLICY_VERSION = "supplied-pdf-v15"
 ALLOWED_HOSTS = frozenset({"assets.nexperia.com", "www.nexperia.com", "www.ti.com",
                            "www.vishay.com", "www.coilcraft.com", "omronfs.omron.com",
                            "www.onsemi.com"})
 MAX_BYTES = 4 * 1024 * 1024
-MAX_PAGES = 50
+MAX_PAGES = 80
 MAX_TEXT_CHARS = 120_000
 MAX_TABLE_BYTES = 400_000
 MAX_EXCERPT_BYTES = 12_000
@@ -487,6 +487,22 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
             'an improved grade or another family member. Rail-relative common-mode/output limits '
             'and unsupported noise or stability claims remain absent; do not invent numeric values '
             'for them. Missing test context makes only the affected fact incomplete or absent.'
+            ' For BJT and MOSFET categories, use only fields applicable to the exact source device. '
+            'Preserve gain test collector current, '
+            'collector-emitter voltage and temperature. MOSFET on_resistance requires gate-source '
+            'voltage, drain current and junction temperature; gate_threshold_voltage is not a '
+            'fully-on gate drive rating. Preserve threshold drain current, drain-source voltage '
+            '(including an explicit VDS = VGS relationship), junction temperature, and value_kind '
+            '(minimum, typical or maximum). Never infer logic-level suitability from threshold. '
+            'For diodes, distinguish continuous reverse voltage, repetitive peak reverse voltage, '
+            'continuous current and nonrepetitive surge current. Preserve surge waveform, duration '
+            'and initial junction temperature; forward-voltage test current; leakage test reverse '
+            'voltage; capacitance test frequency and reverse voltage; recovery test forward current, '
+            'reverse current, endpoint current and load resistance. Preserve governing junction '
+            'temperature and all mounting, duty-cycle, thermal and row-specific qualifiers. '
+            'Use voltage/current magnitudes for PNP and P-channel devices, retaining polarity or '
+            'channel_type from the source. Never substitute typical characteristics for maximum '
+            'bounds or treat absolute maximum ratings as operating guarantees.'
         )
     instructions += (
         ' Detected tables supply cell text and bounding boxes [x0, top, x1, bottom] in PDF points. '

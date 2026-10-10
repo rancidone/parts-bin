@@ -23,6 +23,7 @@ export function PartEditor({ part, saving, onSave, onCancel }: { part: Part; sav
         <option value="passive">Passive</option><option value="discrete_ic">Discrete / IC</option>
       </select></label>
       <label>Quantity<input type="number" min={0} step={1} required value={quantity} onChange={event => setQuantity(event.target.value)} /></label>
+      <label>Datasheet link<input type="url" maxLength={2048} placeholder="https://manufacturer.example/datasheet.pdf" value={draft.datasheet_url ?? ''} onChange={event => setDraft({ ...draft, datasheet_url: event.target.value })} /></label>
       <label className={styles.description}>Description<textarea rows={2} value={draft.description ?? ''} onChange={event => setDraft({ ...draft, description: event.target.value })} /></label>
     </fieldset>
     <div className={styles.actions}>

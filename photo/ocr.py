@@ -8,14 +8,13 @@ looks actionable for parts inventory extraction.
 
 from __future__ import annotations
 
+import base64
 import csv
 import io
 import re
 import shutil
 import subprocess
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 
 from photo.pipeline import preprocess
 
@@ -96,33 +95,28 @@ def extract_local_ocr(raw_bytes: bytes) -> OCRResult:
             should_use_text_only=False,
         )
 
-    import base64
-
     image_bytes = base64.b64decode(jpeg_b64)
-    with tempfile.TemporaryDirectory(prefix="parts-bin-ocr-") as tmpdir:
-        image_path = Path(tmpdir) / "label.jpg"
-        image_path.write_bytes(image_bytes)
-
-        try:
-            proc = subprocess.run(
-                [binary, str(image_path), "stdout", "--psm", "6", "tsv"],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        except (OSError, subprocess.CalledProcessError):
-            return OCRResult(
-                engine="tesseract",
-                status="error",
-                text="",
-                average_confidence=None,
-                signal_count=0,
-                should_use_text_only=False,
-            )
+    # Pipe the preprocessed photo directly to OCR so private image bytes stay ephemeral.
+    try:
+        proc = subprocess.run(
+            [binary, "stdin", "stdout", "--psm", "6", "tsv"],
+            input=image_bytes,
+            capture_output=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return OCRResult(
+            engine="tesseract",
+            status="error",
+            text="",
+            average_confidence=None,
+            signal_count=0,
+            should_use_text_only=False,
+        )
 
     words: list[str] = []
     confidences: list[float] = []
-    reader = csv.DictReader(io.StringIO(proc.stdout), delimiter="\t")
+    reader = csv.DictReader(io.StringIO(proc.stdout.decode("utf-8", errors="replace")), delimiter="\t")
     for row in reader:
         text = (row.get("text") or "").strip()
         if not text:

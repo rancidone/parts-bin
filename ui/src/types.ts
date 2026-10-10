@@ -8,6 +8,7 @@ export interface Part {
   quantity: number
   manufacturer: string | null
   description: string | null
+  datasheet_url?: string | null
 }
 
 export interface FieldReview {
@@ -46,6 +47,7 @@ export const DISPLAY_PART_FIELDS: { key: keyof Part; label: string }[] = [
   { key: 'part_number', label: 'Part #' },
   { key: 'manufacturer', label: 'Manufacturer' },
   { key: 'description', label: 'Description' },
+  { key: 'datasheet_url', label: 'Datasheet link' },
 ]
 
 export type AgentEventKind = 'user_message' | 'assistant_text' | 'tool_call' | 'tool_result' | 'approval_request' | 'approval_decision' | 'error' | 'completed'

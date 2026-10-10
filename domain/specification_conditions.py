@@ -10,6 +10,9 @@ _UNITS = {'ambient_temperature': '°C', 'case_temperature': '°C',
 
 
 def interval(raw: str, unit: str):
+    # Datasheets use the Unicode minus sign for explicit negative temperatures.
+    # Normalize only while comparing; stored conditions and evidence stay literal.
+    raw = raw.replace('−', '-')
     symbol = re.escape(unit)
     point = re.fullmatch(rf'\s*{_NUMBER}\s*{symbol}\s*', raw)
     if point:

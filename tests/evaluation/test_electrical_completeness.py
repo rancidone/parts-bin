@@ -59,6 +59,66 @@ def test_equivalent_units_compare_without_model_assistance():
     assert check_completeness(case, candidate, 'bjt')['qualifier_coverage'] == 1
 
 
+@pytest.mark.parametrize('case_id,neighbor_offset', [
+    ('opamp_b_operating_and_stress_limits', '2 mV'),
+    ('opamp_ba_exact_offset_grade', '3 mV'),
+])
+def test_opamp_neighboring_offset_grade_is_not_a_match(case_id, neighbor_offset):
+    case, candidate = fixture(case_id)
+    offset = next(fact for fact in candidate['facts'] if fact['name'] == 'input_offset_voltage')
+    offset['value'] = neighbor_offset
+    result = check_completeness(case, candidate, 'operational amplifier')
+    assert 'wrong or unreviewed value' in result['issues']['input_offset_voltage']
+
+
+def test_opamp_offset_limit_must_pair_with_temperature():
+    case, candidate = fixture('opamp_ba_exact_offset_grade')
+    offset = next(fact for fact in candidate['facts'] if fact['name'] == 'input_offset_voltage')
+    offset['conditions']['ambient_temperature'] = '-40 to 85 °C'
+    result = check_completeness(case, candidate, 'operational amplifier')
+    assert 'value and qualifier pairing mismatch' in result['issues']['input_offset_voltage']
+
+
+def test_opamp_present_values_do_not_hide_global_test_conditions_or_current_scope():
+    case, candidate = fixture('opamp_b_operating_and_stress_limits')
+    for fact in candidate['facts']:
+        fact['conditions'].pop('load_reference', None)
+        fact['conditions'].pop('current_scope', None)
+    result = check_completeness(case, candidate, 'operational amplifier')
+    assert result['value_coverage'] == 1
+    assert 'missing or unreviewed qualifier: load_reference' in result['issues']['input_offset_voltage']
+    assert 'missing or unreviewed qualifier: current_scope' in result['issues']['quiescent_current']
+
+
+def test_opamp_typical_bandwidth_cannot_be_promoted_to_a_guarantee():
+    case, candidate = fixture('opamp_b_operating_and_stress_limits')
+    bandwidth = next(fact for fact in candidate['facts'] if fact['name'] == 'gain_bandwidth_product')
+    bandwidth['basis'] = 'minimum'
+    result = check_completeness(case, candidate, 'operational amplifier')
+    assert 'wrong basis' in result['issues']['gain_bandwidth_product']
+
+
+def test_opamp_stress_voltage_cannot_establish_operating_endpoint():
+    case, candidate = fixture('opamp_b_operating_and_stress_limits')
+    maximum = next(fact for fact in candidate['facts'] if fact['name'] == 'maximum_supply_voltage')
+    maximum['value'] = '40 V'
+    maximum['basis'] = 'absolute_maximum'
+    result = check_completeness(case, candidate, 'operational amplifier')
+    assert 'wrong basis' in result['issues']['maximum_supply_voltage']
+    assert 'wrong or unreviewed value' in result['issues']['maximum_supply_voltage']
+
+
+def test_opamp_high_temperature_bias_bound_requires_characterization_qualifier():
+    case, candidate = fixture('opamp_b_operating_and_stress_limits')
+    bias = next(fact for fact in candidate['facts'] if fact['name'] == 'input_bias_current')
+    bias['value'] = '50 nA'
+    bias['conditions']['ambient_temperature'] = '-40 to 85 °C'
+    result = check_completeness(case, candidate, 'operational amplifier')
+    assert 'value and qualifier pairing mismatch' in result['issues']['input_bias_current']
+    bias['conditions']['qualification'] = 'specified by characterization only'
+    assert 'input_bias_current' not in check_completeness(case, candidate, 'operational amplifier')['issues']
+
+
 def test_ocr_transcript_keeps_lines_and_separates_recognition_from_truth():
     header = 'block_num\tpar_num\tline_num\tconf\ttext\n'
     text, quality = transcript(header + '1\t1\t1\t99\t22\n1\t1\t1\t50\tuH\n1\t1\t2\t100\t0.74\n')

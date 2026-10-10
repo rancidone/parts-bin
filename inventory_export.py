@@ -8,7 +8,7 @@ from typing import Any
 
 def export_csv(rows: Iterable[Mapping[str, Any]]) -> str:
     """Serialize inventory rows using the existing download column order."""
-    fields = ["part_category", "value", "package", "quantity", "part_number", "manufacturer", "description"]
+    fields = ["part_category", "value", "package", "quantity", "part_number", "manufacturer", "description", "datasheet_url"]
     out = io.StringIO()
     writer = csv.DictWriter(out, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
     writer.writeheader()

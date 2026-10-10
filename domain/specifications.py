@@ -46,6 +46,16 @@ SPECIFICATIONS = {
         'on_resistance': SpecificationDefinition('Ω', 'maximum'),
         'gate_threshold_voltage': SpecificationDefinition('V', 'threshold'),
     },
+    'diode': {
+        'reverse_voltage': SpecificationDefinition('V', 'absolute_maximum_continuous'),
+        'repetitive_peak_reverse_voltage': SpecificationDefinition('V', 'absolute_maximum_repetitive_peak'),
+        'continuous_forward_current': SpecificationDefinition('A', 'absolute_maximum_continuous'),
+        'surge_forward_current': SpecificationDefinition('A', 'absolute_maximum_nonrepetitive_peak'),
+        'forward_voltage': SpecificationDefinition('V', 'maximum'),
+        'reverse_leakage_current': SpecificationDefinition('A', 'maximum'),
+        'junction_capacitance': SpecificationDefinition('F', 'maximum'),
+        'reverse_recovery_time': SpecificationDefinition('s', 'maximum'),
+    },
     'inductor': {
         'inductance': SpecificationDefinition('H', 'nominal'),
         'tolerance': SpecificationDefinition('%', 'maximum'),
@@ -81,12 +91,37 @@ SPECIFICATIONS = {
 # SI prefixes are case-sensitive. Ratio and percent have no prefixes.
 _PREFIXES = {'': 0, 'p': -12, 'n': -9, 'u': -6, 'µ': -6, 'μ': -6, 'm': -3, 'k': 3, 'M': 6, 'G': 9}
 MAX_CONDITIONS = 12
-# Minimum qualification for confirming sourced capacitor facts. More conditions
+# Minimum qualification for confirming sourced electrical facts. More conditions
 # may govern a particular document; these checks cannot certify source completeness.
 MINIMUM_SOURCE_CONDITIONS = {
     'capacitor': {
         'capacitance': (('measurement_frequency',), ('measurement_temperature',)),
         'rated_voltage': (('current_type', 'voltage_type'), ('rating_temperature',)),
+    },
+    'bjt': {
+        'dc_current_gain': (('collector_current',), ('collector_emitter_voltage',),
+                            ('ambient_temperature', 'junction_temperature')),
+        'continuous_collector_current': (('ambient_temperature', 'case_temperature', 'junction_temperature'),),
+        'pulsed_collector_current': (('pulse_duration',),
+                                   ('ambient_temperature', 'case_temperature', 'junction_temperature')),
+    },
+    'mosfet': {
+        'on_resistance': (('gate_source_voltage',), ('drain_current',), ('junction_temperature',)),
+        'gate_threshold_voltage': (('drain_current',), ('drain_source_voltage',),
+                                   ('junction_temperature',), ('value_kind',)),
+        'continuous_drain_current': (('gate_source_voltage',),
+                                     ('ambient_temperature', 'case_temperature', 'solder_point_temperature', 'junction_temperature')),
+        'pulsed_drain_current': (('pulse_duration',),
+                                ('ambient_temperature', 'case_temperature', 'solder_point_temperature', 'junction_temperature')),
+    },
+    'diode': {
+        'continuous_forward_current': (('ambient_temperature', 'case_temperature', 'lead_temperature', 'solder_point_temperature'),),
+        'surge_forward_current': (('pulse_duration',), ('waveform',), ('junction_temperature',)),
+        'forward_voltage': (('forward_current',), ('junction_temperature',)),
+        'reverse_leakage_current': (('reverse_voltage',), ('junction_temperature',)),
+        'junction_capacitance': (('reverse_voltage',), ('measurement_frequency',), ('junction_temperature',)),
+        'reverse_recovery_time': (('forward_current',), ('reverse_current',),
+                                  ('recovery_endpoint_current',), ('load_resistance',), ('junction_temperature',)),
     },
     'operational amplifier': {
         'minimum_supply_voltage': (('supply_convention',), ('ambient_temperature',)),

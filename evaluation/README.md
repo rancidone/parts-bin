@@ -239,6 +239,12 @@ whereas the application assessment measures supported-field coverage with
 minimum qualifiers. These denominators differ, and neither score certifies
 correctness. Keep run reports, source captures and completed reviews outside the
 repository. Distinguish fresh model runs from offline replay of recorded responses.
+The B/BA op-amp expectations distinguish the temperature-dependent offset bounds,
+negative bias-current magnitudes, and per-amplifier typical current. Inspect
+merged condition cells and row overrides even when global headings are retained.
+Source hashes may differ with request headers; review the exact capture used by
+the application before updating an expectation hash. A visually matching capture
+does not justify weakening the hash check.
 
 `evaluation.pdf_ocr.raster_ocr` renders explicitly selected pages at 150 or 300 DPI
 and invokes an installed Tesseract executable. It is evaluation-only: at most

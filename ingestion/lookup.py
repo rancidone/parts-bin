@@ -17,7 +17,7 @@ from ingestion.source_extract import classify_content, extract_html_candidates
 from ingestion.web_search import search_datasheet_pdfs
 
 _logger = log.get_logger("parts_bin.lookup")
-_FALLBACK_FIELD_SCOPE = ("manufacturer", "part_number", "package", "description")
+_FALLBACK_FIELD_SCOPE = ("manufacturer", "part_number", "package", "description", "datasheet_url")
 _WITHHELD_FALLBACK_FIELDS = ("part_category", "profile", "value")
 
 
@@ -216,6 +216,9 @@ def _extract_digikey_fields(product: dict) -> dict:
         result["description"] = product["ProductDescription"]
     if product.get("PackageType", {}).get("Name"):
         result["package"] = product["PackageType"]["Name"]
+    datasheet_url = _first_present_url(product, 'DatasheetUrl', 'PrimaryDatasheet', 'PrimaryDatasheetUrl')
+    if datasheet_url and datasheet_url.startswith('https://'):
+        result['datasheet_url'] = datasheet_url
     return result
 
 
@@ -465,7 +468,8 @@ def _provenance_from_candidates(chosen_candidates: list[dict]) -> list[dict]:
 
 
 def _missing_fallback_fields(chosen_updates: dict) -> list[str]:
-    return [field_name for field_name in _FALLBACK_FIELD_SCOPE if not chosen_updates.get(field_name)]
+    return [field_name for field_name in _FALLBACK_FIELD_SCOPE
+            if field_name != 'datasheet_url' and not chosen_updates.get(field_name)]
 
 
 def _filter_fallback_candidates(candidates: dict[str, dict]) -> dict[str, dict]:

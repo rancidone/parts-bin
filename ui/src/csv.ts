@@ -8,6 +8,7 @@ const COLUMNS: (keyof Part)[] = [
   'part_number',
   'manufacturer',
   'description',
+  'datasheet_url',
 ]
 
 function escapeCell(val: unknown): string {

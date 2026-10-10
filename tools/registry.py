@@ -34,6 +34,7 @@ _FIELDS = {
     "part_number": {"type": ["string", "null"]},
     "manufacturer": {"type": ["string", "null"]},
     "description": {"type": ["string", "null"]},
+    "datasheet_url": {"type": ["string", "null"], "maxLength": 2048},
 }
 _EDITABLE_FIELDS = {name: schema for name, schema in _FIELDS.items()}
 

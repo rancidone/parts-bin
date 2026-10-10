@@ -15,10 +15,11 @@ from time import perf_counter
 
 import log
 from agent_runtime import (
-    ApprovalResponse, ImageInput, UnsupportedRuntimeError,
+    ApprovalEngine, ApprovalResponse, ImageInput, UnsupportedRuntimeError,
 )
 from application import ApplicationServices
 from inventory_export import export_csv
+from tools import PartsBinToolRegistry
 from domain import (
     AdjustStockRequest, ApplyReviewRequest, DeletePartRequest, DomainError, FetchSpecsRequest,
     ProvenanceRequest, RejectReviewRequest, UpdatePartRequest,
@@ -218,11 +219,42 @@ async def inventory_csv(request: Request):
 async def refresh_part(request: Request, part_id: int) -> dict:
     started = perf_counter()
     try:
-        result = await _services(request).domain.fetch_and_stage_specs(FetchSpecsRequest(part_id))
+        result = await _services(request).domain.refresh_specs(FetchSpecsRequest(part_id))
     except DomainError as exc:
         raise _domain_error(exc) from exc
     _logger.info("refresh proposed", extra={"part_id": part_id, "latency_ms": round((perf_counter() - started) * 1000, 1)})
-    return {"part": vars(result["part"]), "proposed_updates": result["chosen_updates"], "provenance": result["durable_provenance"], "outcome": result["outcome"], "withheld_candidates": result.get("withheld_candidates", {}), "lookup_candidates": result.get("lookup_candidates", []), "candidate_count": result.get("candidate_count", 0)}
+    return {"part": vars(result["part"]), "proposed_updates": result["chosen_updates"], "provenance": result["durable_provenance"], "outcome": result["outcome"], "withheld_candidates": result.get("withheld_candidates", {}), "lookup_candidates": result.get("lookup_candidates", []), "candidate_count": result.get("candidate_count", 0), "electrical": result['electrical']}
+
+
+@router.get('/inventory/{part_id}/specifications')
+async def inventory_specifications(request: Request, part_id: int) -> dict:
+    try:
+        return _services(request).domain.get_specifications(part_id)
+    except DomainError as exc:
+        raise _domain_error(exc) from exc
+
+
+@router.post('/inventory/{part_id}/specifications/decide')
+async def decide_specifications(request: Request, part_id: int, body: dict) -> dict:
+    if set(body) != {'review', 'approved'} or type(body['approved']) is not bool or not isinstance(body['review'], dict):
+        raise HTTPException(status_code=422, detail='Supply the displayed review and a boolean approval decision')
+    service = _services(request).domain
+    engine = ApprovalEngine(service.repository)
+    tool = 'apply_specification_review' if body['approved'] else 'reject_specification_review'
+    try:
+        service.get_specifications(part_id)
+        approval = engine.request(f'inventory-{part_id}', tool, {'part_id': part_id}, service=service)
+        record = service.repository.approvals.get(approval.thread_id, approval.request_id)
+        if record.snapshot[str(part_id)]['specification_review'] != body['review']:
+            engine.decide(approval.thread_id, approval.request_id, False)
+            raise HTTPException(status_code=409, detail='The specification review changed; reload it before deciding')
+        approved = engine.decide(approval.thread_id, approval.request_id, True)
+        result = await engine.execute(approved, PartsBinToolRegistry(service))
+        if not result['ok']:
+            raise HTTPException(status_code=409, detail=result['error'])
+        return service.get_specifications(part_id)
+    except DomainError as exc:
+        raise _domain_error(exc) from exc
 
 
 @router.post("/inventory/{part_id}/accept")

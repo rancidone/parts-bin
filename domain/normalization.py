@@ -1,6 +1,7 @@
 """Inventory identity normalization and historical passive slot repair."""
 
 import re
+from urllib.parse import urlsplit
 from typing import Any
 
 from .errors import DomainError, ErrorCode
@@ -165,9 +166,20 @@ def validate_fields(fields: dict, *, require_quantity: bool = True) -> dict:
         raise DomainError(ErrorCode.INVALID_INPUT, "part_category is required")
     if cleaned.get("profile") not in ("passive", "discrete_ic"):
         raise DomainError(ErrorCode.INVALID_INPUT, "profile must be 'passive' or 'discrete_ic'")
-    for name in ("value", "package", "part_number", "manufacturer", "description"):
+    for name in ("value", "package", "part_number", "manufacturer", "description", "datasheet_url"):
         if cleaned.get(name) is not None and not isinstance(cleaned[name], str):
             raise DomainError(ErrorCode.INVALID_INPUT, f"{name} must be a string or null")
+    if cleaned.get('datasheet_url') is not None:
+        try:
+            url = urlsplit(cleaned['datasheet_url'])
+            valid = (len(cleaned['datasheet_url']) <= 2048 and url.scheme == 'https'
+                     and url.hostname and not url.username and not url.password
+                     and not any(char.isspace() or ord(char) < 32 for char in cleaned['datasheet_url']))
+            url.port
+        except ValueError:
+            valid = False
+        if not valid:
+            raise DomainError(ErrorCode.INVALID_INPUT, 'datasheet_url must be an HTTPS URL without credentials, at most 2048 characters')
     if require_quantity and (not isinstance(cleaned.get("quantity"), int) or isinstance(cleaned.get("quantity"), bool) or cleaned["quantity"] < 0):
         raise DomainError(ErrorCode.INVALID_INPUT, "quantity must be a non-negative integer")
     return normalize_part_payload(cleaned)

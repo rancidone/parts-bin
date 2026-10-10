@@ -76,6 +76,8 @@ def init_db(db_path: str | Path) -> None:
     conn = _connect(db_path)
     with conn:
         conn.executescript(schema)
+        if 'datasheet_url' not in {row['name'] for row in conn.execute('PRAGMA table_info(parts)')}:
+            conn.execute('ALTER TABLE parts ADD COLUMN datasheet_url TEXT')
         _ensure_part_field_provenance_columns(conn)
     conn.close()
 
@@ -96,7 +98,7 @@ def _ensure_part_field_provenance_columns(conn: sqlite3.Connection) -> None:
 
 def _update_fields_with_conn(conn: sqlite3.Connection, part_id: int, fields: dict) -> int:
     allowed = {"part_category", "profile", "value", "package", "part_number",
-               "manufacturer", "description"}
+               "manufacturer", "description", "datasheet_url"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
         return part_id
@@ -204,9 +206,9 @@ def insert_part(db_path: str | Path, part: dict) -> int:
         with conn:
             cursor = conn.execute(
                 """INSERT INTO parts
-                (part_category, profile, value, package, part_number, quantity, manufacturer, description, created_at, updated_at)
-                VALUES (:part_category, :profile, :value, :package, :part_number, :quantity, :manufacturer, :description, :created_at, :updated_at)""",
-                {**p, "created_at": now, "updated_at": now},
+                (part_category, profile, value, package, part_number, quantity, manufacturer, description, datasheet_url, created_at, updated_at)
+                VALUES (:part_category, :profile, :value, :package, :part_number, :quantity, :manufacturer, :description, :datasheet_url, :created_at, :updated_at)""",
+                {"datasheet_url": None, **p, "created_at": now, "updated_at": now},
             )
             return int(cursor.lastrowid)
     finally:
@@ -225,7 +227,7 @@ def increment_stock(db_path: str | Path, part_id: int, quantity: int) -> None:
 
 
 def replace_parts_atomic(db_path: str | Path, updates: list[tuple[int, dict]]) -> None:
-    allowed = {"part_category", "profile", "value", "package", "part_number", "quantity", "manufacturer", "description"}
+    allowed = {"part_category", "profile", "value", "package", "part_number", "quantity", "manufacturer", "description", "datasheet_url"}
     conn = _connect(db_path)
     try:
         with conn:
@@ -265,7 +267,7 @@ def replace_part(db_path: str | Path, part_id: int, fields: dict) -> int:
     """
     allowed = {
         "part_category", "profile", "value", "package", "part_number",
-        "quantity", "manufacturer", "description",
+        "quantity", "manufacturer", "description", "datasheet_url",
     }
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
