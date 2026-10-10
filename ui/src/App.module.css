@@ -29,6 +29,7 @@
 }
 
 .tab {
+  text-decoration: none;
   padding: 5px 14px;
   border: none;
   background: none;
