@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { SpecificationReview, SpecificationResult } from './SpecificationFacts'
 import { PartCard } from './PartCard'
+import { PartResults } from './PartResults'
 import { useAgent } from './useAgent'
 import { approvalDecision, unfinishedExecutions } from './agentSession'
 import type { AgentEvent, Part } from './types'
@@ -90,8 +91,8 @@ function ToolResult({ result, name }: { result: unknown; name: string }) {
   const value = payload.result
   if (value && typeof value === 'object' && ('matches' in value || 'facts' in value)) return <div className={styles.systemMsg}><SpecificationResult value={value as Parameters<typeof SpecificationResult>[0]['value']} /></div>
   if (value && typeof value === 'object' && Array.isArray((value as { parts?: unknown[] }).parts)) {
-    const parts = (value as { parts: Part[] }).parts
-    return <div className={styles.systemMsg}><div className={styles.activity}>{parts.length} part{parts.length === 1 ? '' : 's'} found</div>{parts.map(part => <PartCard key={part.id} part={part} />)}</div>
+    const { parts, count, truncated } = value as { parts: Part[]; count?: number; truncated?: boolean }
+    return <div className={styles.systemMsg}><PartResults parts={parts} count={count} truncated={truncated} /></div>
   }
   if (value && typeof value === 'object' && 'part_category' in value) return <div className={styles.systemMsg}><PartCard part={value as Part} added={name === 'add_part' ? true : ['update_part', 'add_stock', 'apply_review'].includes(name) ? false : undefined} /></div>
   return <div className={styles.activity}>Tool completed.</div>
