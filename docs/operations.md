@@ -150,6 +150,45 @@ resolve their identities; do not automatically combine quantities or delete
 records. An edit that would collide also reports a conflict. Unknown package and
 known package stock remain separate identities.
 
+## Reviewing electrical facts
+
+Use `get_specification_contract` in chat to discover supported fields for a
+category. User-provided ratings can be staged through chat as assertions, then
+accepted with `apply_specification_review`. They remain assertions after approval.
+Search cannot treat them as independently sourced facts.
+
+For sourced facts, inspect the exact ordering variant and supporting document
+first. Prepare a JSON array matching the validated fact contract in
+[domain/specifications.py](../domain/specifications.py), with the original units,
+qualifiers, all applicable conditions, and a bounded passage for each field.
+Source evidence needs its URL, page, content hash, retrieval timestamp, and exact
+ordering code. Do not include downloaded document content or photos. Use an
+isolated inventory copy to rehearse the import:
+
+```sh
+uv run python -m ingestion.review_specifications PART_ID /path/to/candidate.json \
+  --database /path/to/isolated-parts.db
+```
+
+The command stages only. It makes no retrieval or model call and does not verify
+passage authenticity. Inspect the proposal with `get_specifications`, compare it
+against the source, and request `apply_specification_review` in chat for the
+approval controls. Use `reject_specification_review` to discard a proposal. Chat
+shows original values, bases, conditions, passages, and source links during review.
+
+Search with explicit requirements and stock, for example four resistors at 10 kΩ,
+tolerance at most 1%, and rated power at least 0.25 W under the source's stated
+conditions. Missing evidence or differing conditions produce incomplete candidates.
+The current supplier lookup does not automatically extract these electrical facts.
+See [the specification decisions](design/electrical-specifications.md) for the
+initial categories, unsupported fields, and conservative comparison rules.
+
+Retain electrical facts and pending specification reviews with the inventory
+backup. They are authoritative data, independent of enrichment cache freshness.
+For a different rated variant, create a distinct inventory record; do not change
+an evidenced record's identity or automatically merge stock by value and package.
+Use an explicit `add_stock` target only when the added stock is the same variant.
+
 ## Supplied-source cache recovery
 
 The supplied-source operator command uses a disposable SQLite cache in the

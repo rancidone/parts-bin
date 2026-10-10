@@ -12,7 +12,7 @@ from uuid import uuid4
 from domain.models import Part
 from domain.repositories import ApprovalRepository, InventoryRepository, OperationRepository, ExecutionRepository, RepositoryConflict, StoredApproval
 
-from . import persistence
+from . import persistence, specifications
 from .execution import SQLiteExecutionRepository, SQLiteOperationRepository
 
 
@@ -69,6 +69,21 @@ class SQLiteInventoryRepository:
 
     def list_provenance(self, part_id: int) -> list[dict]:
         return persistence.list_field_provenance(self.database, part_id)
+
+    def specifications(self, part_id: int) -> list[dict]:
+        return specifications.facts(self.database, part_id)
+
+    def specification_reviews(self) -> dict[int, dict]:
+        return specifications.reviews(self.database)
+
+    def stage_specifications(self, original: Part, facts: list[dict], existing: list[dict]) -> bool:
+        return specifications.stage(self.database, original, facts, existing)
+
+    def apply_specification_review(self, part_id: int) -> None:
+        specifications.apply(self.database, part_id)
+
+    def reject_specification_review(self, part_id: int) -> None:
+        specifications.reject(self.database, part_id)
 
 
 class SQLiteApprovalRepository:

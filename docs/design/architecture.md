@@ -181,6 +181,15 @@ may request a photo even if a response was checkpointed before publication.
 Saved approval decisions resolve their corresponding controls; browser recovery
 does not change server approval validation or mutation retry protection.
 
+### Electrical specifications
+
+Electrical facts use a separate authoritative record and review, sharing the
+inventory transaction and approval boundary. Category-specific definitions are
+extensible; they do not restrict valid inventory categories. Source-backed
+requirements return supporting facts separately from incomplete candidates.
+See [electrical specifications](electrical-specifications.md) for identity,
+qualifier, condition, and evidence decisions.
+
 ### Authoritative records
 
 Committed inventory is authoritative. User assertions, proposed enrichment, and

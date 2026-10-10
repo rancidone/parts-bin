@@ -20,6 +20,7 @@ from domain import (
     SearchPartsRequest, UpdatePartRequest, ErrorCode,
 )
 from domain.repositories import StoredOperation
+from domain.specifications import contract
 
 ToolResult = dict[str, Any]
 ApprovalChecker = Callable[[str, dict[str, Any]], bool | Awaitable[bool]]
@@ -163,8 +164,27 @@ class PartsBinToolRegistry:
     async def _dispatch(self, name: str, args: dict[str, Any], *, enrich: bool = True) -> Any:
         if name == "search_parts":
             limit = args.get("limit", 20)
-            rows = self.service.search(SearchPartsRequest(args.get("filters", {}), args.get("minimum_quantity", 0)))
+            request = SearchPartsRequest(args.get("filters", {}), args.get("minimum_quantity", 0))
+            if 'requirements' in args:
+                return self.service.search_specifications(request, args['requirements'], limit=limit)
+            rows = self.service.search(request)
             return {"parts": [_compact_part(row) for row in rows[:limit]], "count": len(rows), "truncated": len(rows) > limit}
+        if name == 'get_specification_contract':
+            return contract(args['category'])
+        if name == 'get_specifications':
+            return self.service.get_specifications(args['part_id'])
+        if name == 'stage_specification_review':
+            # Models may record user assertions, but cannot promote their own
+            # invented source metadata to independently sourced evidence.
+            if any(fact['evidence'].get('kind') != 'user_assertion' for fact in args['facts']):
+                raise DomainError(ErrorCode.INVALID_INPUT, 'Source facts must come through reviewed source ingestion')
+            self.service.stage_specifications(self.service.get(GetPartRequest(args['part_id'])), args['facts'])
+            return self.service.get_specifications(args['part_id'])
+        if name == 'apply_specification_review':
+            return self.service.apply_specification_review(args['part_id'])
+        if name == 'reject_specification_review':
+            self.service.reject_specification_review(args['part_id'])
+            return {'part_id': args['part_id'], 'rejected': True}
         if name == "get_part":
             return _compact_part(self.service.get(GetPartRequest(args["part_id"])))
         if name == "add_part":
@@ -256,6 +276,13 @@ def _matches(value: Any, rule: dict[str, Any]) -> bool:
     valid_type = any((kind == "string" and isinstance(value, str)) or (kind == "integer" and isinstance(value, int) and not isinstance(value, bool)) or (kind == "object" and isinstance(value, dict)) or (kind == "array" and isinstance(value, list)) or (kind == "null" and value is None) for kind in types)
     if not valid_type or "enum" in rule and value not in rule["enum"]:
         return False
+    if isinstance(value, dict) and 'properties' in rule:
+        if rule.get('additionalProperties') is False and set(value) - set(rule['properties']):
+            return False
+        if any(key not in value for key in rule.get('required', [])):
+            return False
+        if any(not _matches(item, rule['properties'][key]) for key, item in value.items() if key in rule['properties']):
+            return False
     if isinstance(value, str) and len(value) < rule.get("minLength", 0):
         return False
     if isinstance(value, int) and (value < rule.get("minimum", value) or value > rule.get("maximum", value)):
@@ -268,8 +295,30 @@ def _matches(value: Any, rule: dict[str, Any]) -> bool:
     return True
 
 
+_CONDITIONS_SCHEMA = {"type": "object"}  # Domain validates bounded condition names and values.
+_SPEC_PROPERTIES = {
+    'name': {'type': 'string', 'minLength': 1},
+    'value': {'type': 'string', 'minLength': 1},
+    'basis': {'type': 'string', 'minLength': 1},
+    'conditions': _CONDITIONS_SCHEMA,
+}
+_REQUIREMENTS_SCHEMA = {'type': 'array', 'minItems': 1, 'maxItems': 20, 'items': {
+    'type': 'object', 'additionalProperties': False,
+    'properties': {**_SPEC_PROPERTIES, 'comparison': {'type': 'string', 'enum': ['eq', 'gte', 'lte']}},
+    'required': [*_SPEC_PROPERTIES, 'comparison'],
+}}
+_FACTS_SCHEMA = {'type': 'array', 'minItems': 1, 'maxItems': 20, 'items': {
+    'type': 'object', 'additionalProperties': False,
+    'properties': {**_SPEC_PROPERTIES, 'evidence': {
+        'type': 'object', 'additionalProperties': False,
+        'properties': {'kind': {'type': 'string', 'enum': ['user_assertion']},
+                       'excerpt': {'type': 'string', 'minLength': 1}},
+        'required': ['kind', 'excerpt'],
+    }}, 'required': [*_SPEC_PROPERTIES, 'evidence'],
+}}
+
 _TOOL_DEFINITIONS = [
-    _tool("search_parts", "Search committed inventory. Passive values compare equivalent nominal units (10 kΩ = 10000r, 0.1 µF = 100nF). Package and full part number match exactly; omit an uncertain package and ask for clarification. minimum_quantity is available stock per record. No tolerance, power, or other electrical suitability constraints are supported.", {"filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}}, "minimum_quantity": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},),
+    _tool("search_parts", "Search committed inventory. Passive values compare equivalent nominal units (10 kΩ = 10000r, 0.1 µF = 100nF). Package and full part number match exactly; omit an uncertain package and ask for clarification. minimum_quantity is available stock per record. Discover supported specification requirements with get_specification_contract before querying requirements. Returns confirmed matches with supporting source evidence separately from incomplete candidates. All qualifiers and conditions must match; ratings do not establish application suitability.", {"filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}}, "requirements": _REQUIREMENTS_SCHEMA, "minimum_quantity": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},),
     _tool("get_part", "Get one committed part by id.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
     _tool("add_part", "Add one distinct part.", _FIELDS, required=["part_category", "profile", "quantity"]),
     _tool("add_stock", "Add positive stock to one part.", {"part_id": {"type": "integer", "minimum": 1}, "quantity": {"type": "integer", "minimum": 1}}, required=["part_id", "quantity"]),
@@ -281,6 +330,11 @@ _TOOL_DEFINITIONS = [
     _tool("apply_review", "Apply a pending review for one part.", {"part_id": {"type": "integer", "minimum": 1}, "updates": _fields_schema()}, required=["part_id"]),
     _tool("reject_review", "Reject a pending review, wholly or by field.", {"part_id": {"type": "integer", "minimum": 1}, "fields": {"type": "array", "items": {"type": "string", "minLength": 1}}}, required=["part_id"]),
     _tool("get_provenance", "Get accepted field provenance for one part.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
+    _tool('get_specification_contract', 'Discover supported fields, units, qualifiers, and comparisons for any inventory category. Unsupported categories remain valid inventory.', {'category': {'type': 'string', 'minLength': 1}}, required=['category']),
+    _tool('get_specifications', 'Read accepted electrical facts and pending specification review for one exact part. Pending facts are not confirmed.', {'part_id': {'type': 'integer', 'minimum': 1}}, required=['part_id']),
+    _tool('stage_specification_review', 'Stage explicitly user-asserted electrical facts for review. Quote the user assertion; do not invent source evidence. Assertions do not confirm source-backed search requirements.', {'part_id': {'type': 'integer', 'minimum': 1}, 'facts': _FACTS_SCHEMA}, required=['part_id', 'facts']),
+    _tool('apply_specification_review', 'Accept the pending electrical facts for this exact part, preserving source passages, conditions, and evidence kind. Approval does not turn user assertions into source evidence.', {'part_id': {'type': 'integer', 'minimum': 1}}, required=['part_id']),
+    _tool('reject_specification_review', 'Discard a pending electrical specification review without changing accepted facts.', {'part_id': {'type': 'integer', 'minimum': 1}}, required=['part_id']),
 ]
 
-_APPROVAL_REQUIRED = {"update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review"}
+_APPROVAL_REQUIRED = {"update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review", "apply_specification_review", "reject_specification_review"}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { SpecificationReview, SpecificationResult } from './SpecificationFacts'
 import { PartCard } from './PartCard'
 import { useAgent } from './useAgent'
 import { approvalDecision, unfinishedExecutions } from './agentSession'
@@ -76,7 +77,7 @@ function EventBubble({ event, decide, disabled, decision }: { event: AgentEvent;
   if (event.kind === 'assistant_text') return <div className={styles.assistantBubble}>{String(data.text ?? '')}</div>
   if (event.kind === 'tool_call') return <div className={styles.activity}>Using <strong>{String(data.name)}</strong></div>
   if (event.kind === 'tool_result') return <ToolResult result={data.result} name={String(data.name)} />
-  if (event.kind === 'approval_request') return <div className={styles.approval}><div><strong>{decision === undefined ? 'Approval required' : 'Review decision'}</strong><br />{String(data.effect ?? data.tool)}</div>{decision !== undefined ? <div className={styles.activity}>{decision ? 'Approved' : 'Declined'}</div> : <div className={styles.clarificationActions}><button className={styles.inlineActionBtn} disabled={disabled} onClick={() => void decide(String(data.request_id), true)}>Approve</button><button className={styles.inlineActionBtn} disabled={disabled} onClick={() => void decide(String(data.request_id), false)}>Decline</button></div>}</div>
+  if (event.kind === 'approval_request') return <div className={styles.approval}><div><strong>{decision === undefined ? 'Approval required' : 'Review decision'}</strong><br />{String(data.effect ?? data.tool)}</div>{data.specification_review && typeof data.specification_review === 'object' && 'facts' in data.specification_review ? <SpecificationReview review={data.specification_review as Parameters<typeof SpecificationReview>[0]['review']} partId={String(data.target)} /> : null}{decision !== undefined ? <div className={styles.activity}>{decision ? 'Approved' : 'Declined'}</div> : <div className={styles.clarificationActions}><button className={styles.inlineActionBtn} disabled={disabled} onClick={() => void decide(String(data.request_id), true)}>Approve</button><button className={styles.inlineActionBtn} disabled={disabled} onClick={() => void decide(String(data.request_id), false)}>Decline</button></div>}</div>
   if (event.kind === 'approval_decision') return <div className={styles.activity}>You {data.approved ? 'approved' : 'declined'} {String(data.tool)}.</div>
   if (event.kind === 'error') return <div className={`${styles.assistantBubble} ${styles.errorBubble}`}>{String(data.message ?? 'Unknown error')}</div>
   return null
@@ -87,6 +88,7 @@ function ToolResult({ result, name }: { result: unknown; name: string }) {
   const payload = result as { ok?: boolean; result?: unknown; error?: { message?: string } }
   if (!payload.ok) return <div className={`${styles.activity} ${styles.error}`}>{payload.error?.message ?? 'Tool failed'}</div>
   const value = payload.result
+  if (value && typeof value === 'object' && ('matches' in value || 'facts' in value)) return <div className={styles.systemMsg}><SpecificationResult value={value as Parameters<typeof SpecificationResult>[0]['value']} /></div>
   if (value && typeof value === 'object' && Array.isArray((value as { parts?: unknown[] }).parts)) {
     const parts = (value as { parts: Part[] }).parts
     return <div className={styles.systemMsg}><div className={styles.activity}>{parts.length} part{parts.length === 1 ? '' : 's'} found</div>{parts.map(part => <PartCard key={part.id} part={part} />)}</div>

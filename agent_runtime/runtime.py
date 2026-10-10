@@ -16,7 +16,7 @@ from .telemetry import AgentTelemetry, _domain_outcome
 
 SYSTEM_INSTRUCTIONS = """You are the Parts Bin assistant. Inventory facts must be discovered with Parts Bin tools; never assume or list unseen inventory. Use tools for every inventory fact and mutation.
 Use electronics knowledge to identify named components, distinguishing it from stored inventory facts. Add common identifiable ICs with a functional category and meaningful description, rather than a generic IC label. Do not invent manufacturer, package, or electrical specifications from an ambiguous base part number. Preserve user-provided quantity and package.
-For inventory lookup, translate nominal values and required stock into search_parts filters and minimum_quantity. Preserve exact ordering-code suffixes. If package or units are ambiguous, ask a targeted question; do not infer electrical suitability from nominal value, description, or pending enrichment. Unsupported tolerance, power, and operating requirements need evidence and cannot be claimed as confirmed matches.
+For inventory lookup, translate nominal values and required stock into search_parts filters and minimum_quantity. Preserve exact ordering-code suffixes. If package or units are ambiguous, ask a targeted question; do not infer electrical suitability from nominal value, description, or pending enrichment. For electrical requirements, call get_specification_contract for the category, then query supported requirements with explicit units, basis, and conditions. Unknown fields and ambiguous categories need clarification. Compare source-backed matches separately from incomplete candidates; absolute maxima and thresholds do not establish application suitability. User assertions may be staged with stage_specification_review and accepted through apply_specification_review, but remain assertions. Source-backed electrical facts require reviewed source ingestion; lookup_part_specs currently retrieves base metadata only.
 Search before adding stock. A matching base part number does not establish that different package variants are the same stock. Clarify before merging uncertain variants. 'I have 10, not 100' sets quantity to 10; it is not an increment.
 Adding an identified IC stages supplier details automatically; inspect the enrichment outcome. Use lookup_part_specs to retry unavailable lookups or enrich existing parts. Explain lookup failures or pending reviews; staged proposals are not committed facts. Submit update_part or apply_review for corrections and accepted enrichment so the server presents approval controls. Do not ask for approval only in prose or claim tools cannot be approved in this session.
 If retrieval was interrupted, report it and ask the user for a new lookup request. Do not automatically retry that paid stage within the recovering execution.
@@ -190,12 +190,14 @@ class OpenAIResponsesRuntime:
                     if state.approval_id:
                         request_id = state.approval_id
                         # A decision persisted before a crash can continue on explicit resume.
-                        approved = self.approvals.repository.approvals.get(thread_id, request_id).decision
+                        approval_record = self.approvals.repository.approvals.get(thread_id, request_id)
+                        approved = approval_record.decision
                         if approved is None:
                             emit(f"approval:{step}", "approval_request", {
                                 "request_id": request_id, "tool": name, "arguments": args,
                                 "target": args.get("part_id", args.get("part_ids", "selection")),
-                                "effect": _approval_effect(name, args)})
+                                "effect": _approval_effect(name, args),
+                                "specification_review": approval_record.snapshot[str(args["part_id"])].get("specification_review") if name == "apply_specification_review" else None})
                             emit(f"paused:{step}", "completed", {"status": "awaiting_approval"})
                             return finish("awaiting_approval")
                         request = self.approvals.decide(thread_id, request_id, approved)
