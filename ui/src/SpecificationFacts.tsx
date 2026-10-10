@@ -57,15 +57,26 @@ export function SpecificationResult({ value }: { value: SpecificationState }) {
   return <section className={styles.results} aria-label={searching ? 'Specification search results' : 'Electrical specifications'}>
     {!value.extraction_assessment && value.clarification && <p className={styles.note}>{value.clarification}</p>}
     {value.extraction_assessment && <section className={styles.card} aria-label="PDF extraction assessment">
-      <strong>Extraction coverage · {Math.round(value.extraction_assessment.confidence_score * 100)}% field coverage</strong>
-      <p className={styles.note}>{value.extraction_assessment.score_explanation}</p>
-      {value.clarification && <p>{value.clarification}</p>}
-      {value.extraction_assessment.missing_fields.length > 0 && <p>Missing or unqualified: {value.extraction_assessment.missing_fields.map(label).join(', ')}.</p>}
-      {Object.entries(value.extraction_assessment.incomplete_fields ?? {}).map(([name, qualifiers]) => <p key={name}>{label(name)} needs: {qualifiers.map(label).join(', ')}.</p>)}
-      {value.extraction_assessment.rejected_fields?.map(field => <p key={field.name}>{label(field.name)} was omitted: {field.reason}.</p>)}
-      {value.extraction_assessment.reasons.map(reason => <p className={styles.note} key={reason}>{reason}</p>)}
-      <details open={value.extraction_assessment.confidence_score < 1}><summary>Inspect relevant PDF pages</summary>
-        {value.extraction_assessment.relevant_pages.map(page => <p key={page.page}><a href={page.url} target="_blank" rel="noreferrer">Page {page.page} · {page.reason}</a></p>)}
+      <div className={styles.cardHeader}>
+        <strong>{value.pending_review?.facts.length ? 'Specifications ready for review' : 'Datasheet extraction'}</strong>
+        <span className={styles.coverage}>{Math.round(value.extraction_assessment.confidence_score * 100)}% coverage</span>
+      </div>
+      {value.clarification && <p className={styles.clarification}>{value.clarification}</p>}
+      {value.extraction_assessment.missing_fields.length > 0 && <div className={styles.missing}>
+        <strong>Not extracted</strong>
+        <ul>{value.extraction_assessment.missing_fields.map(name => <li key={name}>{label(name)}</li>)}</ul>
+      </div>}
+      {value.extraction_assessment.relevant_pages.length > 0 && <details className={styles.diagnostics}>
+        <summary>Open datasheet pages</summary>
+        <ul className={styles.pageLinks}>{value.extraction_assessment.relevant_pages.map(page => <li key={page.page}>
+          <a href={page.url} target="_blank" rel="noreferrer">Page {page.page}</a><span>{page.reason}</span>
+        </li>)}</ul>
+      </details>}
+      <details className={styles.diagnostics}><summary>Extraction details</summary>
+        <p className={styles.note}>{value.extraction_assessment.score_explanation}</p>
+        {Object.entries(value.extraction_assessment.incomplete_fields ?? {}).map(([name, qualifiers]) => <p key={name}>{label(name)} needs: {qualifiers.map(label).join(', ')}.</p>)}
+        {value.extraction_assessment.rejected_fields?.map(field => <p key={field.name}>{label(field.name)} was omitted: {field.reason}.</p>)}
+        <ul>{value.extraction_assessment.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
       </details>
     </section>}
     {searching && <div className={styles.overview}><strong>{value.match_count ?? matches.length} confirmed match{(value.match_count ?? matches.length) === 1 ? '' : 'es'}</strong>

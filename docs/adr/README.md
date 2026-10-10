@@ -19,6 +19,7 @@ status. Recording them does not select additional services or change behavior.
 - [0012: Preserve semiconductor subtype and measurement conditions](0012-qualified-semiconductor-facts.md)
 - [0013: Isolate invalid PDF values and evaluate source completeness independently](0013-pdf-field-rejection-and-independent-evaluation.md)
 - [0014: Accept explicit device identity alongside shipping codes](0014-device-identity-in-supplied-datasheets.md)
+- [0015: Treat a saved datasheet as the operator's part association](0015-saved-datasheet-association.md)
 
 Use one numbered record per decision with **Status**, **Context**, **Decision**,
 and **Consequences**. Do not append implementation progress, test counts, or

@@ -421,6 +421,18 @@ class PartsBinService:
         result = ({'part': part, 'chosen_updates': {}, 'durable_provenance': [], 'outcome': 'source_refresh'}
                   if part.datasheet_url else await self.fetch_and_stage_specs(request))
         source_url = part.datasheet_url or result.get('chosen_updates', {}).get('datasheet_url')
+        electrical = await self._refresh_electrical(part, source_url)
+        if (part.datasheet_url and self.spec_fetcher is not None
+                and electrical['outcome'] in {'retrieval_failure', 'needs_clarification', 'no_match'}):
+            result = await self.fetch_and_stage_specs(request)
+            replacement_url = result.get('chosen_updates', {}).get('datasheet_url')
+            # A newly discovered source warrants another extraction in this
+            # refresh; never repeat the failed extraction against the same URL.
+            if replacement_url and replacement_url != source_url:
+                electrical = await self._refresh_electrical(part, replacement_url)
+        return {**result, 'electrical': electrical}
+
+    async def _refresh_electrical(self, part: Part, source_url: str | None) -> dict[str, Any]:
         electrical = self.get_specifications(part.id)
         if electrical['pending_review'] is not None:
             electrical.update(outcome='pending_review', clarification='Resolve the pending electrical review before refreshing.')
@@ -436,7 +448,7 @@ class PartsBinService:
                     raise
                 electrical.update(outcome='retrieval_failure' if exc.code == ErrorCode.ENRICHMENT_UNAVAILABLE else 'needs_clarification',
                                   clarification=exc.message)
-        return {**result, 'electrical': electrical}
+        return electrical
 
     def list_pending_reviews(self) -> dict[int, dict]:
         return self.repository.inventory.list_pending_reviews()

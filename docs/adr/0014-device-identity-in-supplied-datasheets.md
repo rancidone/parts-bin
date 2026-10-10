@@ -1,6 +1,6 @@
 # 0014: Accept explicit device identity alongside shipping codes
 
-Status: Accepted
+Status: Partially superseded by [0015](0015-saved-datasheet-association.md) for saved datasheet links.
 
 ## Context
 

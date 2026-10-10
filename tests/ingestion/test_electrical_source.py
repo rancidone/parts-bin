@@ -199,6 +199,80 @@ async def test_identity_quote_cannot_be_only_longer_variant(dash):
         await extract(raw, document=source.Document(URL, 'a' * 64, DOCUMENT.retrieved_at, (longer,)))
 
 
+async def test_saved_datasheet_extracts_common_ratings_without_requiring_inventory_suffix(tmp_path):
+    text = 'onsemi MMBT2907AL SMMBT2907AL PNP transistors. Collector-emitter voltage 60 V.'
+    document = source.Document('https://www.onsemi.com/test.pdf', 'a' * 64, DOCUMENT.retrieved_at, (text,))
+    raw = {'outcome': 'proposal', 'clarification': None, 'mismatch_evidence': None,
+           'fields': {'part_number': {'value': 'MMBT2907AL', 'evidence': {'page': 1, 'excerpt': 'MMBT2907AL'}},
+                      'manufacturer': {'value': 'onsemi', 'evidence': {'page': 1, 'excerpt': 'onsemi'}},
+                      'package': None, 'description': None},
+           'facts': [raw_fact('polarity', 'PNP', 'nominal'),
+                     raw_fact('collector_emitter_voltage', '60 V', 'absolute_maximum')]}
+
+    def handler(request):
+        instructions = json.loads(request.content)['instructions']
+        assert 'no extra identity override' in instructions
+        assert 'Extract ratings shared by the listed devices' in instructions
+        assert 'omit only the affected facts' in instructions
+        assert 'A clearly unrelated device' in instructions
+        assert 'If the exact identity is absent' not in instructions
+        return httpx.Response(200, json={'status': 'completed', 'output': [
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await source.extract(document, 'MMBT2907', 'onsemi', category='bjt', linked_part=True,
+                                      api_key='fake', model='test', client=client)
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    part = service.add_part(AddPartRequest(PartFields('bjt', 'discrete_ic', 4, part_number='MMBT2907',
+                                                    datasheet_url=document.url)))
+    service.stage_specifications(part, result['facts'])
+    state = service.get_specifications(part.id)
+    assert state['facts'] == []
+    assert len(state['pending_review']['facts']) == 2
+    assert all(fact['evidence']['part_number'] == 'MMBT2907' for fact in state['pending_review']['facts'])
+    assert service.get(GetPartRequest(part.id)) == part
+    with pytest.raises(source.EnrichmentError, match='substituted'):
+        source.validate_candidate({key: value for key, value in raw.items() if key != 'facts'},
+                                  'MMBT2907', 'onsemi', document)
+
+
+def test_saved_link_still_requires_real_quotes_and_consistent_manufacturer():
+    raw = candidate()
+    raw.pop('facts')
+    with pytest.raises(source.EnrichmentError, match='manufacturer'):
+        source.validate_candidate(raw, NUMBER, 'Other manufacturer', DOCUMENT, linked_part=True)
+    raw['fields']['part_number']['evidence']['excerpt'] = 'Invented code'
+    with pytest.raises(source.EnrichmentError, match='not present'):
+        source.validate_candidate(raw, NUMBER, 'Vishay', DOCUMENT, linked_part=True)
+
+
+async def test_saved_link_does_not_convert_evidenced_mismatch_into_facts():
+    raw = {'outcome': 'no_match', 'clarification': 'This document describes a resistor, not a transistor.',
+           'mismatch_evidence': {'page': 1, 'excerpt': PASSAGE},
+           'fields': dict.fromkeys(source.FIELDS), 'facts': []}
+    def handler(_):
+        return httpx.Response(200, json={'status': 'completed', 'output': [
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await source.extract(DOCUMENT, 'MMBT2907', None, category='bjt', linked_part=True,
+                                      api_key='fake', model='test', client=client)
+    assert result['outcome'] == 'no_match' and result['facts'] == []
+
+
+async def test_saved_association_does_not_reuse_independent_identity_cache(tmp_path):
+    cache = SQLiteEnrichmentCache(tmp_path / 'cache.db')
+    result = {'outcome': 'needs_clarification', 'clarification': 'Which variant?', 'fields': {}, 'facts': [],
+              'source': {'url': URL, 'sha256': DOCUMENT.sha256, 'retrieved_at': DOCUMENT.retrieved_at}}
+    with patch.object(source, 'retrieve_pdf', AsyncMock(return_value=DOCUMENT)), \
+            patch.object(source, 'extract', AsyncMock(return_value=result)) as extraction:
+        for linked in [False, True, True, False]:
+            await source.enrich(NUMBER, 'Vishay', URL, api_key='fake', model='test', cache=cache,
+                                category='resistor', linked_part=linked)
+    assert extraction.await_count == 2
+    assert 'linked_part' not in extraction.await_args_list[0].kwargs
+    assert extraction.await_args_list[1].kwargs['linked_part'] is True
+
+
 async def test_standalone_device_title_keeps_bjt_facts_for_review(tmp_path):
     # Synthetic layout regression, not a live-model quality assertion.
     from tests.ingestion.test_pdf_limits import text_pdf
