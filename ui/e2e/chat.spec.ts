@@ -96,6 +96,61 @@ test('assistant Markdown tables render in streamed replies and restored history'
   await check()
 })
 
+for (const restored of [false, true]) {
+  test(`part links open the exact inventory record from ${restored ? 'restored history' : 'a streamed reply'}`, async ({ context, page }) => {
+    const part = { id: 42, part_category: 'operational amplifier', profile: 'discrete_ic', part_number: 'UA741CP', package: 'SOIC', quantity: 11, manufacturer: 'Texas Instruments', value: null, description: null }
+    const other = { ...part, id: 43, package: 'DIP', quantity: 6 }
+    const result = event(2, 'tool_result', { name: 'search_parts', result: { ok: true, result: { parts: [part], count: 1 } } })
+    const reply = event(3, 'assistant_text', { text: '| Part | Package |\n|---|---|\n| `UA741CP` | SOIC |\n| UNKNOWN | DIP |' })
+    const completed = event(4, 'completed', { status: 'completed', execution_id: 'work' })
+    const history = [user, result, reply, completed]
+    const f = await fixture(context, restored ? history : [])
+    const writes: string[] = []
+    await context.route('**/inventory**', route => {
+      if (route.request().method() !== 'GET') writes.push(route.request().method())
+      return route.fulfill({ json: new URL(route.request().url()).pathname === '/inventory/pending' ? { reviews: {} } : [part, other] })
+    })
+    await f.open(page)
+    if (!restored) {
+      f.respond(route => stream(route, history))
+      await page.getByRole('textbox', { name: 'Message' }).fill('Show op-amps')
+      await page.getByRole('button', { name: 'Send message' }).click()
+    }
+    const link = page.getByRole('button', { name: 'View UA741CP in inventory' })
+    await expect(link).toBeVisible()
+    await expect(page.getByRole('button', { name: 'View UNKNOWN in inventory' })).toHaveCount(0)
+    await link.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByText('Viewing part #42')).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'SOIC', exact: true })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'DIP', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Show all parts' }).click()
+    await expect(page.getByRole('cell', { name: 'DIP', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Chat', exact: true }).click()
+    await expect(link).toBeVisible()
+    await page.getByRole('button', { name: 'View in inventory', exact: true }).click()
+    await expect(page.getByText('Viewing part #42')).toBeVisible()
+    expect(writes).toEqual([])
+  })
+}
+
+test('ambiguous part numbers are not linked and deleted records show a clear message', async ({ context, page }) => {
+  const first = { id: 1, part_number: 'LM358', part_category: 'op-amp', quantity: 1 }
+  const second = { ...first, id: 2 }
+  const unique = { ...first, id: 3, part_number: 'UA741CN' }
+  const result = event(2, 'tool_result', { name: 'search_parts', result: { ok: true, result: { parts: [first, second, unique] } } })
+  const reply = event(3, 'assistant_text', { text: '| Part |\n|---|\n| LM358 |\n| UA741CN |' })
+  const f = await fixture(context, [user, result, reply, done])
+  await context.route('**/inventory**', route => route.fulfill({ json: new URL(route.request().url()).pathname === '/inventory/pending' ? { reviews: {} } : [] }))
+  await f.open(page)
+  await expect(page.getByRole('button', { name: 'View LM358 in inventory' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'View part #2 in inventory', exact: true }).click()
+  await expect(page.getByText('Viewing part #2')).toBeVisible()
+  await page.getByRole('button', { name: 'Chat', exact: true }).click()
+  await page.getByRole('button', { name: 'View UA741CN in inventory' }).click()
+  await expect(page.getByText('This part is no longer in inventory.')).toBeVisible()
+})
+
 test('interrupted response requires read-only reconnect before explicit resume', async ({ context, page }) => {
   const f = await fixture(context, [])
   await f.open(page)

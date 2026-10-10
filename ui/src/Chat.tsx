@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { AssistantMarkdown } from './AssistantMarkdown'
+import { partsByReply } from './chatParts'
 import { SpecificationReview, SpecificationResult } from './SpecificationFacts'
 import { PartCard } from './PartCard'
 import { PartResults } from './PartResults'
@@ -10,10 +10,11 @@ import { approvalDecision, unfinishedExecutions } from './agentSession'
 import type { AgentEvent, Part } from './types'
 import styles from './Chat.module.css'
 
-export function Chat() {
+export function Chat({ onOpenPart }: { onOpenPart: (id: number) => void }) {
   const { events, conversations, threadId, pending, submit, decide, refresh, resume, newChat,
     selectConversation, error, restored } = useAgent()
   const unfinished = unfinishedExecutions(events)
+  const replyParts = partsByReply(events)
   const selected = conversations.find(item => item.thread_id === threadId)
   const readOnly = selected?.runtime !== undefined && selected.runtime !== 'openai'
     || events.some(event => event.runtime !== 'openai')
@@ -57,7 +58,7 @@ export function Chat() {
     {readOnly && <div className={styles.notice}>This conversation uses a retired provider. Start a new chat to continue.</div>}
     <div className={styles.thread}>
       {events.length === 0 && <div className={styles.empty}>Ask about your inventory, add a part, or attach a photo.</div>}
-      {events.map(event => <EventBubble key={`${event.thread_id}-${event.sequence}`} event={event} decide={decide} disabled={pending || !restored || readOnly || (typeof event.data.execution_id === 'string' && !unfinished.some(item => item.id === event.data.execution_id))} decision={approvalDecision(events, String(event.data.request_id))} />)}
+      {events.map(event => <EventBubble onOpenPart={onOpenPart} parts={replyParts.get(event.sequence) ?? []} key={`${event.thread_id}-${event.sequence}`} event={event} decide={decide} disabled={pending || !restored || readOnly || (typeof event.data.execution_id === 'string' && !unfinished.some(item => item.id === event.data.execution_id))} decision={approvalDecision(events, String(event.data.request_id))} />)}
       {!pending && !readOnly && unfinished.map(execution => <div key={execution.id} className={styles.recovery}>
         {execution.status === 'awaiting_approval' ? <span>Awaiting your approval above.</span> : <>
           <span>This request may still be running or was interrupted. Refresh history to check. Resuming may repeat a model call and incur another charge.</span>
@@ -82,21 +83,19 @@ export function Chat() {
   </div>
 }
 
-function EventBubble({ event, decide, disabled, decision }: { event: AgentEvent; decide: (requestId: string, approved: boolean) => Promise<boolean>; disabled: boolean; decision?: boolean }) {
+function EventBubble({ event, decide, disabled, decision, parts, onOpenPart }: { parts: Part[]; onOpenPart: (id: number) => void; event: AgentEvent; decide: (requestId: string, approved: boolean) => Promise<boolean>; disabled: boolean; decision?: boolean }) {
   const data = event.data
   if (event.kind === 'user_message') return <div className={styles.userBubble}>{String(data.text ?? '')}{Boolean(data.image) && <span className={styles.attachment}>Photo attached</span>}</div>
-  if (event.kind === 'assistant_text') return <div className={`${styles.assistantBubble} ${styles.markdown}`}><Markdown remarkPlugins={[remarkGfm]} components={{
-    table: ({ children }) => <div className={styles.tableScroll} tabIndex={0} role="region" aria-label="Response table"><table>{children}</table></div>,
-  }}>{String(data.text ?? '')}</Markdown></div>
+  if (event.kind === 'assistant_text') return <AssistantMarkdown text={String(data.text ?? '')} parts={parts} onOpenPart={onOpenPart} />
   if (event.kind === 'tool_call') return <div className={styles.activity}>Using <strong>{String(data.name)}</strong></div>
-  if (event.kind === 'tool_result') return <ToolResult result={data.result} name={String(data.name)} />
+  if (event.kind === 'tool_result') return <ToolResult result={data.result} name={String(data.name)} onOpenPart={onOpenPart} />
   if (event.kind === 'approval_request') return <div className={styles.approval}><div><strong>{decision === undefined ? 'Approval required' : 'Review decision'}</strong><br />{String(data.effect ?? data.tool)}</div>{data.specification_review && typeof data.specification_review === 'object' && 'facts' in data.specification_review ? <SpecificationReview review={data.specification_review as Parameters<typeof SpecificationReview>[0]['review']} partId={String(data.target)} /> : null}{decision !== undefined ? <div className={styles.activity}>{decision ? 'Approved' : 'Declined'}</div> : <div className={styles.clarificationActions}><button className={styles.inlineActionBtn} disabled={disabled} onClick={() => void decide(String(data.request_id), true)}>Approve</button><button className={styles.inlineActionBtn} disabled={disabled} onClick={() => void decide(String(data.request_id), false)}>Decline</button></div>}</div>
   if (event.kind === 'approval_decision') return <div className={styles.activity}>You {data.approved ? 'approved' : 'declined'} {String(data.tool)}.</div>
   if (event.kind === 'error') return <div className={`${styles.assistantBubble} ${styles.errorBubble}`}>{String(data.message ?? 'Unknown error')}</div>
   return null
 }
 
-function ToolResult({ result, name }: { result: unknown; name: string }) {
+function ToolResult({ result, name, onOpenPart }: { result: unknown; name: string; onOpenPart: (id: number) => void }) {
   if (!result || typeof result !== 'object') return <div className={styles.activity}>Tool completed.</div>
   const payload = result as { ok?: boolean; result?: unknown; error?: { message?: string } }
   if (!payload.ok) return <div className={`${styles.activity} ${styles.error}`}>{payload.error?.message ?? 'Tool failed'}</div>
@@ -104,8 +103,8 @@ function ToolResult({ result, name }: { result: unknown; name: string }) {
   if (value && typeof value === 'object' && ('matches' in value || 'facts' in value)) return <div className={styles.systemMsg}><SpecificationResult value={value as Parameters<typeof SpecificationResult>[0]['value']} /></div>
   if (value && typeof value === 'object' && Array.isArray((value as { parts?: unknown[] }).parts)) {
     const { parts, count, truncated } = value as { parts: Part[]; count?: number; truncated?: boolean }
-    return <div className={styles.systemMsg}><PartResults parts={parts} count={count} truncated={truncated} /></div>
+    return <div className={styles.systemMsg}><PartResults onOpenPart={onOpenPart} parts={parts} count={count} truncated={truncated} /></div>
   }
-  if (value && typeof value === 'object' && 'part_category' in value) return <div className={styles.systemMsg}><PartCard part={value as Part} added={name === 'add_part' ? true : ['update_part', 'add_stock', 'apply_review'].includes(name) ? false : undefined} /></div>
+  if (value && typeof value === 'object' && 'part_category' in value) return <div className={styles.systemMsg}><PartCard onOpenPart={onOpenPart} part={value as Part} added={name === 'add_part' ? true : ['update_part', 'add_stock', 'apply_review'].includes(name) ? false : undefined} /></div>
   return <div className={styles.activity}>Tool completed.</div>
 }

@@ -5,7 +5,7 @@ import styles from './PartResults.module.css'
 
 const PAGE_SIZE = 10
 
-export function PartResults({ parts, count, truncated }: { parts: Part[]; count?: number; truncated?: boolean }) {
+export function PartResults({ parts, count, truncated, onOpenPart }: { parts: Part[]; count?: number; truncated?: boolean; onOpenPart?: (id: number) => void }) {
   const [page, setPage] = useState(0)
   const total = Math.max(parts.length, count ?? parts.length)
   const partial = truncated || total > parts.length
@@ -15,7 +15,7 @@ export function PartResults({ parts, count, truncated }: { parts: Part[]; count?
   const visible = parts.slice(start, start + PAGE_SIZE)
 
   if (total === 0) return <div className={styles.empty}>No matching parts found.</div>
-  if (total === 1 && parts.length === 1 && !partial) return <PartCard part={parts[0]} />
+  if (total === 1 && parts.length === 1 && !partial) return <PartCard part={parts[0]} onOpenPart={onOpenPart} />
 
   return <details className={styles.group} open={total <= 5}>
     <summary className={styles.summary}>
@@ -33,11 +33,13 @@ export function PartResults({ parts, count, truncated }: { parts: Part[]; count?
         {visible.map((part, index) => <li key={part.id ?? start + index}>
           <details className={styles.part}>
             <summary className={styles.row}>
-              <span className={styles.identity}>{part.profile === 'passive' ? [part.part_category, part.value].filter(Boolean).join(' · ') : part.part_number || part.part_category}</span>
+              <span className={styles.identity}>{part.id != null && onOpenPart
+                ? <button className={styles.partLink} onClick={event => { event.preventDefault(); onOpenPart(part.id!) }} aria-label={`View part #${part.id} in inventory`}>{part.profile === 'passive' ? [part.part_category, part.value].filter(Boolean).join(' · ') : part.part_number || part.part_category}</button>
+                : part.profile === 'passive' ? [part.part_category, part.value].filter(Boolean).join(' · ') : part.part_number || part.part_category}</span>
               <span className={styles.package}>{part.package || 'Package unknown'}</span>
               <span className={styles.quantity}>Qty: {part.quantity}</span>
             </summary>
-            <div className={styles.partDetail}><PartCard part={part} /></div>
+            <div className={styles.partDetail}><PartCard part={part} onOpenPart={onOpenPart} /></div>
           </details>
         </li>)}
       </ul>

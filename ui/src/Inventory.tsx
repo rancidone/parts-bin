@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { FieldReviewEditor } from './FieldReviewEditor'
 import { downloadCSV } from './csv'
 import type { FieldProvenance, FieldReview, Part, PendingReview } from './types'
@@ -6,7 +6,7 @@ import styles from './Inventory.module.css'
 
 type SortKey = 'part_category' | 'value' | 'package' | 'quantity'
 
-export function Inventory({ active }: { active: boolean }) {
+export function Inventory({ active, selectedPartId, onClearSelection }: { active: boolean; selectedPartId: number | null; onClearSelection: () => void }) {
   const [parts, setParts] = useState<Part[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -262,7 +262,7 @@ export function Inventory({ active }: { active: boolean }) {
 
   const displayed = useMemo(() => {
     const q = filter.toLowerCase()
-    const filtered = q
+    const filtered = selectedPartId !== null ? parts.filter(p => p.id === selectedPartId) : q
       ? parts.filter(p =>
           [p.part_category, p.value, p.package, p.part_number, p.manufacturer, p.description]
             .some(v => v?.toLowerCase().includes(q))
@@ -277,7 +277,7 @@ export function Inventory({ active }: { active: boolean }) {
         : av.localeCompare(bv)
       return sortAsc ? cmp : -cmp
     })
-  }, [parts, filter, sortKey, sortAsc])
+  }, [parts, filter, sortKey, sortAsc, selectedPartId])
 
   function SortHeader({ col, label }: { col: SortKey; label: string }) {
     const isActive = sortKey === col
@@ -344,8 +344,9 @@ export function Inventory({ active }: { active: boolean }) {
       <div className={styles.toolbar}>
         <input
           className={styles.search}
+          aria-label="Filter inventory"
           value={filter}
-          onChange={e => setFilter(e.target.value)}
+          onChange={e => { onClearSelection(); setFilter(e.target.value) }}
           placeholder="Filter…"
         />
         <button className={styles.refreshBtn} onClick={load} disabled={loading}>
@@ -360,10 +361,15 @@ export function Inventory({ active }: { active: boolean }) {
         </button>
       </div>
 
+      {selectedPartId !== null && <div className={styles.selection}>
+        <span>Viewing part #{selectedPartId}</span>
+        <button className={styles.refreshBtn} onClick={() => { setFilter(''); onClearSelection() }}>Show all parts</button>
+      </div>}
+
       {error && <div className={styles.error}>{error}</div>}
 
       {!loading && displayed.length === 0 && !error && (
-        <div className={styles.empty}>No parts found.</div>
+        <div className={styles.empty}>{selectedPartId !== null ? 'This part is no longer in inventory.' : 'No parts found.'}</div>
       )}
 
       {displayed.length > 0 && (
@@ -390,7 +396,7 @@ export function Inventory({ active }: { active: boolean }) {
                 const showProvenance = p.id != null && expandedProvenance.has(id)
                 const isEditing = editing === id && draft != null
                 return (
-                  <>
+                  <Fragment key={p.id ?? i}>
                     <tr key={p.id ?? i} className={`${styles.row} ${review ? styles.rowPending : ''}`}>
                       <td className={styles.td}>
                         {isEditing ? (
@@ -592,7 +598,7 @@ export function Inventory({ active }: { active: boolean }) {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 )
               })}
             </tbody>

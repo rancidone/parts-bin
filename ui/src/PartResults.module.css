@@ -29,6 +29,7 @@
 .part { border-top: 1px solid var(--border); }
 .row { cursor: pointer; padding: 10px 0; }
 .identity { font-weight: 600; overflow-wrap: anywhere; }
+.partLink { padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .package { margin-left: 10px; color: var(--muted); font-size: .8rem; }
 .quantity { float: right; margin-left: 10px; font-size: .85rem; }
 .partDetail { padding-bottom: 10px; }
