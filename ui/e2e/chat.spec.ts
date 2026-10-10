@@ -15,6 +15,11 @@ const stream = (route: Route, events: AgentEvent[]) => route.fulfill({
   body: events.map(item => `event: agent_event\ndata: ${JSON.stringify(item)}\n\n`).join(''),
 })
 
+async function chooseConversation(page: Page, title: string) {
+  await page.getByRole('button', { name: 'Conversation', exact: true }).click()
+  await page.getByRole('region', { name: 'Conversation history' }).getByRole('button', { name: new RegExp(`^${title} `) }).click()
+}
+
 async function fixture(context: BrowserContext, initial: AgentEvent[]) {
   const histories = new Map<string, AgentEvent[]>([
     ['current', initial],
@@ -44,7 +49,7 @@ async function fixture(context: BrowserContext, initial: AgentEvent[]) {
     // Set the browser pointer once; reloads must use the application's stored value.
     await page.evaluate(key => localStorage.setItem(key, 'current'), key)
     await page.reload()
-    await expect(page.getByRole('combobox', { name: 'Conversation' })).toHaveValue('current')
+    await expect(page.getByRole('button', { name: 'Conversation', exact: true })).toHaveText('current▾')
     await expect(page.getByRole('button', { name: 'Refresh history' })).toBeEnabled()
   }
   return { histories, posts, open, respond: (handler: typeof write) => { write = handler },
@@ -69,7 +74,7 @@ test('interrupted response requires read-only reconnect before explicit resume',
   f.respond(route => { f.histories.set('current', [user, done]); return stream(route, [user, done, done]) })
   await page.getByRole('button', { name: 'Resume request' }).click()
   await expect(page.getByRole('status')).toHaveText('Ready')
-  await expect(page.getByText('Add a resistor', { exact: true })).toHaveCount(1)
+  await expect(page.getByText('Add a resistor', { exact: true }).and(page.locator('div'))).toHaveCount(1)
   expect(f.posts).toHaveLength(2)
   expect(new URL(f.posts[1].url()).pathname).toBe('/agent/threads/current/resume')
   expect(f.posts[1].postData()).toContain('name="execution_id"\r\n\r\nwork')
@@ -140,16 +145,16 @@ test('tabs share a browser pointer but keep active histories and drafts independ
   await second.goto('/')
   await expect(second.getByRole('status')).toHaveText('Ready')
   await second.getByRole('textbox', { name: 'Message' }).fill('Second tab draft')
-  await page.getByRole('combobox', { name: 'Conversation' }).selectOption('other')
+  await chooseConversation(page, 'other')
   await expect(page.getByText('Other conversation', { exact: true })).toBeVisible()
-  await expect(second.getByRole('combobox', { name: 'Conversation' })).toHaveValue('current')
+  await expect(second.getByRole('button', { name: 'Conversation', exact: true })).toHaveText('current▾')
   await second.getByRole('button', { name: 'Refresh history' }).click()
-  await expect(second.getByRole('combobox', { name: 'Conversation' })).toHaveValue('current')
+  await expect(second.getByRole('button', { name: 'Conversation', exact: true })).toHaveText('current▾')
   await expect(second.getByRole('textbox', { name: 'Message' })).toHaveValue('Second tab draft')
   // A stale approval in one tab must discover the other tab's saved outcome on refresh.
   f.histories.set('current', [user, proposal, waiting])
   await second.getByRole('button', { name: 'Refresh history' }).click()
-  await page.getByRole('combobox', { name: 'Conversation' }).selectOption('current')
+  await chooseConversation(page, 'current')
   f.respond(route => {
     const decision = event(4, 'approval_decision', { execution_id: 'work', request_id: 'review', approved: true, tool: 'delete_part' })
     const completed = event(5, 'completed', { execution_id: 'work', status: 'completed' })
@@ -170,7 +175,7 @@ test('retired history is selectable and read-only, while new chat clears attachm
   await f.open(page)
   await page.getByRole('textbox', { name: 'Message' }).fill('Draft for current chat')
   await page.locator('input[type=file]').setInputFiles(photo)
-  await page.getByRole('combobox', { name: 'Conversation' }).selectOption('retired')
+  await chooseConversation(page, 'retired')
   await expect(page.getByText('Historical provider message', { exact: true })).toBeVisible()
   await expect(page.getByRole('status')).toHaveText('Read-only conversation')
   await expect(page.getByRole('textbox', { name: 'Message' })).toBeDisabled()
@@ -200,7 +205,7 @@ test('pending decisions disable competing controls until the response completes'
     for (const name of ['Approve', 'Decline', 'Refresh history', 'New chat', 'Send message', 'Attach photo']) {
       await expect(page.getByRole('button', { name, exact: true })).toBeDisabled()
     }
-    await expect(page.getByRole('combobox', { name: 'Conversation' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Conversation', exact: true })).toBeDisabled()
     await expect(page.getByRole('textbox', { name: 'Message' })).toBeDisabled()
     expect(f.posts).toHaveLength(1)
   } finally { release() }
@@ -214,12 +219,49 @@ test('failed conversation selection preserves the active history, draft, and pho
   await page.getByRole('textbox', { name: 'Message' }).fill('Keep this draft')
   await page.locator('input[type=file]').setInputFiles(photo)
   f.failHistory(true)
-  await page.getByRole('combobox', { name: 'Conversation' }).selectOption('other')
+  await chooseConversation(page, 'other')
   await expect(page.getByRole('alert')).toHaveText('History temporarily unavailable')
-  await expect(page.getByRole('combobox', { name: 'Conversation' })).toHaveValue('current')
+  await expect(page.getByRole('button', { name: 'Conversation', exact: true })).toHaveText('current▾')
   await expect(page.getByText('Add a resistor', { exact: true })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('Keep this draft')
   await expect(page.getByRole('img', { name: 'attachment' })).toBeVisible()
   expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe('current')
+  expect(f.posts).toHaveLength(0)
+})
+
+test('long history stays bounded, searchable, and keyboard accessible', async ({ context, page }, testInfo) => {
+  const f = await fixture(context, [user, done])
+  for (let index = 0; index < 100; index++) {
+    const id = `archived-${index}`
+    f.histories.set(id, [event(1, 'assistant_text', { text: `Saved message ${index}` }, id, 'codex')])
+  }
+  await f.open(page)
+  await page.getByRole('button', { name: 'Conversation', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Conversation history' })
+  const search = page.getByRole('searchbox', { name: 'Search conversations' })
+  await expect(search).toBeFocused()
+  const box = await panel.boundingBox()
+  expect(box!.height).toBeLessThanOrEqual(420)
+  await page.screenshot({ path: testInfo.outputPath('conversation-history.png') })
+  expect(await panel.getByRole('button', { name: 'archived-99 codex · Read-only', exact: true }).count()).toBe(1)
+  await search.fill('ARCHIVED-99')
+  await expect(panel.getByRole('button')).toHaveCount(2)
+  await expect(panel.getByText('1 of 103 conversations')).toBeVisible()
+  await search.press('Tab')
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('Saved message 99', { exact: true })).toBeVisible()
+  await expect(page.getByRole('status')).toHaveText('Read-only conversation')
+  await expect(panel).toHaveCount(0)
+  await page.getByRole('button', { name: 'Conversation', exact: true }).click()
+  await expect(search).toHaveValue('')
+  await search.fill('no such conversation')
+  await expect(panel.getByText('No matching conversations.')).toBeVisible()
+  await search.press('Escape')
+  await expect(panel).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Conversation', exact: true })).toBeFocused()
+  await page.getByRole('button', { name: 'Conversation', exact: true }).click()
+  await page.getByRole('button', { name: 'Refresh history' }).click()
+  await expect(panel).toHaveCount(0)
   expect(f.posts).toHaveLength(0)
 })
