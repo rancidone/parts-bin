@@ -24,6 +24,22 @@ async def test_paraphrased_answer_passes_when_tools_and_state_are_correct(tmp_pa
     assert scenario["recorded_turns"][-1]["text"] != original
 
 
+async def test_lookup_scenario_rejects_wrong_search_matches(tmp_path):
+    scenario = _scenario("inventory_lookup_value_notation")
+    scenario["tool_constraints"]["expected_search_results"][0]["part_ids"] = [2]
+
+    with pytest.raises(EvaluationFailure, match="search 1 result differs"):
+        await run_scenario(scenario, "openai", tmp_path)
+
+
+async def test_lookup_scenario_requires_every_clarification_cue(tmp_path):
+    scenario = _scenario("inventory_lookup_ambiguous_package")
+    scenario["recorded_turns"][-1]["text"] = "Which package do you need: 0402?"
+
+    with pytest.raises(EvaluationFailure, match="required semantic cue"):
+        await run_scenario(scenario, "openai", tmp_path)
+
+
 async def test_scenarios_seed_execute_and_inspect_injected_repositories(tmp_path):
     from unittest.mock import Mock
     from db.conversations import SQLiteConversationRepository
