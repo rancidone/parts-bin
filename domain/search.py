@@ -19,6 +19,14 @@ def search_category(raw: str) -> str:
     spelling = re.sub(r"[\s_-]+", "", text)
     if spelling in {"opamp", "opamps", "operationalamplifier", "operationalamplifiers"}:
         return "operational amplifier"
+    if spelling in {"bjt", "bjts", "bipolartransistor", "bipolartransistors", "bipolarjunctiontransistor", "bipolarjunctiontransistors"}:
+        return "bjt"
+    if spelling in {"mosfet", "mosfets"}:
+        return "mosfet"
+    if spelling in {"diode", "diodes"}:
+        return "diode"
+    if spelling in {"transistor", "transistors"}:
+        return "transistor"
     return text
 
 

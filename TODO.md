@@ -9,8 +9,14 @@ electrical lookup are improved.
 
 ## Next: electrical requirements and enrichment
 
-- Extend specification and condition definitions from representative source-backed
-  requests, including operating ranges, derating, and additional categories.
+- Improve bounded context selection for the op-amp
+  [source cases](evaluation/enrichment/electrical_sources.json): preserve stress,
+  operating-supply and frequency-response sections alongside exact ordering rows.
+  Include governing merged-cell geometry for quiescent-current temperature.
+  Reevaluate B/BA variants against the independent source expectations with
+  bounded live runs after these omissions are corrected.
+- Define further operating ranges and derating from concrete source-backed
+  requests; extend fields and condition comparison only where those cases need it.
 - Define identity for connectors, modules, kits, and unmarked stock from concrete
   ingestion failures. Consider typed category attributes and explicit variant
   identity without inventing ordering codes or merging uncertain stock. Rehearse
@@ -23,24 +29,24 @@ electrical lookup are improved.
 - Recheck the supplied-source [acceptance cases](evaluation/enrichment/acceptance.json),
   clarification and photo identification when changing prompts or models, using
   small, explicitly bounded live experiments. Preserve unknown fields until supported.
-- Expand the [electrical source cases](evaluation/enrichment/electrical_sources.json)
-  with new variants, operating ranges and ambiguous identities.
-- Preserve applicable headings, vertically merged table cells, and distant
-  measurement-method sections in bounded source selection. Exercise different
-  supplier layouts; do not solve missing context with part-specific rules.
-- Extend conservative condition comparison from independently reviewed source
-  cases when additional units or representations are needed. Evaluate qualifier
-  completeness separately from extraction coverage and cross-run matching.
+- Extend the independently reviewed
+  [source expectations](evaluation/enrichment/electrical_expectations.json) to
+  resistors and switches. Add source cases for gaps exposed by evaluation,
+  rather than duplicating existing variant and ambiguity cases.
+- Evaluate retention of governing headings, vertically merged cells, and distant
+  measurement-method sections in bounded source selection across supplier layouts.
+  Fix measured omissions without part-specific rules.
 - Measure repeatability of electrical table interpretation across models and
   sources. Check global test conditions, min/max endpoints, paired load ratings
-  and reference-circuit values; authentic citations can still support an incorrect
-  proposal. Use independent source review, latency and measured usage when
-  selecting a model; structural checks cannot establish factual quality.
+  and reference-circuit values against independent source expectations. Separate
+  qualifier completeness from extraction coverage and cross-run matching; use
+  source review, latency and measured usage when selecting a model.
+- Evaluate raster OCR on representative scanned datasheets, including page
+  selection and table association, before deciding whether to add production OCR.
+  Keep recognition measurements separate from electrical correctness.
 - Measure automatic source discovery separately from supplied-source extraction
   before choosing integrations. Remove source paths that do not justify their
   maintenance burden; distinguish retrieval failure from no matching part.
-- Keep local OCR photos in memory instead of writing temporary image files,
-  following the [storage boundaries](docs/adr/0005-storage-and-retention.md).
 
 ## Durable ingestion experiment
 

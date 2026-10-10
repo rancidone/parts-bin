@@ -6,7 +6,7 @@ from inventory_export import export_csv
 
 def test_column_order():
     header = export_csv([]).splitlines()[0]
-    assert header == "part_category,value,package,quantity,part_number,manufacturer,description"
+    assert header == "part_category,value,package,quantity,part_number,manufacturer,description,datasheet_url"
 
 
 def test_row_content():

@@ -39,6 +39,12 @@ def test_page_limit_rejects_extra_page_instead_of_truncating():
         source.parse_pdf(text_pdf(source.MAX_PAGES + 1))
 
 
+def test_long_datasheet_with_ordering_addendum_keeps_all_pages():
+    pages = source.parse_pdf(text_pdf(68))
+    assert len(pages) == 68
+    assert 'Nexperia PBSS5350T' in pages[-1]
+
+
 def test_text_budget_remains_independent_of_page_count():
     with patch.object(source, 'MAX_TEXT_CHARS', 10):
         with pytest.raises(source.EnrichmentError, match='page/text budget'):

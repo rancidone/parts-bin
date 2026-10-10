@@ -63,6 +63,12 @@ Use − / + on part cards or inventory rows to save a one-unit stock change.
 These controls adjust the current stored count and preserve pending spec reviews.
 For an exact count or metadata changes, choose Edit part in inventory, then use
 the labeled form and Save changes. Cancel discards the form edits.
+Every category supports an optional HTTPS datasheet link in Edit part. Inventory
+shows saved links and includes them in CSV exports. Fetch specs uses the saved
+link to stage electrical facts for supported categories, including op-amps.
+Open Electrical specifications to inspect accepted facts or restore a pending
+review after reloading. Review evidence and choose Accept electrical specs or
+Dismiss electrical review; refreshing does not change stock or accept facts.
 
 Ask the chat to find stock by description, manufacturer, or a fragment of a part
 number, such as `PBSS5350T`. Candidate search keeps distinct ordering suffixes

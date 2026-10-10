@@ -96,6 +96,15 @@ async def test_four_resistors_confirm_only_after_source_review_and_approval(tmp_
     ('capacitor', 'rated_voltage', '25 V', 'rated', [{'name': 'temperature', 'value': '85 °C'}]),
     ('bjt', 'pulsed_collector_current', '3 A', 'absolute_maximum_pulsed', [{'name': 'pulse_duration', 'value': '1 ms'}]),
     ('mosfet', 'on_resistance', '20 mΩ', 'maximum', [{'name': 'gate_source_voltage', 'value': '10 V'}]),
+    ('diode', 'forward_voltage', '1 V', 'maximum', [
+        {'name': 'forward_current', 'value': '10 mA'}, {'name': 'junction_temperature', 'value': '25 °C'}]),
+    ('bipolar transistor', 'dc_current_gain', '110 ratio', 'minimum', [
+        {'name': 'collector_current', 'value': '2 mA'},
+        {'name': 'collector_emitter_voltage', 'value': '5 V'},
+        {'name': 'ambient_temperature', 'value': '25 °C'}]),
+    ('MOSFETs', 'on_resistance', '5 Ω', 'maximum', [
+        {'name': 'gate_source_voltage', 'value': '10 V'}, {'name': 'drain_current', 'value': '500 mA'},
+        {'name': 'junction_temperature', 'value': '25 °C'}]),
     ('inductor', 'saturation_current', '2 A', 'saturation', [{'name': 'inductance_drop', 'value': '30 %'}]),
     ('transformer', 'rated_apparent_power', '10 VA', 'rated', [{'name': 'frequency', 'value': '50 Hz'}]),
     ('switch', 'rated_current', '5 A', 'rated', [{'name': 'load', 'value': 'resistive AC at 250 V'}]),

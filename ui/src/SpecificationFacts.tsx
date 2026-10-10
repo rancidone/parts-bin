@@ -4,7 +4,7 @@ import styles from './SpecificationFacts.module.css'
 type Fact = { name: string; value: string; basis: string; conditions: Record<string, string>; evidence: { kind: string; excerpt: string; url?: string; page?: number; supporting_passages?: { page: number; excerpt: string }[] } }
 type Review = { facts: Fact[]; snapshot: { metadata: { part_number: string | null; package: string | null; part_category: string } } }
 type Assessment = { confidence_score: number; rejected_fields?: { name: string; reason: string }[]; score_explanation: string; missing_fields: string[]; incomplete_fields?: Record<string, string[]>; reasons: string[]; relevant_pages: { page: number; reason: string; url: string }[] }
-type Result = { extraction_assessment?: Assessment | null; clarification?: string | null; matches?: { part: Part; supporting_facts: Fact[] }[]; incomplete?: { part: Part; missing_or_unqualified: string[] }[]; facts?: Fact[]; part_id?: number; pending_review?: Review | null; truncated?: boolean; match_count?: number; incomplete_count?: number }
+export type SpecificationState = { outcome?: string; extraction_assessment?: Assessment | null; clarification?: string | null; matches?: { part: Part; supporting_facts: Fact[] }[]; incomplete?: { part: Part; missing_or_unqualified: string[] }[]; facts?: Fact[]; part_id?: number; pending_review?: Review | null; truncated?: boolean; match_count?: number; incomplete_count?: number }
 
 const label = (text: string) => text.replaceAll('_', ' ')
 
@@ -50,11 +50,12 @@ function SpecificationMatch({ part, facts, missing }: { part: Part; facts?: Fact
   </article>
 }
 
-export function SpecificationResult({ value }: { value: Result }) {
+export function SpecificationResult({ value }: { value: SpecificationState }) {
   const matches = value.matches ?? []
   const incomplete = value.incomplete ?? []
   const searching = value.matches !== undefined
   return <section className={styles.results} aria-label={searching ? 'Specification search results' : 'Electrical specifications'}>
+    {!value.extraction_assessment && value.clarification && <p className={styles.note}>{value.clarification}</p>}
     {value.extraction_assessment && <section className={styles.card} aria-label="PDF extraction assessment">
       <strong>Extraction coverage · {Math.round(value.extraction_assessment.confidence_score * 100)}% field coverage</strong>
       <p className={styles.note}>{value.extraction_assessment.score_explanation}</p>

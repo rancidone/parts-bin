@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS parts (
     quantity      INTEGER NOT NULL DEFAULT 0,
     manufacturer  TEXT,
     description   TEXT,
+    datasheet_url TEXT,
     created_at    TEXT    NOT NULL,  -- ISO 8601
     updated_at    TEXT    NOT NULL   -- ISO 8601
 );

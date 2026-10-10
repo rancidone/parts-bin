@@ -74,7 +74,8 @@ class PartsBinService:
         # Historical edits can contain unnormalized spellings. Compare values in
         # the domain without rewriting stored rows, timestamps, or evidence.
         category = filters.get("part_category")
-        category_alias = category is not None and search_category(category) == "operational amplifier"
+        category_alias = category is not None and search_category(category) in {
+            "operational amplifier", "bjt", "mosfet", "diode", "transistor"}
         if category_alias:
             filters.pop("part_category")
         value = filters.pop("value", None)
@@ -198,6 +199,9 @@ class PartsBinService:
         if not original.part_number:
             raise DomainError(ErrorCode.INVALID_INPUT, 'An exact inventory ordering code is required; clarify identity first')
         if not specifications.contract(original.part_category)['supported']:
+            if search_category(original.part_category) == 'transistor':
+                raise DomainError(ErrorCode.INVALID_INPUT,
+                                  'Clarify the transistor subtype and explicitly correct its category to bjt or mosfet before electrical extraction')
             raise DomainError(ErrorCode.INVALID_INPUT, 'This category has no electrical specification contract')
         if not isinstance(request.source_url, str) or not 1 <= len(request.source_url) <= 2048:
             raise DomainError(ErrorCode.INVALID_INPUT, 'A bounded supplied source URL is required')
@@ -368,6 +372,29 @@ class PartsBinService:
         if updates:
             self.repository.inventory.save_pending_review(part.id, updates, result.get("durable_provenance", []))
         return {"part": part, **result}
+
+    async def refresh_specs(self, request: FetchSpecsRequest) -> dict[str, Any]:
+        """Refresh from a saved datasheet, or discover metadata and its source link."""
+        part = self.get(GetPartRequest(request.part_id))
+        result = ({'part': part, 'chosen_updates': {}, 'durable_provenance': [], 'outcome': 'source_refresh'}
+                  if part.datasheet_url else await self.fetch_and_stage_specs(request))
+        source_url = part.datasheet_url or result.get('chosen_updates', {}).get('datasheet_url')
+        electrical = self.get_specifications(part.id)
+        if electrical['pending_review'] is not None:
+            electrical.update(outcome='pending_review', clarification='Resolve the pending electrical review before refreshing.')
+        elif not specifications.contract(part.part_category)['supported']:
+            electrical.update(outcome='unsupported', clarification='Electrical extraction is not defined for this category. The datasheet link remains available.')
+        elif not source_url:
+            electrical.update(outcome='needs_source', clarification='Add a manufacturer datasheet link in Edit part, then fetch specs again.')
+        else:
+            try:
+                electrical = await self.ingest_datasheet(IngestDatasheetRequest(part.id, source_url))
+            except DomainError as exc:
+                if exc.code == ErrorCode.CONFLICT:
+                    raise
+                electrical.update(outcome='retrieval_failure' if exc.code == ErrorCode.ENRICHMENT_UNAVAILABLE else 'needs_clarification',
+                                  clarification=exc.message)
+        return {**result, 'electrical': electrical}
 
     def list_pending_reviews(self) -> dict[int, dict]:
         return self.repository.inventory.list_pending_reviews()

@@ -1006,6 +1006,1128 @@
       },
       "unsupported_fact_names": [],
       "review_note": "Vertically merged 500 V nominal DC cell governs the exact row. 600 V at 70 °C and 350 V at 105 °C are different operating ratings."
+    },
+    {
+      "id": "opamp_b_operating_and_stress_limits",
+      "source": {
+        "url": "https://www.ti.com/lit/ds/symlink/lm358.pdf",
+        "sha256": "95fd2cc9c87014b32c2939009266e2c5938fc3c11a61d52015fa53fdeef5ab70"
+      },
+      "layout_class": "ruled_merged_cells",
+      "facts": {
+        "minimum_supply_voltage": {
+          "values": [
+            "3 V"
+          ],
+          "basis": "operating_minimum",
+          "conditions": [
+            {
+              "names": [
+                "supply_convention"
+              ],
+              "values": [
+                "total rail-to-rail",
+                "total positive-to-negative rail voltage",
+                "V+ - V-",
+                "VS = (V+) - (V-)",
+                "VS = (V+) – (V–)",
+                "(V+) – (V–)"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            5
+          ]
+        },
+        "maximum_supply_voltage": {
+          "values": [
+            "36 V"
+          ],
+          "basis": "operating_maximum",
+          "conditions": [
+            {
+              "names": [
+                "supply_convention"
+              ],
+              "values": [
+                "total rail-to-rail",
+                "total positive-to-negative rail voltage",
+                "V+ - V-",
+                "VS = (V+) - (V-)",
+                "VS = (V+) – (V–)",
+                "(V+) – (V–)"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            5
+          ]
+        },
+        "absolute_maximum_supply_voltage": {
+          "values": [
+            "40 V"
+          ],
+          "basis": "absolute_maximum",
+          "conditions": [
+            {
+              "names": [
+                "supply_convention"
+              ],
+              "values": [
+                "total rail-to-rail",
+                "total positive-to-negative rail voltage",
+                "V+ - V-",
+                "VS = (V+) - (V-)",
+                "VS = (V+) – (V–)",
+                "(V+) – (V–)"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            4
+          ]
+        },
+        "input_offset_voltage": {
+          "values": [
+            "3 mV",
+            "4 mV"
+          ],
+          "basis": "maximum_magnitude",
+          "conditions": [
+            {
+              "names": [
+                "supply_voltage"
+              ],
+              "values": [
+                "5 to 36 V",
+                "5 V to 36 V",
+                "5–36 V"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C",
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "common_mode_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "output_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "load_resistance"
+              ],
+              "values": [
+                "10 kΩ",
+                "10000 Ω",
+                "10k"
+              ]
+            },
+            {
+              "names": [
+                "load_reference"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2",
+                "connected to VS / 2",
+                "connected to VS/2"
+              ]
+            }
+          ],
+          "pages": [
+            6
+          ],
+          "paired_conditions": [
+            {
+              "value": "3 mV",
+              "conditions": {
+                "ambient_temperature": "25 °C"
+              }
+            },
+            {
+              "value": "4 mV",
+              "conditions": {
+                "ambient_temperature": "-40 to 85 °C"
+              }
+            }
+          ]
+        },
+        "input_bias_current": {
+          "values": [
+            "35 nA",
+            "50 nA"
+          ],
+          "basis": "maximum_magnitude",
+          "conditions": [
+            {
+              "names": [
+                "supply_voltage"
+              ],
+              "values": [
+                "5 to 36 V",
+                "5 V to 36 V",
+                "5–36 V"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C",
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "common_mode_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "output_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "load_resistance"
+              ],
+              "values": [
+                "10 kΩ",
+                "10000 Ω",
+                "10k"
+              ]
+            },
+            {
+              "names": [
+                "load_reference"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2",
+                "connected to VS / 2",
+                "connected to VS/2"
+              ]
+            },
+            {
+              "names": [
+                "bias_current_direction",
+                "current_direction"
+              ],
+              "values": [
+                "negative",
+                "out of inputs",
+                "out of the inputs",
+                "flows out of inputs"
+              ]
+            }
+          ],
+          "pages": [
+            6,
+            7
+          ],
+          "paired_conditions": [
+            {
+              "value": "35 nA",
+              "conditions": {
+                "ambient_temperature": "25 °C"
+              }
+            },
+            {
+              "value": "50 nA",
+              "conditions": {
+                "ambient_temperature": "-40 to 85 °C",
+                "qualification": "specified by characterization only"
+              }
+            }
+          ]
+        },
+        "gain_bandwidth_product": {
+          "values": [
+            "1.2 MHz"
+          ],
+          "basis": "typical",
+          "conditions": [
+            {
+              "names": [
+                "supply_voltage"
+              ],
+              "values": [
+                "5 to 36 V",
+                "5 V to 36 V",
+                "5–36 V"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "common_mode_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "output_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "load_resistance"
+              ],
+              "values": [
+                "10 kΩ",
+                "10000 Ω",
+                "10k"
+              ]
+            },
+            {
+              "names": [
+                "load_reference"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2",
+                "connected to VS / 2",
+                "connected to VS/2"
+              ]
+            }
+          ],
+          "pages": [
+            6
+          ]
+        },
+        "slew_rate": {
+          "values": [
+            "0.5 V/µs"
+          ],
+          "basis": "typical",
+          "conditions": [
+            {
+              "names": [
+                "supply_voltage"
+              ],
+              "values": [
+                "5 to 36 V",
+                "5 V to 36 V",
+                "5–36 V"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "common_mode_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "output_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "load_resistance"
+              ],
+              "values": [
+                "10 kΩ",
+                "10000 Ω",
+                "10k"
+              ]
+            },
+            {
+              "names": [
+                "load_reference"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2",
+                "connected to VS / 2",
+                "connected to VS/2"
+              ]
+            },
+            {
+              "names": [
+                "closed_loop_gain"
+              ],
+              "values": [
+                "1 ratio",
+                "+1",
+                "1",
+                "+1 V/V",
+                "1 V/V"
+              ]
+            }
+          ],
+          "pages": [
+            6
+          ]
+        },
+        "quiescent_current": {
+          "values": [
+            "300 µA"
+          ],
+          "basis": "typical",
+          "conditions": [
+            {
+              "names": [
+                "supply_voltage"
+              ],
+              "values": [
+                "5 V"
+              ],
+              "unit": "V"
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "common_mode_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "output_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "load_resistance"
+              ],
+              "values": [
+                "10 kΩ",
+                "10000 Ω",
+                "10k"
+              ]
+            },
+            {
+              "names": [
+                "load_reference"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2",
+                "connected to VS / 2",
+                "connected to VS/2"
+              ]
+            },
+            {
+              "names": [
+                "output_current"
+              ],
+              "values": [
+                "0 A"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "current_scope"
+              ],
+              "values": [
+                "per amplifier",
+                "per-amplifier"
+              ]
+            }
+          ],
+          "pages": [
+            7
+          ]
+        }
+      },
+      "unsupported_fact_names": [],
+      "review_note": "Rendered PDF pages 4–7 and exact LM358BIDR ordering row on PDF page 39 (addendum page 7). Supply limits use total rail span. Offset values must pair with temperature and exact grade. Negative bias-current bounds are stored as magnitudes with direction. The 50 nA bound is characterized only (page-7 note 1). Global test supply is 5–36 V with common-mode/output and load reference at half supply. Quiescent 300 µA is typical per amplifier at 5 V and zero output current over the merged −40 to 85 °C cell; do not use 460/800 µA maxima. Equivalent unlisted qualifier wording needs manual review."
+    },
+    {
+      "id": "opamp_ba_exact_offset_grade",
+      "source": {
+        "url": "https://www.ti.com/lit/ds/symlink/lm358.pdf",
+        "sha256": "95fd2cc9c87014b32c2939009266e2c5938fc3c11a61d52015fa53fdeef5ab70"
+      },
+      "layout_class": "ruled_merged_cells",
+      "facts": {
+        "minimum_supply_voltage": {
+          "values": [
+            "3 V"
+          ],
+          "basis": "operating_minimum",
+          "conditions": [
+            {
+              "names": [
+                "supply_convention"
+              ],
+              "values": [
+                "total rail-to-rail",
+                "total positive-to-negative rail voltage",
+                "V+ - V-",
+                "VS = (V+) - (V-)",
+                "VS = (V+) – (V–)",
+                "(V+) – (V–)"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            5
+          ]
+        },
+        "maximum_supply_voltage": {
+          "values": [
+            "36 V"
+          ],
+          "basis": "operating_maximum",
+          "conditions": [
+            {
+              "names": [
+                "supply_convention"
+              ],
+              "values": [
+                "total rail-to-rail",
+                "total positive-to-negative rail voltage",
+                "V+ - V-",
+                "VS = (V+) - (V-)",
+                "VS = (V+) – (V–)",
+                "(V+) – (V–)"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            5
+          ]
+        },
+        "absolute_maximum_supply_voltage": {
+          "values": [
+            "40 V"
+          ],
+          "basis": "absolute_maximum",
+          "conditions": [
+            {
+              "names": [
+                "supply_convention"
+              ],
+              "values": [
+                "total rail-to-rail",
+                "total positive-to-negative rail voltage",
+                "V+ - V-",
+                "VS = (V+) - (V-)",
+                "VS = (V+) – (V–)",
+                "(V+) – (V–)"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            4
+          ]
+        },
+        "input_offset_voltage": {
+          "values": [
+            "2 mV",
+            "2.5 mV"
+          ],
+          "basis": "maximum_magnitude",
+          "conditions": [
+            {
+              "names": [
+                "supply_voltage"
+              ],
+              "values": [
+                "5 to 36 V",
+                "5 V to 36 V",
+                "5–36 V"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C",
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "common_mode_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "output_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "load_resistance"
+              ],
+              "values": [
+                "10 kΩ",
+                "10000 Ω",
+                "10k"
+              ]
+            },
+            {
+              "names": [
+                "load_reference"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2",
+                "connected to VS / 2",
+                "connected to VS/2"
+              ]
+            }
+          ],
+          "pages": [
+            6
+          ],
+          "paired_conditions": [
+            {
+              "value": "2 mV",
+              "conditions": {
+                "ambient_temperature": "25 °C"
+              }
+            },
+            {
+              "value": "2.5 mV",
+              "conditions": {
+                "ambient_temperature": "-40 to 85 °C"
+              }
+            }
+          ]
+        },
+        "input_bias_current": {
+          "values": [
+            "35 nA",
+            "50 nA"
+          ],
+          "basis": "maximum_magnitude",
+          "conditions": [
+            {
+              "names": [
+                "supply_voltage"
+              ],
+              "values": [
+                "5 to 36 V",
+                "5 V to 36 V",
+                "5–36 V"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C",
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "common_mode_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "output_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "load_resistance"
+              ],
+              "values": [
+                "10 kΩ",
+                "10000 Ω",
+                "10k"
+              ]
+            },
+            {
+              "names": [
+                "load_reference"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2",
+                "connected to VS / 2",
+                "connected to VS/2"
+              ]
+            },
+            {
+              "names": [
+                "bias_current_direction",
+                "current_direction"
+              ],
+              "values": [
+                "negative",
+                "out of inputs",
+                "out of the inputs",
+                "flows out of inputs"
+              ]
+            }
+          ],
+          "pages": [
+            6,
+            7
+          ],
+          "paired_conditions": [
+            {
+              "value": "35 nA",
+              "conditions": {
+                "ambient_temperature": "25 °C"
+              }
+            },
+            {
+              "value": "50 nA",
+              "conditions": {
+                "ambient_temperature": "-40 to 85 °C",
+                "qualification": "specified by characterization only"
+              }
+            }
+          ]
+        },
+        "gain_bandwidth_product": {
+          "values": [
+            "1.2 MHz"
+          ],
+          "basis": "typical",
+          "conditions": [
+            {
+              "names": [
+                "supply_voltage"
+              ],
+              "values": [
+                "5 to 36 V",
+                "5 V to 36 V",
+                "5–36 V"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "common_mode_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "output_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "load_resistance"
+              ],
+              "values": [
+                "10 kΩ",
+                "10000 Ω",
+                "10k"
+              ]
+            },
+            {
+              "names": [
+                "load_reference"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2",
+                "connected to VS / 2",
+                "connected to VS/2"
+              ]
+            }
+          ],
+          "pages": [
+            6
+          ]
+        },
+        "slew_rate": {
+          "values": [
+            "0.5 V/µs"
+          ],
+          "basis": "typical",
+          "conditions": [
+            {
+              "names": [
+                "supply_voltage"
+              ],
+              "values": [
+                "5 to 36 V",
+                "5 V to 36 V",
+                "5–36 V"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "common_mode_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "output_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "load_resistance"
+              ],
+              "values": [
+                "10 kΩ",
+                "10000 Ω",
+                "10k"
+              ]
+            },
+            {
+              "names": [
+                "load_reference"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2",
+                "connected to VS / 2",
+                "connected to VS/2"
+              ]
+            },
+            {
+              "names": [
+                "closed_loop_gain"
+              ],
+              "values": [
+                "1 ratio",
+                "+1",
+                "1",
+                "+1 V/V",
+                "1 V/V"
+              ]
+            }
+          ],
+          "pages": [
+            6
+          ]
+        },
+        "quiescent_current": {
+          "values": [
+            "300 µA"
+          ],
+          "basis": "typical",
+          "conditions": [
+            {
+              "names": [
+                "supply_voltage"
+              ],
+              "values": [
+                "5 V"
+              ],
+              "unit": "V"
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "common_mode_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "output_voltage"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2"
+              ]
+            },
+            {
+              "names": [
+                "load_resistance"
+              ],
+              "values": [
+                "10 kΩ",
+                "10000 Ω",
+                "10k"
+              ]
+            },
+            {
+              "names": [
+                "load_reference"
+              ],
+              "values": [
+                "VS / 2",
+                "VS/2",
+                "Vs / 2",
+                "Vs/2",
+                "connected to VS / 2",
+                "connected to VS/2"
+              ]
+            },
+            {
+              "names": [
+                "output_current"
+              ],
+              "values": [
+                "0 A"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "current_scope"
+              ],
+              "values": [
+                "per amplifier",
+                "per-amplifier"
+              ]
+            }
+          ],
+          "pages": [
+            7
+          ]
+        }
+      },
+      "unsupported_fact_names": [],
+      "review_note": "Rendered PDF pages 4–7 and exact LM358BAIDR ordering row on PDF page 38 (addendum page 6). Supply limits use total rail span. Offset values must pair with temperature and exact grade. Negative bias-current bounds are stored as magnitudes with direction. The 50 nA bound is characterized only (page-7 note 1). Global test supply is 5–36 V with common-mode/output and load reference at half supply. Quiescent 300 µA is typical per amplifier at 5 V and zero output current over the merged −40 to 85 °C cell; do not use 460/800 µA maxima. Equivalent unlisted qualifier wording needs manual review."
     }
   ]
 }

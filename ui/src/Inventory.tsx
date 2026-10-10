@@ -3,6 +3,8 @@ import { PartEditor } from './PartEditor'
 import { QuantityControl } from './QuantityControl'
 import { useQuantities } from './quantityContext'
 import { FieldReviewEditor } from './FieldReviewEditor'
+import { SpecificationResult } from './SpecificationFacts'
+import type { SpecificationState } from './SpecificationFacts'
 import { downloadCSV } from './csv'
 import type { FieldProvenance, FieldReview, Part, PendingReview } from './types'
 import styles from './Inventory.module.css'
@@ -24,6 +26,8 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
   const [savingEdit, setSavingEdit] = useState(false)
   const [deleting, setDeleting] = useState<Set<number>>(new Set())
   const [rowStatus, setRowStatus] = useState<Map<number, string>>(new Map())
+  const [electrical, setElectrical] = useState<Map<number, SpecificationState>>(new Map())
+  const [expandedElectrical, setExpandedElectrical] = useState<Set<number>>(new Set())
   const [expandedProvenance, setExpandedProvenance] = useState<Set<number>>(new Set())
   const [loadingProvenance, setLoadingProvenance] = useState<Set<number>>(new Set())
   const [provenanceByPart, setProvenanceByPart] = useState<Map<number, FieldProvenance[]>>(new Map())
@@ -61,6 +65,10 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
       const resp = await fetch(`/inventory/${id}/refresh`, { method: 'POST' })
       if (!resp.ok) throw new Error(resp.statusText)
       const data = await resp.json()
+      if (data.electrical) {
+        setElectrical(prev => new Map(prev).set(id, data.electrical))
+        setExpandedElectrical(prev => new Set(prev).add(id))
+      }
       const proposed: Record<string, string | number | null> = data.proposed_updates ?? {}
       if (Object.keys(proposed).length > 0) {
         const fields: Record<string, FieldReview> = {}
@@ -75,7 +83,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         setRowStatus(prev => new Map(prev).set(id, refreshStatusMessage(data.outcome, true)))
       } else {
         const candidates = (data.lookup_candidates ?? []) as { part_number: string; manufacturer: string | null }[]
-        const message = refreshStatusMessage(data.outcome, false)
+        const message = data.outcome === 'source_refresh' ? 'Datasheet refresh finished. Review the electrical results below.' : refreshStatusMessage(data.outcome, false)
         const choices = candidates.map(candidate =>
           `${candidate.part_number}${candidate.manufacturer ? ` (${candidate.manufacturer})` : ''}`,
         ).join(', ')
@@ -85,6 +93,42 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
       setRowStatus(prev => new Map(prev).set(id, String(e)))
     } finally {
       setRefreshing(prev => { const next = new Set(prev); next.delete(id); return next })
+    }
+  }
+
+  async function showElectrical(id: number) {
+    if (expandedElectrical.has(id)) {
+      setExpandedElectrical(prev => { const next = new Set(prev); next.delete(id); return next })
+      return
+    }
+    try {
+      const response = await fetch(`/inventory/${id}/specifications`)
+      if (!response.ok) throw new Error(response.statusText)
+      const data: SpecificationState = await response.json()
+      setElectrical(prev => new Map(prev).set(id, data))
+      setExpandedElectrical(prev => new Set(prev).add(id))
+    } catch (e) {
+      setRowStatus(prev => new Map(prev).set(id, String(e)))
+    }
+  }
+
+  async function decideElectrical(id: number, approved: boolean) {
+    const review = electrical.get(id)?.pending_review
+    if (!review) return
+    setAccepting(prev => new Set(prev).add(id))
+    try {
+      const response = await fetch(`/inventory/${id}/specifications/decide`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ review, approved }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail?.message ?? data.detail ?? response.statusText)
+      setElectrical(prev => new Map(prev).set(id, data))
+      setRowStatus(prev => new Map(prev).set(id, approved ? 'Accepted electrical specifications.' : 'Dismissed electrical review.'))
+    } catch (e) {
+      setRowStatus(prev => new Map(prev).set(id, String(e)))
+    } finally {
+      setAccepting(prev => { const next = new Set(prev); next.delete(id); return next })
     }
   }
 
@@ -187,6 +231,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         part_number: draft.part_number?.trim() || null,
         manufacturer: draft.manufacturer?.trim() || null,
         description: draft.description?.trim() || null,
+        datasheet_url: draft.datasheet_url?.trim() || null,
         quantity: Number.isFinite(Number(draft.quantity)) ? Number(draft.quantity) : draft.quantity,
       }
       const resp = await fetch(`/inventory/${id}`, {
@@ -398,7 +443,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                       <td className={styles.td}>{p.value ?? '—'}</td>
                       <td className={styles.td}>{p.package ?? '—'}</td>
                       <td className={styles.td}><QuantityControl part={p} disabled={isEditing || deleting.has(id) || accepting.has(id)} /></td>
-                      <td className={styles.td}>{p.part_number ?? '—'}</td>
+                      <td className={styles.td}>{p.part_number ?? '—'}{p.datasheet_url && <div><a href={p.datasheet_url} target="_blank" rel="noreferrer">Datasheet</a></div>}</td>
                       <td className={styles.td}>{p.manufacturer ?? '—'}</td>
                       <td className={styles.td}>{p.description ?? '—'}</td>
                       <td className={styles.tdAction}>
@@ -432,7 +477,8 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                               >
                                 {loadingProvenance.has(id) ? '…' : (showProvenance ? '⊟' : '⊞')}
                               </button>
-                              {p.part_number && p.id != null && (
+                              <button className={styles.rowIconBtn} onClick={() => void showElectrical(id)} title="Show electrical specifications" aria-label="Show electrical specifications">⚡</button>
+                              {(p.part_number || p.datasheet_url) && p.id != null && (
                                 <button
                                   className={styles.rowRefreshBtn}
                                   disabled={refreshing.has(id)}
@@ -450,6 +496,13 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                     </tr>
                     {isEditing && <tr><td colSpan={8} className={styles.td}>
                       <PartEditor key={id} part={p} saving={savingEdit} onSave={draft => void saveEdit(id, draft)} onCancel={cancelEdit} />
+                    </td></tr>}
+                    {expandedElectrical.has(id) && electrical.get(id) && !isEditing && <tr><td colSpan={8} className={styles.td}>
+                      <SpecificationResult value={electrical.get(id)!} />
+                      {electrical.get(id)?.pending_review && <div className={styles.actionGroup}>
+                        <button disabled={accepting.has(id)} onClick={() => void decideElectrical(id, true)}>Accept electrical specs</button>
+                        <button disabled={accepting.has(id)} onClick={() => void decideElectrical(id, false)}>Dismiss electrical review</button>
+                      </div>}
                     </td></tr>}
                     {review && p.id != null && !isEditing && (
                       <FieldReviewEditor

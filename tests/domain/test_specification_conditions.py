@@ -9,6 +9,7 @@ from domain.specifications import evaluate, validate_requirements
 @pytest.mark.parametrize('left,right', [
     ('18 °C to 22 °C', '20±2°C'), ('18 to 22 °C', '20 °C ± 2 °C'),
     ('-5 °C to 5 °C', '0±5°C'), ('18.0 – 22.00 °C', '20 ± 2 °C'),
+    ('−40°C to +85°C', '-40 to 85 °C'), ('−25 °C', '-25 °C'),
 ])
 def test_equivalent_explicit_intervals_preserve_original_evidence(left, right):
     fact = {'name': 'rated_current', 'value': '0.1 A', 'basis': 'rated',
@@ -32,6 +33,7 @@ def test_split_center_and_tolerance_match_but_additional_conditions_stay_require
     ('20±2°C', '20 °C'), ('20±2°C', '19 °C to 22 °C'), ('room temperature', '25 °C'),
     ('20±-2°C', '18 °C to 22 °C'), ('22 °C to 18 °C', '20±2°C'),
     ('20 °C typical', '20 °C'), ('20±2°C', '68±3.6°F'),
+    ('−40°C to 85°C', '40 to 85 °C'), ('−20±−2°C', '-22 to -18 °C'),
 ])
 def test_no_derating_containment_or_inferred_temperature(left, right):
     assert not same_conditions({'ambient_temperature': left}, {'ambient_temperature': right})

@@ -198,3 +198,24 @@ class TestFieldProvenance:
         conn.close()
 
         assert "evidence" in columns
+
+
+def test_datasheet_link_migration_preserves_old_stock_and_provenance(tmp_path):
+    database = tmp_path / 'old.db'
+    init_db(database)
+    identifier = insert_part(database, DISCRETE_IC)
+    update_fields_with_provenance(database, identifier, {'description': 'Verified original'}, [
+        {'field_name': 'description', 'field_value': 'Verified original', 'source_tier': 'manufacturer',
+         'source_kind': 'pdf', 'source_locator': 'https://example.com/original.pdf',
+         'extraction_method': 'manual', 'confidence_marker': 'reviewed', 'evidence': 'Original source'}])
+    with sqlite3.connect(database) as conn:
+        conn.execute('ALTER TABLE parts DROP COLUMN datasheet_url')
+        before = conn.execute('SELECT * FROM parts').fetchall()
+        columns = [item[1] for item in conn.execute('PRAGMA table_info(parts)')]
+        provenance = conn.execute('SELECT * FROM part_field_provenance').fetchall()
+    init_db(database)
+    init_db(database)
+    with sqlite3.connect(database) as conn:
+        assert conn.execute('SELECT ' + ','.join(columns) + ' FROM parts').fetchall() == before
+        assert conn.execute('SELECT datasheet_url FROM parts').fetchall() == [(None,)]
+        assert conn.execute('SELECT * FROM part_field_provenance').fetchall() == provenance

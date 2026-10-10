@@ -25,6 +25,25 @@ parts and do not establish the identity of your stock. Confirm the full marking
 and manufacturer, edit the inventory identifier through the normal review flow,
 then retry. Candidate discovery does not stage variant metadata or change stock.
 
+When a part has a saved datasheet link, Inventory Fetch specs instead uses that
+source through the supplied-PDF electrical extractor. All categories can store
+an HTTPS link; automatic extraction still requires an exact ordering code and
+a supported electrical category. Links on other hosts remain available to open,
+but the extractor enforces its approved-host policy. Without a saved link,
+supplier lookup can propose a datasheet link alongside metadata and use it for
+electrical extraction. Metadata and electrical reviews remain separate. Resolve
+a pending electrical review before another extraction; reload and open Show
+electrical specifications to recover the review. Accept/dismiss checks the
+displayed review through the shared server approval engine, preserving stock.
+
+The optional `datasheet_url` column is added on application startup. Existing
+rows receive null; IDs, quantities, evidence, reviews and conversation history
+remain stored. Rehearse startup on a SQLite backup before deploying. After an
+upgrade, approvals bound to the previous complete inventory shape can require
+a fresh approval; replay of already committed mutation outcomes remains intact.
+For rollback, the previous application can leave the extra nullable column in
+place. Restore a backup only when explicitly recovering data.
+
 ## Interrupted requests
 
 **Refresh history** reads saved events without repeating work. **Resume request**
@@ -144,6 +163,15 @@ electrical facts. It uses the configured OpenAI model and can incur a paid call.
 Stock without an exact ordering code needs clarification first. Inspect every
 proposed value, qualifier, condition and source passage; authentic quotations do
 not by themselves prove that the model interpreted a table correctly.
+
+Use `bjt` or `mosfet` for identified transistors. For existing generic `transistor`
+records, establish the subtype from an exact identity and request an explicit
+category correction before electrical extraction. Inventory is not automatically
+relabeled. Semiconductor facts need the test conditions returned by the contract;
+previously accepted facts missing required conditions remain stored but become
+incomplete for confirmed matching. Inspect the source and stage a qualified
+replacement through review. MOSFET threshold voltage does not establish fully-on
+gate drive; distinguish diode continuous, repetitive peak and surge ratings.
 
 For operator-inspected evidence, prepare facts using
 [the validated contract](../domain/specifications.py).
