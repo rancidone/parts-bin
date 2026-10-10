@@ -53,6 +53,28 @@ Switching conversations only reads saved events; it never resends a message,
 resumes work, or submits an approval decision. Retired-provider history remains
 selectable but read-only.
 
+## Model context limits
+
+Saved chat history remains complete; the model sees only recent complete turns.
+When a reference depends on older context, restate the relevant details. Photos
+are analyzed on the first model call; attach a new photo for another visual
+inspection.
+
+If a tool result is omitted from model context, inspect its saved result in chat
+history. Narrow read filters or request a smaller page. Pending-review discovery
+supports exact ordering codes, equivalent nominal values, and individual part IDs;
+provenance is available for an individual review.
+
+`context_budget_exceeded` and `model_response_incomplete` end an execution without
+automatic retry. Inspect saved outcomes and stock before starting a narrower
+request: completed mutations remain committed. Refresh history to recover a missed
+acknowledgement; resuming a terminal execution returns the saved outcome.
+
+Supplied-PDF extraction uses selected source excerpts. If these cannot establish
+identity or evidence, provide a shorter datasheet for the exact ordering variant.
+Missing evidence in selected excerpts does not establish that the part is absent
+from the source.
+
 ## Backup and recovery
 
 Find the inventory and conversation database paths in your private configuration.

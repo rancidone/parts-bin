@@ -126,3 +126,40 @@ async def test_electrical_review_includes_concrete_facts_in_approval_event(tmp_p
     assert result.status == 'completed'
     assert service.get_specifications(part.id)['facts'] == [proposed]
     assert any(event.kind == 'approval_decision' for event in store.events('spec-chat'))
+
+
+async def test_history_budget_changes_only_model_context(tmp_path):
+    from agent_runtime import ConversationEvent
+    from agent_runtime.budgets import MAX_HISTORY_BYTES, size
+    runtime, transport, store = build_runtime(tmp_path, [ModelTurn('answer')])
+    store.create_thread('long', 'openai')
+    for i in range(30):
+        store.append(ConversationEvent('user_message', 'long', 'openai', {'text': f'{i}: ' + 'x' * 1000}))
+        store.append(ConversationEvent('assistant_text', 'long', 'openai', {'text': f'reply {i}'}))
+    before = store.events('long')
+    await runtime.run('long', 'latest')
+    assert size(transport.requests[0].history) <= MAX_HISTORY_BYTES
+    assert transport.requests[0].history[0]['role'] == 'developer'
+    assert transport.requests[0].history[-1]['text'] == 'reply 29'
+    assert store.events('long')[:len(before)] == before
+
+
+async def test_budget_failure_finishes_execution_and_preserves_completed_mutation(tmp_path):
+    from domain import GetPartRequest
+    from agent_runtime.budgets import ModelBudgetError
+    runtime, transport, store = build_runtime(tmp_path, [ModelTurn(tool_calls=(ToolCall(
+        'add_part', {'part_category': 'resistor', 'profile': 'passive', 'quantity': 2, 'value': '10k'}, 'a'),))])
+    original_complete = transport.complete
+    async def complete(request):
+        if transport.requests:
+            raise ModelBudgetError('context_budget_exceeded', 'narrow the request')
+        return await original_complete(request)
+    transport.complete = complete
+    result = await runtime.run('budget', 'add resistor')
+    assert result.status == 'failed'
+    assert result.events[-2].data['code'] == 'context_budget_exceeded'
+    assert runtime.registry.service.get(GetPartRequest(1)).quantity == 2
+    assert any(event.kind == 'tool_result' and event.data['result']['ok'] for event in store.events('budget'))
+    replay = await runtime.run('budget', 'resume', execution_id=result.execution_id)
+    assert replay.status == 'failed'
+    assert len(runtime.registry.service.list()) == 1

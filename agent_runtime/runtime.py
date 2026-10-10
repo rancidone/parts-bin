@@ -10,6 +10,7 @@ from uuid import uuid4
 from tools import PartsBinToolRegistry, ToolExecutionContext
 
 from .approval import ApprovalEngine
+from .budgets import ModelBudgetError, bounded_history
 from .models import ApprovalResponse, ConversationEvent, ImageInput, ModelTurn, RuntimeResult
 from .store import ConversationRepository
 from .telemetry import AgentTelemetry, _domain_outcome
@@ -19,11 +20,12 @@ Use electronics knowledge to identify named components, distinguishing it from s
 Before choosing a part_category filter for inventory lookup, call list_categories to discover the exact stored names. Reuse discovery within the current request. Select relevant returned categories instead of guessing labels; search each relevant category when multiple names apply. Category totals include zero-stock records and do not establish electrical suitability.
 For category lookup, op amp, opamp, op-amp, and operational amplifier are search synonyms. Do not infer profile or package filters from a functional category. An empty filtered search only establishes no matches for those filters; relax inferred filters before claiming the inventory contains none.
 For inventory lookup, translate nominal values and required stock into search_parts filters and minimum_quantity. Preserve exact ordering-code suffixes. For a simple lookup without an explicit requested count, omit minimum_quantity and do not repeat an empty value/package search by changing only the stock threshold. If a search for an explicit requested stock count is empty, search the same nominal filters without minimum_quantity, report available quantities per record, and clarify acceptable packages rather than treating distinct variants as interchangeable. An empty stock-constrained result does not mean no parts exist. When no single record has the requested quantity, say that explicitly and ask which package is acceptable; do not answer yes by summing different packages or ordering variants. If package or units are ambiguous, ask a targeted question; do not infer electrical suitability from nominal value, description, or pending enrichment. For electrical requirements, call get_specification_contract for the category, then query supported requirements with explicit units, basis, and conditions. Unknown fields and ambiguous categories need clarification. Preserve requested condition qualifiers in their names (for example, ambient temperature uses ambient_temperature, not temperature). If the qualifier is unclear, inspect get_specifications for the candidate records and ask which conditions apply. Pending electrical ratings live in get_specifications, not list_pending_reviews; read them before making claims about their presence or absence. Compare source-backed matches separately from incomplete candidates; absolute maxima and thresholds do not establish application suitability. User assertions may be staged with stage_specification_review and accepted through apply_specification_review, but remain assertions. Source-backed electrical facts require reviewed source ingestion; lookup_part_specs currently retrieves base metadata only.
-Empty inventory lookups: before giving a final no-match answer for an exact value or ordering code, call list_pending_reviews to check for relevant staged proposals. Repeating the same empty search with a different stock threshold is not that check. For a relevant proposal, call get_part to verify the committed category, package, and quantity. When a pending field proposal matches the requested value or ordering code, mention the proposed value and that it awaits review, even if the committed record does not match. Explain committed stock separately from the pending change; pending proposals do not establish a match. Never apply or reject reviews during a lookup. A pending review fields map contains field objects: read the proposed text from fields[field_name]["value"]. The accepted flag only selects a proposal for review; it does not mean the proposal is committed. After get_part, explicitly name any relevant proposed value and say it awaits review alongside the current committed value.
+Empty inventory lookups: before giving a final no-match answer for an exact value or ordering code, call list_pending_reviews with the requested value or full part_number to check for relevant staged proposals. Follow next_offset with unchanged arguments until null before claiming there are no relevant proposals. Review discovery omits provenance; request include_provenance with a single part_id when evidence is needed. Repeating the same empty search with a different stock threshold is not that check. For a relevant proposal, call get_part to verify the committed category, package, and quantity. When a pending field proposal matches the requested value or ordering code, mention the proposed value and that it awaits review, even if the committed record does not match. Explain committed stock separately from the pending change; pending proposals do not establish a match. Never apply or reject reviews during a lookup. A pending review fields map contains field objects: read the proposed text from fields[field_name]["value"]. The accepted flag only selects a proposal for review; it does not mean the proposal is committed. After get_part, explicitly name any relevant proposed value and say it awaits review alongside the current committed value.
 For descriptions, manufacturer names, partial part numbers, or recorded markings, use search_candidates with a literal fragment. These results identify candidates only. Preserve exact returned ordering codes and suffixes, report stock per record, and clarify ambiguous identity before adding or merging stock. A marking absent from committed descriptions and part numbers cannot be discovered by this tool. Use search_parts for exact ordering-code lookup.
 Search pages: use the returned next_offset with unchanged search arguments and limit to retrieve remaining results when completeness is needed; stop when next_offset is null. Specification matches and incomplete candidates paginate separately using the same offset. Never claim a truncated page is the entire inventory. If stock or accepted facts change during pagination, restart the search.
 Search before adding stock. A matching base part number does not establish that different package variants are the same stock. Clarify before merging uncertain variants. 'I have 10, not 100' sets quantity to 10; it is not an increment.
 Adding an identified IC stages supplier details automatically; inspect the enrichment outcome. Use lookup_part_specs to retry unavailable lookups or enrich existing parts. Explain lookup failures or pending reviews; staged proposals are not committed facts. Submit update_part or apply_review for corrections and accepted enrichment so the server presents approval controls. Do not ask for approval only in prose or claim tools cannot be approved in this session.
+Photos are supplied only on the first model call. Before calling tools for a photo, write a concise description of the visible markings, identity, package, quantity, and uncertainties in your response so subsequent calls can use it. Do not guess unreadable details. If later work needs another look, ask for a new photo.
 If retrieval was interrupted, report it and ask the user for a new lookup request. Do not automatically retry that paid stage within the recovering execution.
 """
 JSON_TOOL_ENVELOPE = '{"type":"parts_bin_tool_call","name":"<registered tool name>","arguments":{}}'
@@ -106,11 +108,11 @@ class OpenAIResponsesRuntime:
         initial = None
         if execution_id is None:
             execution_id = uuid4().hex
-            history = tuple(
+            history = bounded_history(tuple(
                 {"role": "user" if event.kind == "user_message" else "assistant", "text": str(event.data["text"])}
                 for event in self.store.events(thread_id)
                 if event.kind in {"user_message", "assistant_text"} and event.data.get("text")
-            )
+            ))
             initial = _TurnState(thread_id, user_text, image, history=history,
                                  had_image=image is not None).checkpoint()
         worker_id = uuid4().hex
@@ -246,6 +248,10 @@ class OpenAIResponsesRuntime:
                     save()
                 state.pending = None
                 save()
+        except ModelBudgetError as exc:
+            state.error = {"code": exc.code, "message": str(exc)}
+            save("failed")
+            return terminal("failed")
         except Exception:
             self.telemetry.runtime_failure(thread_id, self.runtime, "execution_interrupted")
             raise
@@ -259,8 +265,8 @@ class OpenAIResponsesRuntime:
                        # The registry validates inputs; strict mode would require every field.
                        "strict": False} for tool in self.registry.list_tools())
         return await self.transport.complete(ModelRequest(
-            SYSTEM_INSTRUCTIONS, state.user_text, state.image, tools,
-            tuple(state.exchanges), thread_id=state.thread_id, history=state.history,
+            SYSTEM_INSTRUCTIONS, state.user_text, state.image if state.round == 0 else None, tools,
+            tuple(state.exchanges), thread_id=state.thread_id, history=bounded_history(state.history),
         ))
 
 

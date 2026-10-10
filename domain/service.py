@@ -299,6 +299,35 @@ class PartsBinService:
     def list_pending_reviews(self) -> dict[int, dict]:
         return self.repository.inventory.list_pending_reviews()
 
+    def pending_review_page(self, *, part_id: int | None = None, value: str | None = None,
+                            part_number: str | None = None, limit: int = 20, offset: int = 0,
+                            include_provenance: bool = False) -> dict:
+        """Discover proposed or current identities without dumping the backlog."""
+        validate_page(limit, offset)
+        if include_provenance and part_id is None:
+            raise DomainError(ErrorCode.INVALID_INPUT, 'Review provenance requires one part_id')
+        rows = []
+        for identifier, review in sorted(self.list_pending_reviews().items()):
+            if part_id is not None and identifier != part_id:
+                continue
+            part = self.get(GetPartRequest(identifier))
+            proposed = {name: field['value'] for name, field in review['fields'].items()}
+            if part_number is not None and part_number not in (part.part_number, proposed.get('part_number')):
+                continue
+            if value is not None and not any(
+                candidate is not None and values_match(candidate, value, category)
+                for candidate in (part.value, proposed.get('value'))
+                for category in (part.part_category, proposed.get('part_category', part.part_category))
+            ):
+                continue
+            summary = {'part_id': identifier, 'fields': review['fields'], 'outcome': review['outcome']}
+            if include_provenance:
+                summary['provenance'] = review['provenance']
+            rows.append(summary)
+        following = next_offset(len(rows), limit, offset)
+        return {'reviews': rows[offset:offset + limit], 'count': len(rows),
+                'truncated': following is not None, 'next_offset': following}
+
     def stage_enrichment(self, original: Part, updates: Mapping[str, Any], provenance: list[dict]) -> None:
         """Stage evidenced metadata only if identity and existing review are unchanged."""
         allowed = {"part_number", "manufacturer", "package", "description"}
