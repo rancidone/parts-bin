@@ -121,6 +121,22 @@ an application read/write workflow in that isolated installation. Record elapsed
 recovery time and the backup's age with the exercise. Keep the original local
 data untouched until recovery and any migration have been reviewed.
 
+## Historical passive values
+
+Adding or editing a passive normalizes supported value spellings in the domain.
+For example, editing a resistor to `22K` stores `22k`, and category-specific search
+recognizes either spelling. Unknown units are preserved rather than assigned an
+inferred electrical value. This is spelling normalization; it does not establish
+verified tolerance, power, or other specifications.
+
+Existing rows are not rewritten when the application starts. Search compares
+historical value spellings without changing their timestamps or evidence. If
+several records share a normalized identity, stock increments report a conflict
+with the affected IDs. Inspect the records and their provenance, then explicitly
+resolve their identities; do not automatically combine quantities or delete
+records. An edit that would collide also reports a conflict. Unknown package and
+known package stock remain separate identities.
+
 ## Supplied-source cache recovery
 
 The supplied-source operator command uses a disposable SQLite cache in the

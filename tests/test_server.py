@@ -127,3 +127,16 @@ async def test_message_endpoint_returns_sse_before_turn_finishes(tmp_path):
     # Disconnecting closes the producer, including a still-pending model call.
     await response.body_iterator.aclose()
     await asyncio.wait_for(stopped.wait(), 1)
+
+
+def test_edit_normalizes_value_and_agent_search_finds_it(client):
+    from domain import AddPartRequest, PartFields, SearchPartsRequest
+    http, _path = client
+    service = http.app.state.services.domain
+    added = service.add_part(AddPartRequest(PartFields(
+        'resistor', 'passive', 5, value='10K', package='0603')))
+    edited = http.patch(f'/inventory/{added.id}', json={'part': {'value': '22K'}})
+    assert edited.status_code == 200
+    assert edited.json()['part']['value'] == '22k'
+    found = service.search(SearchPartsRequest({'part_category': 'resistor', 'value': '22K'}))
+    assert [part.id for part in found] == [added.id]

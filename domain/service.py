@@ -11,7 +11,7 @@ from .models import (
     ProvenanceRequest, RejectReviewRequest, SearchPartsRequest,
     UpdatePartRequest, EDITABLE_PART_FIELDS,
 )
-from .normalization import normalize_part_payload, validate_fields
+from .normalization import normalize_part_payload, normalize_value, part_identity, validate_fields, clean_text
 
 SpecFetcher = Callable[[str], Awaitable[dict[str, Any]]]
 _EDITABLE = EDITABLE_PART_FIELDS
@@ -46,11 +46,29 @@ class PartsBinService:
         )
 
     def search(self, request: SearchPartsRequest) -> list[Part]:
-        filters = dict(request.filters)
+        filters = {name: clean_text(value) for name, value in request.filters.items()}
         unknown = set(filters) - {"part_category", "profile", "value", "package", "part_number"}
         if unknown:
             raise DomainError(ErrorCode.INVALID_INPUT, "unsupported search field", details={"fields": sorted(unknown)})
-        return self.repository.inventory.search(filters)
+        if any(value is not None and not isinstance(value, str) for value in filters.values()):
+            raise DomainError(ErrorCode.INVALID_INPUT, "Search filters must be strings or null")
+        # Historical edits can contain unnormalized spellings. Compare values in
+        # the domain without rewriting stored rows, timestamps, or evidence.
+        value = filters.get("value")
+        if value is None:
+            return self.repository.inventory.search(filters)
+        filters.pop("value")
+        matches = []
+        for part in self.repository.inventory.search(filters):
+            if part.value is None:
+                continue
+            if part.part_category.lower() in {"resistor", "capacitor", "inductor"}:
+                matched = normalize_value(part.value, part.part_category) == normalize_value(value, part.part_category)
+            else:
+                matched = part.value == value
+            if matched:
+                matches.append(part)
+        return matches
 
     def list(self) -> list[Part]:
         return self.search(SearchPartsRequest())
@@ -63,7 +81,7 @@ class PartsBinService:
 
     def add_part(self, request: AddPartRequest) -> Part:
         fields = validate_fields(vars(request.fields))
-        duplicate = self.repository.inventory.find_duplicate(fields)
+        duplicate = self.duplicate_for_add(fields)
         if duplicate is not None:
             raise DomainError(ErrorCode.DUPLICATE_PART, "An identical part already exists", details={"part_id": duplicate.id})
         try:
@@ -74,7 +92,7 @@ class PartsBinService:
 
     def add_or_increment(self, request: AddPartRequest) -> Part:
         fields = validate_fields(vars(request.fields))
-        duplicate = self.repository.inventory.find_duplicate(fields)
+        duplicate = self.duplicate_for_add(fields)
         if duplicate is not None:
             self._increment_duplicate(duplicate, fields)
             return self.get(GetPartRequest(duplicate.id))
@@ -86,10 +104,7 @@ class PartsBinService:
         merged: dict[tuple[Any, ...], dict[str, Any]] = {}
         for item in request.items:
             fields = validate_fields(vars(item))
-            if fields.get("part_number"):
-                key = ("part_number", fields["part_number"])
-            else:
-                key = ("identity", fields.get("part_category"), fields.get("value"), fields.get("package"))
+            key = part_identity(fields)
             if key in merged:
                 merged[key]["quantity"] += fields["quantity"]
             else:
@@ -98,8 +113,16 @@ class PartsBinService:
 
     def duplicate_for_add(self, fields: Mapping[str, Any]) -> Part | None:
         candidate = normalize_part_payload(dict(fields))
-        duplicate = self.repository.inventory.find_duplicate(candidate)
-        return duplicate
+        if candidate.get("part_number") is not None:
+            filters = {"part_number": candidate["part_number"]}
+        else:
+            filters = {name: candidate.get(name) for name in ("part_category", "value", "package")}
+        matches = [part for part in self.search(SearchPartsRequest(filters))
+                   if part_identity(vars(part)) == part_identity(candidate)]
+        if len(matches) > 1:
+            raise DomainError(ErrorCode.CONFLICT, "Multiple inventory records have the same normalized identity",
+                              details={"part_ids": [part.id for part in matches]})
+        return matches[0] if matches else None
 
     def _increment_duplicate(self, duplicate: Part, fields: Mapping[str, Any]) -> None:
         quantity = fields.get("quantity")
@@ -137,6 +160,7 @@ class PartsBinService:
             merged = {name: getattr(row, name) for name in _EDITABLE}
             merged.update(request.fields)
             updates.append((row.id, validate_fields(merged)))
+        self._check_replacement_identities(updates)
         try:
             self.repository.inventory.replace_parts(updates)
         except RepositoryConflict as exc:
@@ -188,9 +212,9 @@ class PartsBinService:
         updates = dict(request.updates or {name: item["value"] for name, item in review["fields"].items()})
         if not updates:
             raise DomainError(ErrorCode.INVALID_INPUT, "No updates to apply")
-        self.repository.inventory.update_with_provenance(request.part_id, updates, list(request.provenance) or review["provenance"])
+        result = self.update_with_provenance(request.part_id, updates, list(request.provenance) or review["provenance"])
         self.repository.inventory.clear_pending_review(request.part_id, list(updates))
-        return self.get(GetPartRequest(request.part_id))
+        return result
 
     def reject_review(self, request: RejectReviewRequest) -> None:
         self.get(GetPartRequest(request.part_id))
@@ -209,11 +233,39 @@ class PartsBinService:
     def update_with_provenance(
         self, part_id: int, fields: Mapping[str, Any], provenance: list[Mapping[str, Any]]
     ) -> Part:
-        self.get(GetPartRequest(part_id))
-        self.repository.inventory.update_with_provenance(part_id, dict(fields), [dict(item) for item in provenance])
+        current = self.get(GetPartRequest(part_id))
+        unknown = set(fields) - (_EDITABLE - {"quantity"})
+        if unknown:
+            raise DomainError(ErrorCode.INVALID_INPUT, "unsupported provenance update field",
+                              details={"fields": sorted(unknown)})
+        # These metadata writes historically omit null rather than clearing it.
+        updates = {name: value for name, value in fields.items() if value is not None}
+        cleaned = validate_fields({**vars(current), **updates})
+        updates = {name: cleaned[name] for name in updates}
+        if "part_category" in updates and cleaned["value"] != current.value:
+            updates["value"] = cleaned["value"]
+        self._check_replacement_identities([(part_id, {**vars(current), **updates})])
+        try:
+            self.repository.inventory.update_with_provenance(part_id, updates, [dict(item) for item in provenance])
+        except RepositoryConflict as exc:
+            raise DomainError(ErrorCode.CONFLICT, "Update conflicts with an existing inventory record") from exc
         return self.get(GetPartRequest(part_id))
 
+    def _check_replacement_identities(self, updates: list[tuple[int, dict]]) -> None:
+        replacements = dict(updates)
+        identities = {}
+        # Compare final identities across the batch before writing any row.
+        for part in self.list():
+            identity = part_identity(replacements.get(part.id, vars(part)))
+            identities.setdefault(identity, []).append(part.id)
+        for part_id, fields in updates:
+            collisions = identities.get(part_identity(fields), [])
+            if len(collisions) > 1:
+                raise DomainError(ErrorCode.CONFLICT, "Update conflicts with an existing inventory record",
+                                  details={"part_ids": collisions})
+
     def _replace_one(self, part_id: int, fields: dict) -> None:
+        self._check_replacement_identities([(part_id, fields)])
         try:
             self.repository.inventory.replace_parts([(part_id, fields)])
         except RepositoryConflict as exc:

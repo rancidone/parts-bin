@@ -62,3 +62,12 @@ def test_enrichment_can_stage_inside_unit_of_work(tmp_path):
             {"field_name": "description", "field_value": "PNP transistor", "evidence": "datasheet passage"}])
     assert service.get(GetPartRequest(original.id)).description is None
     assert service.list_pending_reviews()[original.id]["fields"]["description"]["value"] == "PNP transistor"
+
+
+def test_storage_preserves_supplied_representation_without_normalizing(tmp_path):
+    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
+    values = {**fields(), 'value': '22K'}
+    part_id = repository.inventory.insert(values)
+    assert repository.inventory.get(part_id).value == '22K'
+    assert repository.inventory.search({'part_category': 'resistor', 'value': '22k'}) == []
+    assert repository.inventory.search({'part_category': 'resistor', 'value': '22K'})[0].id == part_id
