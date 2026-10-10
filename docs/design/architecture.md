@@ -76,9 +76,16 @@ remain part of identity.
 
 Historical edits may contain noncanonical passive spellings. Value search narrows
 through the repository using the other filters, then compares values using domain
-normalization for each candidate’s category. This preserves stored IDs, quantities,
-timestamps, and evidence
-without a startup rewrite or automatic merge. Duplicate decisions use exact
+nominal unit comparisons for each candidate’s category. Recognized values such
+as `10 kΩ` and `10000r`, or `0.1 µF` and `100nF`, compare with exact decimal
+arithmetic. Stock thresholds apply to each committed record before result limits.
+Other filters, including package and full ordering code, remain exact. This
+preserves stored IDs, quantities, timestamps, and evidence without a startup
+rewrite or automatic merge. Nominal equality is a search property; it does not
+change identity or establish tolerance, power, or electrical suitability. Pending
+reviews cannot satisfy a query. Legacy resistor `m` means mega; explicit SI
+symbols retain case (`MΩ` versus `mΩ`). Unrecognized strings remain spelling
+matches and are not treated as numeric ratings. Duplicate decisions use exact
 normalized identity, including unknown package values rather than treating them
 as wildcards. Ambiguous historical identities require explicit resolution before
 stock increments. Edits and batches check final identities for collisions before

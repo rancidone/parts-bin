@@ -11,7 +11,9 @@ from .models import (
     ProvenanceRequest, RejectReviewRequest, SearchPartsRequest,
     UpdatePartRequest, EDITABLE_PART_FIELDS,
 )
-from .normalization import normalize_part_payload, normalize_value, part_identity, validate_fields, clean_text
+from .normalization import normalize_part_payload, part_identity, validate_fields, clean_text
+
+from .search import values_match
 
 SpecFetcher = Callable[[str], Awaitable[dict[str, Any]]]
 _EDITABLE = EDITABLE_PART_FIELDS
@@ -46,6 +48,9 @@ class PartsBinService:
         )
 
     def search(self, request: SearchPartsRequest) -> list[Part]:
+        if (not isinstance(request.minimum_quantity, int) or isinstance(request.minimum_quantity, bool)
+                or request.minimum_quantity < 0):
+            raise DomainError(ErrorCode.INVALID_INPUT, "minimum_quantity must be a non-negative integer")
         filters = {name: clean_text(value) for name, value in request.filters.items()}
         unknown = set(filters) - {"part_category", "profile", "value", "package", "part_number"}
         if unknown:
@@ -56,14 +61,15 @@ class PartsBinService:
         # the domain without rewriting stored rows, timestamps, or evidence.
         value = filters.get("value")
         if value is None:
-            return self.repository.inventory.search(filters)
+            return [part for part in self.repository.inventory.search(filters)
+                    if part.quantity >= request.minimum_quantity]
         filters.pop("value")
         matches = []
         for part in self.repository.inventory.search(filters):
-            if part.value is None:
+            if part.value is None or part.quantity < request.minimum_quantity:
                 continue
             if part.part_category.lower() in {"resistor", "capacitor", "inductor"}:
-                matched = normalize_value(part.value, part.part_category) == normalize_value(value, part.part_category)
+                matched = values_match(part.value, value, part.part_category)
             else:
                 matched = part.value == value
             if matched:
