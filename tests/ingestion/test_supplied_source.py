@@ -43,6 +43,29 @@ def test_reject_unapproved_urls(url):
         source.checked_url(url)
 
 
+@pytest.mark.parametrize('url', [
+    'https://www.st.com/resource/en/datasheet/bd139.pdf',
+    'https://www.analog.com/media/en/technical-documentation/data-sheets/ad620.pdf',
+    'https://ww1.microchip.com/downloads/en/DeviceDoc/MCP6001-1R-1U-2-4-1-MHz-Low-Power-Op-Amp-DS20001733L.pdf',
+    'https://www.infineon.com/assets/row/public/documents/24/49/infineon-irf120-datasheet-en.pdf',
+    'https://www.nxp.com/docs/en/data-sheet/PCF8574_PCF8574A.pdf',
+    'https://www.diodes.com/datasheet/download/1N4148.pdf',
+    'https://fscdn.rohm.com/en/products/databook/explanation/discrete/transistor/common/transistor_part_number_information_an-e.pdf',
+    'https://product.tdk.com/en/system/files/dam/doc/product/emc/emc/power-line/catalog/pan_en.pdf',
+])
+def test_manufacturer_document_is_allowed(url):
+    assert str(source.checked_url(url)) == url
+
+
+@pytest.mark.parametrize('host', [
+    'www.st.com', 'www.analog.com', 'ww1.microchip.com', 'www.infineon.com',
+    'www.nxp.com', 'www.diodes.com', 'fscdn.rohm.com', 'product.tdk.com',
+])
+def test_manufacturer_lookalike_host_is_rejected(host):
+    with pytest.raises(source.EnrichmentError, match='host is not supported'):
+        source.checked_url(f'https://{host}.evil.example/datasheet.pdf')
+
+
 @pytest.mark.parametrize("change", ["identity", "manufacturer", "quote", "page", "quantity", "empty"])
 def test_reject_untrustworthy_candidate(change):
     result = candidate()

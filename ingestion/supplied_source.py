@@ -25,7 +25,9 @@ from ingestion.errors import EnrichmentError
 POLICY_VERSION = "supplied-pdf-v22"
 ALLOWED_HOSTS = frozenset({"assets.nexperia.com", "www.nexperia.com", "www.ti.com",
                            "www.vishay.com", "www.coilcraft.com", "omronfs.omron.com",
-                           "www.onsemi.com"})
+                           "www.onsemi.com", "www.st.com", "www.analog.com",
+                           "ww1.microchip.com", "www.infineon.com", "www.nxp.com",
+                           "www.diodes.com", "fscdn.rohm.com", "product.tdk.com"})
 MAX_BYTES = 4 * 1024 * 1024
 MAX_PAGES = 80
 MAX_TEXT_CHARS = 120_000
@@ -48,9 +50,14 @@ class Document:
 
 def checked_url(raw: str) -> httpx.URL:
     url = httpx.URL(raw)
-    if (url.scheme != "https" or url.host not in ALLOWED_HOSTS or url.port not in (None, 443)
-            or url.userinfo or url.fragment):
-        raise EnrichmentError("Use an HTTPS PDF URL on an approved manufacturer host")
+    if url.scheme == "file":
+        raise EnrichmentError("This datasheet link points to a local file. Automatic extraction needs an HTTPS manufacturer PDF link. Update the datasheet link in Edit part.")
+    if url.scheme != "https":
+        raise EnrichmentError("Automatic extraction needs an HTTPS manufacturer PDF link. Update the datasheet link in Edit part.")
+    if url.userinfo or url.port not in (None, 443) or url.fragment:
+        raise EnrichmentError("Automatic extraction needs a direct HTTPS PDF link without login details, a custom port, or a page fragment. Update the datasheet link in Edit part.")
+    if url.host not in ALLOWED_HOSTS:
+        raise EnrichmentError("The datasheet link's host is not supported for automatic extraction. Use a manufacturer PDF link from: " + ", ".join(sorted(ALLOWED_HOSTS)) + ". Update the datasheet link in Edit part.")
     return url
 
 

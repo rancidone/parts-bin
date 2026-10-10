@@ -18,8 +18,10 @@ class DatasheetFetcher:
     async def __call__(self, part: Part, source_url: str) -> dict:
         try:
             checked_url(source_url)
+        except EnrichmentError as exc:
+            raise DomainError(ErrorCode.INVALID_INPUT, str(exc)) from exc
         except (ValueError, httpx.InvalidURL) as exc:
-            raise DomainError(ErrorCode.INVALID_INPUT, 'Supply an HTTPS PDF URL on an approved manufacturer host') from exc
+            raise DomainError(ErrorCode.INVALID_INPUT, 'The datasheet link is invalid. Update it in Edit part with an HTTPS manufacturer PDF link.') from exc
         try:
             return await enrich(part.part_number, part.manufacturer, source_url,
                                 api_key=self.api_key, model=self.model, cache=self.cache,
