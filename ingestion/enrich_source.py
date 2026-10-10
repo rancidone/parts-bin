@@ -10,6 +10,7 @@ import tomllib
 import httpx
 
 from domain import GetPartRequest, PartsBinService
+from db.repository import SQLitePartsBinRepository
 from domain.errors import DomainError
 from ingestion.supplied_source import EnrichmentError, ResultCache, enrich, review_result
 
@@ -20,7 +21,7 @@ async def run(args: argparse.Namespace) -> dict:
     db_path = Path(config.get("db", {}).get("path", "data/parts.db"))
     if not db_path.is_file():
         raise EnrichmentError("Inventory database must already exist")
-    service = PartsBinService(db_path)
+    service = PartsBinService(SQLitePartsBinRepository(db_path))
     part = service.get(GetPartRequest(args.part_id))
     if not part.part_number:
         raise EnrichmentError("Part needs an exact part number before enrichment")

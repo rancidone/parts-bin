@@ -1,8 +1,8 @@
 from collections.abc import Awaitable, Callable, Mapping
-from pathlib import Path
+from contextlib import contextmanager
 from typing import Any
 
-from db import persistence
+from .repositories import PartsBinRepository, RepositoryConflict
 
 from .errors import DomainError, ErrorCode
 from .models import (
@@ -20,10 +20,22 @@ _EDITABLE = EDITABLE_PART_FIELDS
 class PartsBinService:
     """The sole owner of inventory identity, validation, and enrichment review rules."""
 
-    def __init__(self, db_path: str | Path, *, spec_fetcher: SpecFetcher | None = None):
-        self.db_path = db_path
+    def __init__(self, repository: PartsBinRepository, *, spec_fetcher: SpecFetcher | None = None):
+        self.repository = repository
         self.spec_fetcher = spec_fetcher
-        persistence.init_db(db_path)
+
+    @contextmanager
+    def transaction(self):
+        """Bind domain operations to the repository's unit of work."""
+        with self.repository.transaction() as repository:
+            yield PartsBinService(repository, spec_fetcher=self.spec_fetcher), repository
+
+    def approval_snapshot(self, part_ids: tuple[int, ...]) -> dict:
+        """Bind an approval to committed targets and their staged evidence."""
+        reviews = self.list_pending_reviews()
+        parts = {part_id: self.repository.inventory.get(part_id) for part_id in part_ids}
+        return {str(part_id): {"part": None if part is None else vars(part),
+                              "review": reviews.get(part_id)} for part_id, part in parts.items()}
 
     @staticmethod
     def should_enrich(part: Mapping[str, Any]) -> bool:
@@ -38,36 +50,34 @@ class PartsBinService:
         unknown = set(filters) - {"part_category", "profile", "value", "package", "part_number"}
         if unknown:
             raise DomainError(ErrorCode.INVALID_INPUT, "unsupported search field", details={"fields": sorted(unknown)})
-        return [Part.from_row(row) for row in persistence.query(self.db_path, filters)]
+        return self.repository.inventory.search(filters)
 
     def list(self) -> list[Part]:
         return self.search(SearchPartsRequest())
 
     def get(self, request: GetPartRequest) -> Part:
-        row = persistence.get_by_id(self.db_path, request.part_id)
+        row = self.repository.inventory.get(request.part_id)
         if row is None:
             raise DomainError(ErrorCode.PART_NOT_FOUND, "Part not found", details={"part_id": request.part_id})
-        return Part.from_row(row)
+        return row
 
     def add_part(self, request: AddPartRequest) -> Part:
         fields = validate_fields(vars(request.fields))
-        duplicate = persistence.find_duplicate(self.db_path, fields)
+        duplicate = self.repository.inventory.find_duplicate(fields)
         if duplicate is not None:
-            raise DomainError(ErrorCode.DUPLICATE_PART, "An identical part already exists", details={"part_id": duplicate["id"]})
+            raise DomainError(ErrorCode.DUPLICATE_PART, "An identical part already exists", details={"part_id": duplicate.id})
         try:
-            part_id = persistence.insert_part(self.db_path, fields)
-        except Exception as exc:
-            if persistence.is_integrity_error(exc):
-                raise DomainError(ErrorCode.DUPLICATE_PART, "An identical part already exists") from exc
-            raise
+            part_id = self.repository.inventory.insert(fields)
+        except RepositoryConflict as exc:
+            raise DomainError(ErrorCode.DUPLICATE_PART, "An identical part already exists") from exc
         return self.get(GetPartRequest(part_id))
 
     def add_or_increment(self, request: AddPartRequest) -> Part:
         fields = validate_fields(vars(request.fields))
-        duplicate = persistence.find_duplicate(self.db_path, fields)
+        duplicate = self.repository.inventory.find_duplicate(fields)
         if duplicate is not None:
             self._increment_duplicate(duplicate, fields)
-            return self.get(GetPartRequest(duplicate["id"]))
+            return self.get(GetPartRequest(duplicate.id))
         return self.add_part(AddPartRequest(PartFields.from_mapping(fields)))
 
     def add_parts(self, request: AddPartsRequest) -> list[Part]:
@@ -88,20 +98,20 @@ class PartsBinService:
 
     def duplicate_for_add(self, fields: Mapping[str, Any]) -> Part | None:
         candidate = normalize_part_payload(dict(fields))
-        duplicate = persistence.find_duplicate(self.db_path, candidate)
-        return Part.from_row(duplicate) if duplicate is not None else None
+        duplicate = self.repository.inventory.find_duplicate(candidate)
+        return duplicate
 
-    def _increment_duplicate(self, duplicate: Mapping[str, Any], fields: Mapping[str, Any]) -> None:
+    def _increment_duplicate(self, duplicate: Part, fields: Mapping[str, Any]) -> None:
         quantity = fields.get("quantity")
         if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity <= 0:
             raise DomainError(ErrorCode.INVALID_INPUT, "quantity must be a positive integer")
-        persistence.increment_stock(self.db_path, duplicate["id"], quantity)
+        self.repository.inventory.increment_stock(duplicate.id, quantity)
 
     def add_stock(self, request: AddStockRequest) -> Part:
         if not isinstance(request.quantity, int) or isinstance(request.quantity, bool) or request.quantity <= 0:
             raise DomainError(ErrorCode.INVALID_INPUT, "quantity must be a positive integer")
         self.get(GetPartRequest(request.part_id))
-        persistence.increment_stock(self.db_path, request.part_id, request.quantity)
+        self.repository.inventory.increment_stock(request.part_id, request.quantity)
         return self.get(GetPartRequest(request.part_id))
 
     def update_part(self, request: UpdatePartRequest) -> Part:
@@ -113,7 +123,7 @@ class PartsBinService:
         merged.update(request.fields)
         cleaned = validate_fields(merged)
         self._replace_one(request.part_id, cleaned)
-        persistence.clear_pending_review(self.db_path, request.part_id)
+        self.repository.inventory.clear_pending_review(request.part_id)
         return self.get(GetPartRequest(request.part_id))
 
     def bulk_update(self, request: BulkUpdateRequest) -> list[Part]:
@@ -128,18 +138,16 @@ class PartsBinService:
             merged.update(request.fields)
             updates.append((row.id, validate_fields(merged)))
         try:
-            persistence.replace_parts_atomic(self.db_path, updates)
-        except Exception as exc:
-            if persistence.is_integrity_error(exc):
-                raise DomainError(ErrorCode.CONFLICT, "Bulk update conflicts with an existing inventory record") from exc
-            raise
+            self.repository.inventory.replace_parts(updates)
+        except RepositoryConflict as exc:
+            raise DomainError(ErrorCode.CONFLICT, "Bulk update conflicts with an existing inventory record") from exc
         for part_id, _ in updates:
-            persistence.clear_pending_review(self.db_path, part_id)
+            self.repository.inventory.clear_pending_review(part_id)
         return [self.get(GetPartRequest(part_id)) for part_id in request.part_ids]
 
     def delete_part(self, request: DeletePartRequest) -> None:
         self.get(GetPartRequest(request.part_id))
-        persistence.delete_part(self.db_path, request.part_id)
+        self.repository.inventory.delete(request.part_id)
 
     async def fetch_and_stage_specs(self, request: FetchSpecsRequest) -> dict[str, Any]:
         part = self.get(GetPartRequest(request.part_id))
@@ -150,11 +158,11 @@ class PartsBinService:
         result = await self.spec_fetcher(part.part_number)
         updates = result.get("chosen_updates", {})
         if updates:
-            persistence.save_pending_review(self.db_path, part.id, updates, result.get("durable_provenance", []))
+            self.repository.inventory.save_pending_review(part.id, updates, result.get("durable_provenance", []))
         return {"part": part, **result}
 
     def list_pending_reviews(self) -> dict[int, dict]:
-        return persistence.list_pending_reviews(self.db_path)
+        return self.repository.inventory.list_pending_reviews()
 
     def stage_enrichment(self, original: Part, updates: Mapping[str, Any], provenance: list[dict]) -> None:
         """Stage evidenced metadata only if identity and existing review are unchanged."""
@@ -169,8 +177,7 @@ class PartsBinService:
                     or by_field[name].get("field_value") != value
                     or not by_field[name].get("evidence")):
                 raise DomainError(ErrorCode.INVALID_INPUT, "Enrichment requires evidence for each proposed field")
-        if not persistence.stage_enrichment_if_unchanged(
-                self.db_path, original.id, vars(original), dict(updates), provenance):
+        if not self.repository.inventory.stage_enrichment_if_unchanged(original, dict(updates), provenance):
             raise DomainError(ErrorCode.CONFLICT, "Part metadata or pending review changed during enrichment")
 
     def apply_review(self, request: ApplyReviewRequest) -> Part:
@@ -181,8 +188,8 @@ class PartsBinService:
         updates = dict(request.updates or {name: item["value"] for name, item in review["fields"].items()})
         if not updates:
             raise DomainError(ErrorCode.INVALID_INPUT, "No updates to apply")
-        persistence.update_fields_with_provenance(self.db_path, request.part_id, updates, list(request.provenance) or review["provenance"])
-        persistence.clear_pending_review(self.db_path, request.part_id, list(updates))
+        self.repository.inventory.update_with_provenance(request.part_id, updates, list(request.provenance) or review["provenance"])
+        self.repository.inventory.clear_pending_review(request.part_id, list(updates))
         return self.get(GetPartRequest(request.part_id))
 
     def reject_review(self, request: RejectReviewRequest) -> None:
@@ -191,30 +198,28 @@ class PartsBinService:
             review = self.list_pending_reviews().get(request.part_id)
             if review is None:
                 raise DomainError(ErrorCode.REVIEW_NOT_FOUND, "Pending review not found")
-            persistence.clear_pending_review(self.db_path, request.part_id, list(request.fields))
+            self.repository.inventory.clear_pending_review(request.part_id, list(request.fields))
         else:
-            persistence.clear_pending_review(self.db_path, request.part_id)
+            self.repository.inventory.clear_pending_review(request.part_id)
 
     def provenance(self, request: ProvenanceRequest) -> list[dict]:
         self.get(GetPartRequest(request.part_id))
-        return persistence.list_field_provenance(self.db_path, request.part_id)
+        return self.repository.inventory.list_provenance(request.part_id)
 
     def update_with_provenance(
         self, part_id: int, fields: Mapping[str, Any], provenance: list[Mapping[str, Any]]
     ) -> Part:
         self.get(GetPartRequest(part_id))
-        persistence.update_fields_with_provenance(self.db_path, part_id, dict(fields), [dict(item) for item in provenance])
+        self.repository.inventory.update_with_provenance(part_id, dict(fields), [dict(item) for item in provenance])
         return self.get(GetPartRequest(part_id))
 
     def _replace_one(self, part_id: int, fields: dict) -> None:
         try:
-            persistence.replace_parts_atomic(self.db_path, [(part_id, fields)])
-        except Exception as exc:
-            if persistence.is_integrity_error(exc):
-                raise DomainError(ErrorCode.CONFLICT, "Update conflicts with an existing inventory record") from exc
-            raise
+            self.repository.inventory.replace_parts([(part_id, fields)])
+        except RepositoryConflict as exc:
+            raise DomainError(ErrorCode.CONFLICT, "Update conflicts with an existing inventory record") from exc
 
 
-def update_fields_with_provenance(db_path: str | Path, part_id: int, fields: Mapping[str, Any], provenance: list[Mapping[str, Any]]) -> Part:
+def update_fields_with_provenance(repository: PartsBinRepository, part_id: int, fields: Mapping[str, Any], provenance: list[Mapping[str, Any]]) -> Part:
     """Domain entry point for updating fields together with their provenance."""
-    return PartsBinService(db_path).update_with_provenance(part_id, fields, provenance)
+    return PartsBinService(repository).update_with_provenance(part_id, fields, provenance)

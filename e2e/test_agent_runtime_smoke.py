@@ -2,6 +2,7 @@
 
 import os
 import pytest
+from db.repository import SQLitePartsBinRepository
 
 from agent_runtime import ApprovalEngine, ConversationStore, OpenAIResponsesRuntime, OpenAIResponsesTransport
 from domain import PartsBinService
@@ -13,9 +14,10 @@ from .conftest import requires_agent_smoke
 @requires_agent_smoke
 async def test_configured_runtime_answers_with_normalized_events(tmp_path):
     transport = OpenAIResponsesTransport(api_key=os.environ["OPENAI_API_KEY"], model=os.environ["PARTS_BIN_OPENAI_MODEL"])
+    repository = SQLitePartsBinRepository(tmp_path / "parts.db")
     runtime = OpenAIResponsesRuntime(transport,
-        registry=PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db")),
-        store=ConversationStore(tmp_path / "conversations.db"), approvals=ApprovalEngine())
+        registry=PartsBinToolRegistry(PartsBinService(repository)),
+        store=ConversationStore(tmp_path / "conversations.db"), approvals=ApprovalEngine(repository))
     try:
         result = await runtime.run("smoke", "Reply with a short greeting and do not use tools.")
         assert result.status == "completed"

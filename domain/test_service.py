@@ -1,4 +1,5 @@
 import pytest
+from db.repository import SQLitePartsBinRepository
 
 from domain import (
     AddPartRequest, AddStockRequest, BulkUpdateRequest, DomainError,
@@ -18,7 +19,7 @@ def fields(**overrides):
 
 
 def test_add_part_normalizes_and_rejects_duplicate(tmp_path):
-    service = PartsBinService(tmp_path / "parts.db")
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"))
     part = service.add_part(AddPartRequest(fields()))
     assert part.value == "10k"
     with pytest.raises(DomainError) as error:
@@ -27,7 +28,7 @@ def test_add_part_normalizes_and_rejects_duplicate(tmp_path):
 
 
 def test_add_stock_and_atomic_bulk_update(tmp_path):
-    service = PartsBinService(tmp_path / "parts.db")
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"))
     first = service.add_part(AddPartRequest(fields()))
     second = service.add_part(AddPartRequest(fields(value="22k")))
     updated = service.add_stock(AddStockRequest(first.id, 3))
@@ -37,7 +38,7 @@ def test_add_stock_and_atomic_bulk_update(tmp_path):
 
 
 def test_bulk_update_validates_every_selected_part_before_writing(tmp_path):
-    service = PartsBinService(tmp_path / "parts.db")
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"))
     first = service.add_part(AddPartRequest(fields()))
     second = service.add_part(AddPartRequest(fields(value="22k")))
     with pytest.raises(DomainError) as error:
@@ -48,7 +49,7 @@ def test_bulk_update_validates_every_selected_part_before_writing(tmp_path):
 
 
 def test_update_repairs_historical_passive_slot_mixup(tmp_path):
-    service = PartsBinService(tmp_path / "parts.db")
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"))
     part = service.add_part(AddPartRequest(fields(value="100n", package="0402")))
     updated = service.update_part(UpdatePartRequest(part.id, {
         "profile": "discrete_ic", "value": "0603", "package": "0603", "part_number": "1uF",
@@ -56,3 +57,30 @@ def test_update_repairs_historical_passive_slot_mixup(tmp_path):
     assert updated.profile == "passive"
     assert updated.value == "1uF"
     assert updated.part_number is None
+
+
+def test_domain_validation_works_with_injected_storage_without_sqlite():
+    from unittest.mock import Mock
+    from domain.repositories import InventoryRepository, PartsBinRepository
+
+    repository = Mock(spec=PartsBinRepository)
+    repository.inventory = Mock(spec=InventoryRepository)
+    service = PartsBinService(repository)
+    with pytest.raises(DomainError) as error:
+        service.add_part(AddPartRequest(fields(quantity=-1)))
+    assert error.value.code == ErrorCode.INVALID_INPUT
+    repository.inventory.insert.assert_not_called()
+    repository.inventory.find_duplicate.assert_not_called()
+
+
+def test_storage_conflicts_are_mapped_to_domain_errors_without_backend_details():
+    from unittest.mock import Mock
+    from domain.repositories import InventoryRepository, PartsBinRepository, RepositoryConflict
+
+    repository = Mock(spec=PartsBinRepository)
+    repository.inventory = Mock(spec=InventoryRepository)
+    repository.inventory.find_duplicate.return_value = None
+    repository.inventory.insert.side_effect = RepositoryConflict("backend constraint")
+    with pytest.raises(DomainError) as error:
+        PartsBinService(repository).add_part(AddPartRequest(fields()))
+    assert error.value.code == ErrorCode.DUPLICATE_PART

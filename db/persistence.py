@@ -10,6 +10,7 @@ import io
 import json
 import re
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -143,7 +144,49 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _connect(db_path: str | Path) -> sqlite3.Connection:
+class TransactionConnection:
+    """Borrow a connection without committing or closing its owner's transaction."""
+
+    def __init__(self, connection: sqlite3.Connection):
+        self.connection = connection
+        self._savepoints: list[str] = []
+        self._sequence = 0
+
+    def execute(self, *args):
+        return self.connection.execute(*args)
+
+    def __enter__(self):
+        name = f"inventory_{self._sequence}"
+        self._sequence += 1
+        self.connection.execute(f"SAVEPOINT {name}")
+        self._savepoints.append(name)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        name = self._savepoints.pop()
+        if exc_type is not None:
+            self.connection.execute(f"ROLLBACK TO {name}")
+        self.connection.execute(f"RELEASE {name}")
+        return False
+
+    def close(self):
+        pass
+
+
+@contextmanager
+def transaction(db_path: str | Path):
+    conn = _connect(db_path)
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            yield TransactionConnection(conn)
+    finally:
+        conn.close()
+
+
+def _connect(db_path: str | Path | TransactionConnection) -> sqlite3.Connection | TransactionConnection:
+    if isinstance(db_path, TransactionConnection):
+        return db_path
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -504,7 +547,8 @@ def stage_enrichment_if_unchanged(
     conn = _connect(db_path)
     try:
         with conn:
-            conn.execute("BEGIN IMMEDIATE")
+            if not isinstance(conn, TransactionConnection):
+                conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
             metadata = ("part_number", "manufacturer", "package", "description", "profile", "part_category", "value")
             if row is None or any(row[name] != original[name] for name in metadata):

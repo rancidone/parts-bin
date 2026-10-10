@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 
 import pytest
+from db.repository import SQLitePartsBinRepository
 from starlette.testclient import TestClient
 
 with TemporaryDirectory() as setup_dir:
@@ -20,10 +21,11 @@ from db.persistence import init_db
 def client(tmp_path):
     db_path = tmp_path / "parts.db"
     init_db(db_path)
-    from agent_runtime import AgentGateway, ConversationStore
+    from agent_runtime import AgentGateway, ApprovalEngine, ConversationStore
     store = ConversationStore(db_path)
     gateway = AgentGateway(store, server._make_agent_runtime)
-    with patch.object(server, "_DB_PATH", db_path), patch.object(server, "_conversation_store", store), patch.object(server, "_agent_gateway", gateway):
+    repository = SQLitePartsBinRepository(db_path)
+    with patch.object(server, "_DB_PATH", db_path), patch.object(server, "_repository", repository), patch.object(server, "_conversation_store", store), patch.object(server, "_approval_engine", ApprovalEngine(repository)), patch.object(server, "_agent_gateway", gateway):
         with TestClient(server.app, raise_server_exceptions=True) as test_client:
             yield test_client, db_path
 
@@ -93,8 +95,9 @@ async def test_message_endpoint_returns_sse_before_turn_finishes(tmp_path, monke
                 stopped.set()
 
     store = ConversationStore(tmp_path / "conversation.db")
+    repository = SQLitePartsBinRepository(tmp_path / "parts.db")
     gateway = AgentGateway(store, lambda: OpenAIResponsesRuntime(PausedTransport(),
-        registry=PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db")), store=store, approvals=ApprovalEngine()))
+        registry=PartsBinToolRegistry(PartsBinService(repository)), store=store, approvals=ApprovalEngine(repository)))
     monkeypatch.setattr(server, "_agent_gateway", gateway)
     thread = gateway.create_thread()
     response = await asyncio.wait_for(server.submit_agent_message(thread, "search", None), 1)

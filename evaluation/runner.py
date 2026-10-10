@@ -23,6 +23,7 @@ from agent_runtime import (
 
 from domain import PartsBinService
 from db import persistence
+from db.repository import SQLitePartsBinRepository
 from tools import PartsBinToolRegistry
 
 SCENARIOS_PATH = Path(__file__).with_name("scenarios.json")
@@ -72,9 +73,10 @@ class RecordedTransport:
 
 
 def default_runtime_factory(runtime: str, database: Path, turns: list[ModelTurn]):
-    service = PartsBinService(database, spec_fetcher=_recorded_specs)
+    repository = SQLitePartsBinRepository(database)
+    service = PartsBinService(repository, spec_fetcher=_recorded_specs)
     registry = PartsBinToolRegistry(service)
-    common = {"registry": registry, "store": ConversationStore(database.with_suffix(".events.db")), "approvals": ApprovalEngine()}
+    common = {"registry": registry, "store": ConversationStore(database.with_suffix(".events.db")), "approvals": ApprovalEngine(repository)}
     transport = RecordedTransport(turns)
     if runtime != "openai":
         raise ValueError("Only the OpenAI runtime is supported")
@@ -107,7 +109,7 @@ def _turn(raw: dict[str, Any]) -> ModelTurn:
 
 
 def _seed(database: Path, state: dict[str, Any]) -> None:
-    service = PartsBinService(database)
+    service = PartsBinService(SQLitePartsBinRepository(database))
     parts = list(state.get("parts", []))
     large = state.get("large_inventory")
     if large:

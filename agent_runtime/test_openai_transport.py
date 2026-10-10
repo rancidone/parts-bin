@@ -4,6 +4,7 @@ import json
 
 import httpx
 import pytest
+from db.repository import SQLitePartsBinRepository
 
 from agent_runtime import ApprovalEngine, ConversationStore, ImageInput, OpenAIResponsesRuntime, OpenAIResponsesTransport
 from agent_runtime.runtime import ModelRequest
@@ -28,8 +29,9 @@ async def test_tool_continuation_preserves_response_items_without_duplicate_call
     client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     transport = OpenAIResponsesTransport(api_key="test-only", model="test-model", client=client)
     store = ConversationStore(tmp_path / "parts.db")
-    runtime = OpenAIResponsesRuntime(transport, registry=PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db")),
-                                    store=store, approvals=ApprovalEngine())
+    repository = SQLitePartsBinRepository(tmp_path / "parts.db")
+    runtime = OpenAIResponsesRuntime(transport, registry=PartsBinToolRegistry(PartsBinService(repository)),
+                                    store=store, approvals=ApprovalEngine(repository))
     try:
         result = await runtime.run("thread", "Find this part", image=ImageInput("image/png", "AA=="))
     finally:

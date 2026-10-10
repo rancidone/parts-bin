@@ -1,5 +1,6 @@
 
 import pytest
+from db.repository import SQLitePartsBinRepository
 
 from domain import AddPartRequest, PartFields, PartsBinService
 from tools import ApprovalReceipt, PartsBinToolRegistry, ToolExecutionContext
@@ -13,7 +14,7 @@ def _fields(**overrides):
 
 @pytest.fixture
 def registry(tmp_path):
-    return PartsBinToolRegistry(PartsBinService(tmp_path / "parts.db"), approval_checker=lambda _name, _args: True)
+    return PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db")), approval_checker=lambda _name, _args: True)
 
 
 @pytest.mark.asyncio
@@ -56,7 +57,7 @@ async def test_registry_completes_every_inventory_workflow(tmp_path):
             "outcome": "match",
         }
 
-    service = PartsBinService(tmp_path / "parts.db", spec_fetcher=fetcher)
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"), spec_fetcher=fetcher)
     registry = PartsBinToolRegistry(service, approval_checker=lambda _name, _args: True)
     requests = []
 
@@ -96,7 +97,7 @@ async def test_add_ic_stages_specs_without_overwriting_inventory(tmp_path):
     from unittest.mock import AsyncMock
     from domain import GetPartRequest
     fetcher = AsyncMock(return_value={"status": "matched", "chosen_updates": {"description": "Dual operational amplifier"}})
-    service = PartsBinService(tmp_path / "parts.db", spec_fetcher=fetcher)
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"), spec_fetcher=fetcher)
     registry = PartsBinToolRegistry(service)
     outcome = await registry.execute("add_part", {"part_category": "operational amplifier", "profile": "discrete_ic", "part_number": "NE5532", "quantity": 10, "package": "DIP"})
     assert outcome["ok"]
@@ -109,7 +110,7 @@ async def test_add_ic_stages_specs_without_overwriting_inventory(tmp_path):
 @pytest.mark.asyncio
 async def test_supplier_failure_does_not_fail_successful_ic_add(tmp_path):
     from unittest.mock import AsyncMock
-    service = PartsBinService(tmp_path / "parts.db", spec_fetcher=AsyncMock(side_effect=RuntimeError("offline")))
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"), spec_fetcher=AsyncMock(side_effect=RuntimeError("offline")))
     outcome = await PartsBinToolRegistry(service).execute("add_part", {"part_category": "operational amplifier", "profile": "discrete_ic", "part_number": "UA741CN", "quantity": 6})
     assert outcome["ok"]
     assert outcome["result"]["enrichment"]["status"] == "failed"

@@ -50,6 +50,50 @@ establish a zero-retention policy. See
 
 ## Data ownership
 
+### Repository boundary
+
+Inject storage into the domain service instead of making inventory rules open a
+database or select a backend. Typed repository contracts live in
+[domain/repositories.py](../../domain/repositories.py); the local implementation
+is [the SQLite adapter](../../db/repository.py). Application entry points choose
+the adapter explicitly. SQL, connection lifecycle, schema initialization, and
+backend exception translation belong in storage adapters.
+
+The boundary includes a unit of work shared by inventory, pending evidence, and
+approval outcomes. A cloud implementation must preserve the same conditional
+write, atomic commit, rollback, and retry semantics. A CRUD interface that stores
+inventory and operation outcomes independently would lose that guarantee.
+Backend-specific constraints must become repository errors before reaching
+domain rules. Keep existing SQLite data and schema readable during this refactor.
+
+Conversation history has a separate injected repository contract because visible
+events are published outside the inventory transaction. Disposable supplier caches
+remain separate from authoritative storage. Select a cloud database and migration
+procedure before adding its adapter; do not introduce a runtime picker or an
+unimplemented cloud backend as part of this boundary.
+
+### Approval continuation
+
+Keep approval requests, final decisions, and mutation outcomes in the inventory
+database so an approved effect and its saved result can share one transaction.
+Conversation events may live separately; their publication is outside that
+transaction and must not be treated as proof that an operation was uncommitted.
+Each proposal gets a unique operation ID scoped to its conversation, even when
+another proposal has identical arguments. Duplicate approval delivery returns
+the saved outcome rather than repeating the mutation.
+
+Bind proposals to a snapshot of their target records and pending evidence,
+including record timestamps. Revalidate under the write transaction before the
+effect. A changed target requires a fresh proposal and approval. This conservative
+policy also rejects intervening quantity changes instead of silently applying
+an old review to new stock state.
+
+Keep provider calls outside this transaction. Approval continuation covers the
+approval-gated tools; it does not establish recovery or deduplication for an
+entire model turn, ordinary additions, enrichment retrieval, or event publication.
+
+### Authoritative records
+
 Committed inventory is authoritative. User assertions, proposed enrichment, and
 accepted provenance have different meanings and must remain distinguishable.
 Search answers must come from committed inventory, not model memory or pending

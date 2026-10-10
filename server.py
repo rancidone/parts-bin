@@ -20,7 +20,8 @@ from agent_runtime import (
     OpenAIResponsesRuntime, OpenAIResponsesTransport, UnsupportedRuntimeError,
 )
 from agent_runtime.telemetry import AgentTelemetry
-from db.persistence import export_csv, init_db, list_all
+from db.persistence import export_csv
+from db.repository import SQLitePartsBinRepository
 from domain import (
     ApplyReviewRequest, DeletePartRequest, DomainError, FetchSpecsRequest,
     PartsBinService, ProvenanceRequest, RejectReviewRequest, UpdatePartRequest,
@@ -47,6 +48,7 @@ log.init()
 _logger = log.get_logger("parts_bin.server")
 _cfg = _load_config()
 _DB_PATH = Path(_cfg["db"]["path"])
+_repository = SQLitePartsBinRepository(_DB_PATH)
 _agent_cfg = _cfg.get("agent", {})
 _openai_cfg = _agent_cfg.get("openai", {})
 _search_cfg = _cfg.get("search")
@@ -57,7 +59,6 @@ _DIGIKEY_CREDS: dict | None = (
 
 app = FastAPI(title="Parts Bin")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-init_db(_DB_PATH)
 
 
 def _domain_service() -> PartsBinService:
@@ -66,7 +67,7 @@ def _domain_service() -> PartsBinService:
             part_number, _DIGIKEY_CREDS,
             search_config=_search_cfg,
         )
-    return PartsBinService(_DB_PATH, spec_fetcher=fetcher)
+    return PartsBinService(_repository, spec_fetcher=fetcher)
 
 
 def _domain_error(exc: DomainError) -> HTTPException:
@@ -90,7 +91,7 @@ def _make_agent_runtime():
 
 
 _conversation_store = ConversationStore(_agent_cfg.get("conversation_db_path", str(_DB_PATH)))
-_approval_engine = ApprovalEngine()
+_approval_engine = ApprovalEngine(_repository)
 _agent_telemetry = AgentTelemetry()
 _agent_gateway = AgentGateway(_conversation_store, _make_agent_runtime, telemetry=_agent_telemetry)
 
@@ -221,7 +222,7 @@ async def delete_inventory_part(part_id: int) -> dict:
 
 @app.get("/inventory/export.csv")
 async def inventory_csv():
-    return StreamingResponse(iter([export_csv(list_all(_DB_PATH))]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=inventory.csv"})
+    return StreamingResponse(iter([export_csv([vars(part) for part in _domain_service().list()])]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=inventory.csv"})
 
 
 @app.post("/inventory/{part_id}/refresh")

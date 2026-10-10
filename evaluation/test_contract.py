@@ -44,7 +44,8 @@ def test_canonical_contract_exposes_no_generic_or_direct_database_tool():
     from domain import PartsBinService
     from tools import PartsBinToolRegistry
 
-    names = {tool["name"] for tool in PartsBinToolRegistry(PartsBinService(":memory:")).list_tools()}
+    from db.repository import SQLitePartsBinRepository
+    names = {tool["name"] for tool in PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(":memory:"))).list_tools()}
     forbidden = {"sql", "query_sql", "db" + "_action", "run_action", "patch", "shell", "web"}
     assert not names & forbidden
 
