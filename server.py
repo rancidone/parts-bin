@@ -212,7 +212,7 @@ async def refresh_part(request: Request, part_id: int) -> dict:
     except DomainError as exc:
         raise _domain_error(exc) from exc
     _logger.info("refresh proposed", extra={"part_id": part_id, "latency_ms": round((perf_counter() - started) * 1000, 1)})
-    return {"part": vars(result["part"]), "proposed_updates": result["chosen_updates"], "provenance": result["durable_provenance"], "outcome": result["outcome"], "withheld_candidates": result.get("withheld_candidates", {})}
+    return {"part": vars(result["part"]), "proposed_updates": result["chosen_updates"], "provenance": result["durable_provenance"], "outcome": result["outcome"], "withheld_candidates": result.get("withheld_candidates", {}), "lookup_candidates": result.get("lookup_candidates", []), "candidate_count": result.get("candidate_count", 0)}
 
 
 @router.post("/inventory/{part_id}/accept")

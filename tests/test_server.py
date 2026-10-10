@@ -88,6 +88,37 @@ def test_inventory_still_opens(client):
     assert response.json() == []
 
 
+def test_refresh_exposes_supplier_candidates_without_changing_stock_or_existing_review(client):
+    from unittest.mock import AsyncMock
+    from domain import AddPartRequest, PartFields
+    from tools import PartsBinToolRegistry
+    import asyncio
+
+    http, _ = client
+    service = http.app.state.services.domain
+    part = service.add_part(AddPartRequest(PartFields(
+        part_category="audio amplifier", profile="discrete_ic", quantity=3, part_number="LM386")))
+    service.repository.inventory.save_pending_review(part.id, {"description": "existing review"}, [])
+    candidates = [{"part_number": "LM386N-1/NOPB", "manufacturer": "Texas Instruments",
+                   "source_locator": "https://www.digikey.com/example"}]
+    service.spec_fetcher = AsyncMock(return_value={
+        "outcome": "needs_clarification", "chosen_updates": {}, "durable_provenance": [],
+        "lookup_candidates": candidates, "candidate_count": 34,
+    })
+    before = service.list()
+    reviews = service.list_pending_reviews()
+    response = http.post(f"/inventory/{part.id}/refresh")
+    assert response.status_code == 200
+    assert response.json()["outcome"] == "needs_clarification"
+    assert response.json()["lookup_candidates"] == candidates
+    assert response.json()["candidate_count"] == 34
+    result = asyncio.run(PartsBinToolRegistry(service).execute("lookup_part_specs", {"part_id": part.id}))
+    assert result["result"]["lookup_candidates"] == candidates
+    assert result["result"]["candidate_count"] == 34
+    assert service.list() == before
+    assert service.list_pending_reviews() == reviews
+
+
 def test_resume_endpoint_checks_execution_identity(client):
     thread = client[0].post("/agent/threads").json()["thread_id"]
     assert client[0].post(f"/agent/threads/{thread}/resume", data={"execution_id": " "}).status_code == 422

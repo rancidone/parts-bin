@@ -220,7 +220,7 @@ class PartsBinToolRegistry:
             return {"part_id": args["part_id"], "deleted": True}
         if name == "lookup_part_specs":
             result = await self.service.fetch_and_stage_specs(FetchSpecsRequest(args["part_id"]))
-            return {key: (_compact_part(value) if key == "part" else value) for key, value in result.items() if key in {"part", "chosen_updates", "provider", "outcome", "status", "tried_providers"}}
+            return {key: (_compact_part(value) if key == "part" else value) for key, value in result.items() if key in {"part", "chosen_updates", "provider", "outcome", "status", "tried_providers", "lookup_candidates", "candidate_count"}}
         if name == "list_pending_reviews":
             return self.service.pending_review_page(**args)
         if name == "apply_review":

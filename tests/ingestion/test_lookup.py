@@ -53,6 +53,8 @@ class TestLookupResolution:
             requests.append(request)
             if request.url.path == "/v1/oauth2/token":
                 return httpx.Response(200, json={"access_token": "test-token"})
+            if request.url.path == "/products/v4/search/keyword":
+                return httpx.Response(200, json={"Products": [], "ProductsCount": 0})
             return httpx.Response(status_code, json={"status": status_code})
 
         with patch("ingestion.lookup.httpx.AsyncClient", side_effect=lambda *args, **kwargs:
@@ -64,7 +66,7 @@ class TestLookupResolution:
         assert result["outcome"] == outcome
         assert result["chosen_updates"] == {}
         assert result["durable_provenance"] == []
-        assert len(requests) == 2
+        assert len(requests) == (3 if status_code == 404 else 2)
         attempt = result["source_attempts"][0]
         assert attempt["status"] == outcome
         if outcome == "failed":
@@ -77,6 +79,8 @@ class TestLookupResolution:
         async def handler(request):
             if request.url.path == "/v1/oauth2/token":
                 return httpx.Response(200, json={"access_token": "test-token"})
+            if request.url.path == "/products/v4/search/keyword":
+                return httpx.Response(200, json={"Products": [], "ProductsCount": 0})
             return httpx.Response(404)
 
         with patch("ingestion.lookup.httpx.AsyncClient", side_effect=lambda *args, **kwargs:
@@ -90,6 +94,64 @@ class TestLookupResolution:
         assert search.await_args.args[0] == "LM386"
         assert result["outcome"] == "no_match"
         assert result["chosen_updates"] == {}
+
+    @pytest.mark.asyncio
+    async def test_family_search_requires_clarification_without_staging_variant_fields(self):
+        original_async_client = httpx.AsyncClient
+        products = [
+            {"ManufacturerProductNumber": number, "Manufacturer": {"Name": manufacturer},
+             "ProductUrl": f"https://www.digikey.com/{number}"}
+            for number, manufacturer in [("LM386N-1/NOPB", "Texas Instruments"),
+                                         ("LM386N-4/NOPB", "Texas Instruments"),
+                                         ("SS3P6L-M3/86A", "Vishay")]
+        ]
+
+        async def handler(request):
+            if request.url.path == "/v1/oauth2/token":
+                return httpx.Response(200, json={"access_token": "test-token"})
+            if request.url.path == "/products/v4/search/keyword":
+                import json
+                assert json.loads(request.content) == {"Keywords": "LM386", "Limit": 5, "Offset": 0}
+                return httpx.Response(200, json={"Products": products, "ProductsCount": 34})
+            return httpx.Response(404)
+
+        with patch("ingestion.lookup.httpx.AsyncClient", side_effect=lambda *args, **kwargs:
+                   original_async_client(transport=httpx.MockTransport(handler))), patch(
+                       "ingestion.lookup.search_datasheet_pdfs", AsyncMock()) as search:
+            result = await fetch_specs_detailed("LM386", {
+                "client_id": "id", "client_secret": "secret",
+            }, search_config={})
+
+        assert result["outcome"] == "needs_clarification"
+        assert result["requires_confirmation"] is True
+        assert result["chosen_updates"] == {}
+        assert result["durable_provenance"] == []
+        assert result["candidate_count"] == 34
+        assert [candidate["part_number"] for candidate in result["lookup_candidates"]] == [
+            product["ManufacturerProductNumber"] for product in products]
+        search.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status_code", [401, 403, 429, 500, 503])
+    async def test_candidate_search_failure_remains_failure(self, status_code):
+        original_async_client = httpx.AsyncClient
+
+        async def handler(request):
+            if request.url.path == "/v1/oauth2/token":
+                return httpx.Response(200, json={"access_token": "test-token"})
+            if request.url.path == "/products/v4/search/keyword":
+                return httpx.Response(status_code)
+            return httpx.Response(404)
+
+        with patch("ingestion.lookup.httpx.AsyncClient", side_effect=lambda *args, **kwargs:
+                   original_async_client(transport=httpx.MockTransport(handler))):
+            result = await fetch_specs_detailed("LM386", {
+                "client_id": "id", "client_secret": "secret",
+            })
+
+        assert result["outcome"] == "failed"
+        assert result["lookup_candidates"] == []
+        assert result["source_attempts"][0]["error"]["status_code"] == status_code
 
     @pytest.mark.asyncio
     async def test_fetch_specs_detailed_no_credentials_returns_no_match(self):

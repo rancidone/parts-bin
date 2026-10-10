@@ -134,7 +134,7 @@ async def _digikey_lookup_detailed(
                     "status_code": resp.status_code,
                     "total_latency_ms": _elapsed_ms(lookup_started),
                 })
-                return {"specs": None, "debug": None, "status": "no_match"}
+                return await _digikey_search_candidates(part_number, client_id, token, client)
             resp.raise_for_status()
             data = resp.json()
             _logger.info("digikey productdetails fetched", extra={
@@ -170,6 +170,37 @@ async def _digikey_lookup_detailed(
             return {"specs": None, "debug": None, "status": "failed", "error": last_error}
 
     return {"specs": None, "debug": None, "status": "timeout", "error": last_error}
+
+
+async def _digikey_search_candidates(
+    part_number: str, client_id: str, token: str, client: httpx.AsyncClient,
+) -> dict:
+    """Discover possible identities; search ranking is not identity evidence."""
+    response = await client.post(
+        "https://api.digikey.com/products/v4/search/keyword",
+        headers={"Authorization": f"Bearer {token}", "X-DIGIKEY-Client-Id": client_id},
+        json={"Keywords": part_number, "Limit": 5, "Offset": 0},
+        timeout=20.0,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    candidates = []
+    for product in payload["Products"][:5]:
+        number = product.get("ManufacturerProductNumber")
+        if not number:
+            continue
+        candidates.append({
+            "part_number": number,
+            "manufacturer": (product.get("Manufacturer") or {}).get("Name"),
+            "source_locator": product.get("ProductUrl"),
+        })
+    count = payload["ProductsCount"]
+    return {
+        "specs": None,
+        "debug": {"requested_part_number": part_number, "lookup_candidates": candidates,
+                  "candidate_count": count},
+        "status": "needs_clarification" if count else "no_match",
+    }
 
 
 def _extract_digikey_fields(product: dict) -> dict:
@@ -403,6 +434,8 @@ def _reconcile_candidates(
         return chosen_updates, chosen_candidates, conflicts, "saved"
 
     statuses = [attempt["status"] for attempt in source_attempts]
+    if "needs_clarification" in statuses:
+        return {}, [], conflicts, "needs_clarification"
     if any(status == "timeout" for status in statuses):
         return {}, [], conflicts, "timeout"
     if any(status == "failed" for status in statuses):
@@ -879,14 +912,20 @@ async def fetch_specs_detailed(
         source_attempt_count=len(source_attempts),
     )
 
+    lookup_candidates = [candidate for attempt in source_attempts
+                         for candidate in (attempt.get("diagnostics") or {}).get("lookup_candidates", [])]
+    candidate_count = max(((attempt.get("diagnostics") or {}).get("candidate_count", 0)
+                           for attempt in source_attempts), default=0)
     return {
         "request": {"part_number": part_number, "inventory_id": None},
+        "lookup_candidates": lookup_candidates,
+        "candidate_count": candidate_count,
         "source_attempts": source_attempts,
         "field_candidates": field_candidates,
         "withheld_candidates": withheld_candidates,
         "chosen_updates": chosen_updates,
         "outcome": outcome,
-        "requires_confirmation": outcome in ("conflict", "needs_confirmation"),
+        "requires_confirmation": outcome in ("conflict", "needs_confirmation", "needs_clarification"),
         "status_message": None,
         "durable_provenance": provenance,
         "conflicts": conflicts,
