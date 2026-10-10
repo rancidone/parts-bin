@@ -1,8 +1,9 @@
 # Parts Bin agent evaluations
 
 Use recorded scenarios to check orchestration reproducibly. Inspect
-[scenarios.json](scenarios.json) and [runner.py](runner.py) for the executable
-format and assertions. Prefer outcome checks over exact model wording.
+[scenarios.json](scenarios.json), [inventory_lookup.json](inventory_lookup.json),
+and [runner.py](runner.py) for the executable format and assertions. Prefer
+outcome checks over exact model wording.
 
 Run deterministic fixture evaluations with:
 
@@ -32,6 +33,30 @@ as tolerance or power that the basic search tool cannot confirm. The tool suppor
 nominal-value equivalence and `minimum_quantity` per committed record; it does not
 combine separate stock records or inspect pending reviews. Deterministic domain
 and tool tests verify matching independently of live model interpretation.
+
+The checked-in inventory lookup scenarios use isolated synthetic stock and a
+recorded transport, so they make no provider requests. They assert the exact
+committed record IDs returned for equivalent value notation, exact ordering
+suffixes, package ambiguity, per-record stock thresholds, and a value that exists
+only in pending enrichment. The clarification checks require representative
+semantic cues but deliberately do not score exact prose.
+
+To run only that fixture set offline:
+
+```sh
+uv run python -m evaluation.runner \
+  --scenarios evaluation/inventory_lookup.json \
+  --workspace /private/tmp/parts-bin-lookup-evals
+```
+
+For a later paid interpretation measurement, provide a runtime factory that uses
+the OpenAI Responses API, ignores the recorded turns, and uses only the injected
+disposable repositories. Then run the same fixture file with
+`PARTS_BIN_LIVE_EVAL=1` and `--live-factory module:function`. Record the model
+snapshot, per-scenario correctness, clarification usefulness, latency, token
+usage, and cost outside the checked-in fixtures; do not reuse local production
+configuration or inventory. The current offline results establish deterministic
+tool orchestration and matching only, not live model interpretation quality.
 
 See [evaluation decisions](../docs/design/evaluation.md) for the distinction
 between deterministic checks, live quality measurements, and source review.

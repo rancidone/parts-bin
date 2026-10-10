@@ -26,6 +26,8 @@ from domain.repositories import PartsBinRepository
 from tools import PartsBinToolRegistry
 
 SCENARIOS_PATH = Path(__file__).with_name("scenarios.json")
+INVENTORY_LOOKUP_SCENARIOS_PATH = Path(__file__).with_name("inventory_lookup.json")
+SCENARIO_PATHS = (SCENARIOS_PATH, INVENTORY_LOOKUP_SCENARIOS_PATH)
 MUTATIONS_REQUIRING_APPROVAL = frozenset({"update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review", "apply_specification_review", "reject_specification_review"})
 MUTATING_TOOLS = MUTATIONS_REQUIRING_APPROVAL | frozenset({"add_part", "add_stock"})
 
@@ -117,11 +119,20 @@ def _provenance(field_name: str, field_value: str) -> dict[str, Any]:
     return {"field_name": field_name, "field_value": field_value, "source_tier": "supplier", "source_kind": "recorded_fixture", "source_locator": "fixture://supplier", "extraction_method": "recorded", "confidence_marker": "medium", "conflict_status": "conflict", "normalization_method": None, "evidence": "recorded"}
 
 
-def load_scenarios(path: Path = SCENARIOS_PATH) -> list[dict[str, Any]]:
-    document = json.loads(path.read_text())
-    if document.get("version") != 1:
-        raise ValueError("Unsupported scenario format")
-    return document["scenarios"]
+def load_scenarios(path: Path | None = None) -> list[dict[str, Any]]:
+    paths = (path,) if path is not None else SCENARIO_PATHS
+    scenarios: list[dict[str, Any]] = []
+    scenario_ids: set[str] = set()
+    for scenario_path in paths:
+        document = json.loads(scenario_path.read_text())
+        if document.get("version") != 1:
+            raise ValueError(f"Unsupported scenario format: {scenario_path}")
+        for scenario in document["scenarios"]:
+            if scenario["id"] in scenario_ids:
+                raise ValueError(f"Duplicate scenario id: {scenario['id']}")
+            scenario_ids.add(scenario["id"])
+            scenarios.append(scenario)
+    return scenarios
 
 
 def _turn(raw: dict[str, Any]) -> ModelTurn:
@@ -183,6 +194,26 @@ def _assert_tools(events: list[Any], spec: dict[str, Any]) -> None:
     unexpected = set(errors) - allowed_errors
     if unexpected:
         raise EvaluationFailure(f"unexpected tool errors: {sorted(unexpected)}")
+    expected_searches = spec.get("expected_search_results")
+    if expected_searches is not None:
+        search_results = [event.data["result"] for event in events
+                          if event.kind == "tool_result" and event.data["name"] == "search_parts"]
+        if len(search_results) != len(expected_searches):
+            raise EvaluationFailure(
+                f"expected {len(expected_searches)} search results, got {len(search_results)}")
+        for index, (response, expected) in enumerate(zip(search_results, expected_searches, strict=True), 1):
+            if not response.get("ok"):
+                raise EvaluationFailure(f"search {index} failed: {response.get('error')}")
+            result = response["result"]
+            actual = {
+                "part_ids": sorted(part["id"] for part in result["parts"]),
+                "count": result["count"],
+                "truncated": result["truncated"],
+            }
+            expected = {**expected, "part_ids": sorted(expected["part_ids"])}
+            if actual != expected:
+                raise EvaluationFailure(
+                    f"search {index} result differs:\nexpected {expected}\nactual {actual}")
     for name in MUTATIONS_REQUIRING_APPROVAL & set(names):
         requests = [event for event in events if event.kind == "approval_request" and event.data["tool"] == name]
         decisions = [event for event in events if event.kind == "approval_decision" and event.data["tool"] == name and event.data["approved"]]
@@ -243,15 +274,18 @@ async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, 
     assertion = scenario.get("answer_assertions", {})
     if assertion.get("contains_any") and not any(text.lower() in answers for text in assertion["contains_any"]):
         raise EvaluationFailure("answer omitted all required semantic cues")
+    if assertion.get("contains_all") and not all(text.lower() in answers for text in assertion["contains_all"]):
+        raise EvaluationFailure("answer omitted a required semantic cue")
     if any(text.lower() in answers for text in assertion.get("must_not_contain", [])):
         raise EvaluationFailure("answer included prohibited semantic cue")
     return ScenarioResult(scenario["id"], runtime, "passed", len([event for event in events if event.kind == "tool_call"]))
 
 
 async def run_recorded(workspace: Path, *, factory: RuntimeFactory = default_runtime_factory,
-                       storage_factory: StorageFactory = sqlite_evaluation_storage) -> EvaluationReport:
+                       storage_factory: StorageFactory = sqlite_evaluation_storage,
+                       scenarios: list[dict[str, Any]] | None = None) -> EvaluationReport:
     results = []
-    for scenario in load_scenarios():
+    for scenario in scenarios if scenarios is not None else load_scenarios():
         results.append(await run_scenario(scenario, "openai", workspace, factory=factory,
                                          storage_factory=storage_factory))
     return EvaluationReport(tuple(results))
@@ -273,13 +307,16 @@ def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Run Parts Bin agent scenario evaluations")
     parser.add_argument("--workspace", type=Path, default=Path(".eval-artifacts"))
+    parser.add_argument("--scenarios", type=Path,
+                        help="Run one scenario fixture file instead of all checked-in scenarios")
     parser.add_argument("--live-factory", help="Explicit module:function live factory; requires PARTS_BIN_LIVE_EVAL=1")
     args = parser.parse_args()
     if args.live_factory and not live_enabled():
         raise SystemExit("Live evaluation is disabled. Set PARTS_BIN_LIVE_EVAL=1 explicitly.")
     args.workspace.mkdir(parents=True, exist_ok=True)
     factory = load_live_factory(args.live_factory) if args.live_factory else default_runtime_factory
-    report = asyncio.run(run_recorded(args.workspace, factory=factory))
+    scenarios = load_scenarios(args.scenarios) if args.scenarios else None
+    report = asyncio.run(run_recorded(args.workspace, factory=factory, scenarios=scenarios))
     print(json.dumps(report.by_runtime(), sort_keys=True))
 
 
