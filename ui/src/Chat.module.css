@@ -266,7 +266,24 @@
   color: var(--muted);
   font-size: .85rem;
 }
-.toolbar span { flex: 1; }
+.status { flex: 1; }
+.conversationPicker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg);
+  font-weight: 600;
+}
+.conversationPicker select {
+  max-width: min(42vw, 320px);
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}
+.conversationPicker select:disabled { opacity: .6; }
 .notice { padding: 10px 16px; color: var(--fg); background: var(--surface); }
 .recovery {
   display: flex;

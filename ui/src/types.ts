@@ -57,3 +57,10 @@ export interface AgentEvent {
   sequence: number
   data: Record<string, unknown>
 }
+
+export interface ConversationSummary {
+  thread_id: string
+  runtime: string
+  title: string
+  last_sequence: number
+}
