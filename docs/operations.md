@@ -53,6 +53,14 @@ Switching conversations only reads saved events; it never resends a message,
 resumes work, or submits an approval decision. Retired-provider history remains
 selectable but read-only.
 
+## Identifying an unknown component
+
+Ask for identification before requesting a stock change. Identification explains
+visible markings and uncertainty without adding stock. For an ambiguous label,
+supply a manufacturer, product link, or clear package markings. A package you
+provide remains a user assertion until verified against evidence; quantity is
+needed only when you request adding stock.
+
 ## Model context limits
 
 Saved chat history remains complete; the model sees only recent complete turns.
@@ -73,7 +81,11 @@ acknowledgement; resuming a terminal execution returns the saved outcome.
 Supplied-PDF extraction uses selected source excerpts. If these cannot establish
 identity or evidence, provide a shorter datasheet for the exact ordering variant.
 Missing evidence in selected excerpts does not establish that the part is absent
-from the source.
+from the source. Manufacturer downloads identify Parts Bin in the
+request headers. Download, parsing and model excerpt limits remain independent;
+see [the extraction implementation](../ingestion/supplied_source.py) for current
+bounds. An HTTP or parsing failure stops before a paid extraction and must not be
+reported as no matching part. No automatic retry substitutes a different source.
 
 ## Backup and recovery
 
