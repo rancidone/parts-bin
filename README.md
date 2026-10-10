@@ -55,6 +55,10 @@ outside the image; see [backup and recovery](docs/operations.md#backup-and-recov
 
 ## Inventory lookup
 
+The UI uses hash routes: `/#/` for chat, `/#/inventory` for inventory, and
+`/#/inventory/42` for part 42. These links support browser Back, Forward,
+bookmarks, and reloads without colliding with the inventory API routes.
+
 Ask the chat to find stock by description, manufacturer, or a fragment of a part
 number, such as `PBSS5350T`. Candidate search keeps distinct ordering suffixes
 and quantities separate. Markings are discoverable when recorded in a description

@@ -1,36 +1,36 @@
-import { useState } from 'react'
+import { NavLink, useMatch, useNavigate } from 'react-router'
 import { Chat } from './Chat'
 import { Inventory } from './Inventory'
 import styles from './App.module.css'
 
-type Surface = 'chat' | 'inventory'
-
 export default function App() {
-  const [surface, setSurface] = useState<Surface>('chat')
-  const [selectedPartId, setSelectedPartId] = useState<number | null>(null)
+  const navigate = useNavigate()
+  const chatActive = useMatch('/') !== null
+  const inventoryMatch = useMatch('/inventory')
+  const partMatch = useMatch('/inventory/:partId')
+  const partId = partMatch?.params.partId
+  const selectedPartId = partId && /^[1-9]\d*$/.test(partId) && Number.isSafeInteger(Number(partId))
+    ? Number(partId) : null
+  const inventoryActive = inventoryMatch !== null || selectedPartId !== null
+  const tabClass = ({ isActive }: { isActive: boolean }) => `${styles.tab} ${isActive ? styles.active : ''}`
 
   return (
     <div className={styles.app}>
       <nav className={styles.nav}>
         <span className={styles.logo}>Parts Bin</span>
         <div className={styles.tabs}>
-          <button
-            className={`${styles.tab} ${surface === 'chat' ? styles.active : ''}`}
-            onClick={() => setSurface('chat')}
-          >
+          <NavLink to="/" end className={tabClass}>
             Chat
-          </button>
-          <button
-            className={`${styles.tab} ${surface === 'inventory' ? styles.active : ''}`}
-            onClick={() => setSurface('inventory')}
-          >
+          </NavLink>
+          <NavLink to="/inventory" className={tabClass}>
             Inventory
-          </button>
+          </NavLink>
         </div>
       </nav>
       <main className={styles.main}>
-        <div style={{ display: surface === 'chat' ? 'contents' : 'none' }}><Chat onOpenPart={id => { setSelectedPartId(id); setSurface('inventory') }} /></div>
-        <div style={{ display: surface === 'inventory' ? 'contents' : 'none' }}><Inventory active={surface === 'inventory'} selectedPartId={selectedPartId} onClearSelection={() => setSelectedPartId(null)} /></div>
+        <div style={{ display: chatActive ? 'contents' : 'none' }}><Chat onOpenPart={id => navigate(`/inventory/${id}`)} /></div>
+        <div style={{ display: inventoryActive ? 'contents' : 'none' }}><Inventory active={inventoryActive} selectedPartId={selectedPartId} onClearSelection={() => navigate('/inventory')} /></div>
+        {!chatActive && !inventoryActive && <p role="alert">Page not found. Choose Chat or Inventory above.</p>}
       </main>
     </div>
   )

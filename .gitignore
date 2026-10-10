@@ -6,6 +6,9 @@ config.toml
 .env
 compose.override.yaml
 parts.db
+*.db-shm
+*.db-wal
+/data/
 *.log
 *.jsonl
 jlcparts.sqlite3
