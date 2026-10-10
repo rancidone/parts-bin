@@ -497,6 +497,26 @@ def save_pending_review(
     return part_id
 
 
+def stage_enrichment_if_unchanged(
+    db_path: str | Path, part_id: int, original: dict, fields: dict, provenance: list[dict],
+) -> bool:
+    """Check and stage in one transaction; stock changes do not invalidate evidence."""
+    conn = _connect(db_path)
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+            metadata = ("part_number", "manufacturer", "package", "description", "profile", "part_category", "value")
+            if row is None or any(row[name] != original[name] for name in metadata):
+                return False
+            if conn.execute("SELECT 1 FROM part_pending_field_review WHERE part_id = ?", (part_id,)).fetchone():
+                return False
+            _save_pending_review_with_conn(conn, part_id, fields, provenance)
+        return True
+    finally:
+        conn.close()
+
+
 def list_pending_reviews(db_path: str | Path) -> dict[int, dict]:
     conn = _connect(db_path)
     try:

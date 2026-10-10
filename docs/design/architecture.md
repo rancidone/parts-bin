@@ -60,6 +60,19 @@ externalize durable state where its execution model requires it, without making
 cloud service APIs part of domain rules. Disposable supplier caches must never be
 confused with inventory or conversation storage.
 
+## HTTP and worker execution
+
+Keep FastAPI as the HTTP adapter while evaluating serverless hosting. Replacing
+the routing library does not solve durable state, approval continuation, or
+retry semantics. Preserving the API and local workflow avoids an unrelated
+rewrite while those constraints are resolved.
+
+Enrichment processing should be callable without FastAPI, so an operator command
+and a future queue worker can share retrieval/extraction behavior. A cloud HTTP
+adapter remains an open choice: evaluate authentication, streamed responses, and
+request limits before selecting a Lambda integration. Process memory and local
+temporary storage do not provide durable cloud jobs or inventory.
+
 See [cloud hosting](cloud-hosting.md), [enrichment](enrichment.md), and
 [product boundaries](product-contract.md) for the related decisions.
 

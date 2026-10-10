@@ -72,3 +72,38 @@ Run the negative and structural checks with:
 ```sh
 uv run pytest evaluation/test_enrichment_check.py
 ```
+
+## Supplied-source extraction exercise
+
+Use the operator command on an isolated copy of the inventory/configuration first.
+Choose an existing part ID whose exact part number is `PBSS5350T`; the command does
+not create parts. Set `PARTS_BIN_ENRICHMENT_MODEL` to the OpenAI model you want to
+evaluate, then run:
+
+```sh
+uv run python -m ingestion.enrich_source PART_ID \
+  https://assets.nexperia.com/documents/data-sheet/PBSS5350T.pdf \
+  --model "$PARTS_BIN_ENRICHMENT_MODEL" --config /path/to/isolated-config.toml
+```
+
+Replace `PART_ID` and the config path. An uncached extraction makes one billable
+Responses API request using the key in `[agent.openai]`. Model charges depend on
+the selected model and usage; the output includes token usage. There is no web
+search in this exercise. Inspect `--help` and
+[the implementation](../ingestion/supplied_source.py) for source hosts and limits.
+
+The command stages a pending review for supported fields. Inspect evidence and
+accept/reject through the application. It refuses to replace an existing review
+or stage against changed metadata. Cached results remain separate from each
+part's review. `--refresh` retrieves the source again; changed content can incur
+another model call. A failed attempt has a brief cooldown rather than automatic
+retries. This command is not a durable cloud queue or a shared spending cap.
+
+The JSON output can be saved outside the repository and passed to the offline
+checker above. Quote-presence checks reject fabricated passages, but genuine
+quotes can still be misinterpreted. Compare the description and package against
+the document and fixture; record correctness, latency, and usage with the exercise.
+
+Structured extraction uses a strict schema because its fields are explicit and
+unsupported values are null. This differs from optional inventory patch tools.
+See the official [structured-output guide](https://developers.openai.com/api/docs/guides/structured-outputs).

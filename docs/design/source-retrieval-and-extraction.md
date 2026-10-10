@@ -31,13 +31,13 @@ specification correct.
 
 ## Retention tradeoff
 
-A live URL can change or disappear. Keeping a bounded excerpt and document
-identity improves auditability; keeping full documents improves reproducibility
-but adds storage, retention, and licensing concerns. Decide what to retain before
-claiming that a proposal can be independently reproduced. Page references alone
-are not immutable document identifiers.
+Keep source links, retrieval times, content hashes, and bounded supporting passages;
+discard downloaded pages and PDFs after processing. A live URL can change or
+disappear, so this favors a small installation over full-document reproducibility.
+Page references and hashes cannot reconstruct a missing source. See the
+[storage and retention decision](storage-and-retention.md) for cache and provenance
+lifetime boundaries.
 
-Open choices include document hashes/snapshots, retention duration, permitted
-source classes, and how to handle unavailable or image-only documents. These
-choices belong with the [enrichment decision](enrichment.md), not in a permanent
-list of parser implementations.
+Permitted source classes and handling of unavailable or image-only documents
+remain open. These choices belong with the [enrichment decision](enrichment.md),
+not in a permanent list of parser implementations.

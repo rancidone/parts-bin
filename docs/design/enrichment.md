@@ -57,8 +57,11 @@ work. These costs are justified only if correct, useful proposals improve over
 simpler retrieval and extraction. Measure exact matches, ambiguity, and failed
 retrieval separately; a filled record is not the definition of success.
 
-Model/provider selection, discovery service, retrieval budgets, and durable
-source retention remain open. Do not select them indirectly through a fixture.
+Use the OpenAI Responses API for model-assisted enrichment. Built-in web search
+is the initial discovery candidate, subject to correctness and cost evaluation;
+model selection and numerical retrieval budgets remain open. Do not select them
+indirectly through a fixture. Retain source links and compact evidence rather than
+downloaded documents, as described in [storage and retention](storage-and-retention.md).
 Start from supplied-source extraction to isolate interpretation from discovery,
 then evaluate the end-to-end path. The [acceptance cases](../../evaluation/enrichment/acceptance.json)
 are executable data for that work, not a prose report of achieved reliability.
