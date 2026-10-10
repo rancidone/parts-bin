@@ -26,7 +26,7 @@ def assessment(candidate, document, part_number, category, text_omitted):
         reasons.append('The source did not establish a proposal for the exact inventory identity.')
     # Use full-document retrieval signals for manual navigation, including pages
     # that did not fit the model context. Do not use these signals as facts.
-    exact = re.compile(r'(?<![\w,./-])' + re.escape(part_number) + r'(?![\w,./-])', re.I)
+    exact = re.compile(r'(?<![\w,./\u2010-\u2015\u2212-])' + re.escape(part_number) + r'(?![\w,./\u2010-\u2015\u2212-])', re.I)
     signals = []
     for index, text in enumerate(document.pages, 1):
         labels = []

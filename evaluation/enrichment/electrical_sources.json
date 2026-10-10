@@ -35,6 +35,23 @@
       "layout_class": "ruled_tables"
     },
     {
+      "id": "bjt_standalone_device_title",
+      "category": "bjt",
+      "part_number": "BC517",
+      "manufacturer": "onsemi",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.onsemi.com/download/data-sheet/pdf/bc517-d74z-d.pdf",
+      "expected_outcome": "proposal",
+      "review": [
+        "The standalone BC517 device title establishes identity; do not append the BC517-D74Z ordering suffix or use a marking alone as identity evidence.",
+        "Page 1 supports NPN, collector-emitter absolute maximum 30 V and continuous collector absolute maximum 1.2 A at ambient 25 °C. Preserve the maximum junction temperature 150 °C and steady-state limits from notes 1 and 2.",
+        "Minimum DC gain is 30000 at VCE 2 V and IC 20 mA, ambient 25 °C; format the value as 30000 ratio. The 1.0 A feature statement is not the continuous absolute maximum.",
+        "No pulsed collector-current maximum is given; leave it absent."
+      ],
+      "layout_class": "ruled_tables"
+    },
+    {
       "id": "bjt_exact_gain_variant",
       "category": "bjt",
       "part_number": "BC33725BU",
