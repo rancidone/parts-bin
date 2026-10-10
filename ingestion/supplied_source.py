@@ -22,7 +22,7 @@ from pdfminer.layout import LTContainer, LTTextLine
 from ingestion.cache import EnrichmentCache
 from ingestion.errors import EnrichmentError
 
-POLICY_VERSION = "supplied-pdf-v11"
+POLICY_VERSION = "supplied-pdf-v12"
 ALLOWED_HOSTS = frozenset({"assets.nexperia.com", "www.nexperia.com", "www.ti.com",
                            "www.vishay.com", "www.coilcraft.com", "omronfs.omron.com",
                            "www.onsemi.com"})
@@ -470,6 +470,23 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
             'be established, omit only the affected fact, retaining other supported facts. '
             'Return ranges as lower to upper with units, or center ± tolerance with units. '
             'Never reinterpret a typical value as a bound or range.'
+            ' For operational amplifiers, minimum_supply_voltage and maximum_supply_voltage are '
+            'recommended operating endpoints; absolute_maximum_supply_voltage is a separate stress '
+            'rating and never establishes functional operation. Express all supply facts as total '
+            'positive-to-negative rail voltage, retaining supply_convention and the applicable '
+            'ambient_temperature range. Convert explicit symmetric ± rails to their total span only '
+            'when the source establishes that convention. input_offset_voltage and input_bias_current '
+            'use maximum_magnitude: extract the magnitude of an explicit worst-case bound, preserving '
+            'bias-current direction as a condition when supplied. Never use typical values for these '
+            'maximum fields. gain_bandwidth_product, slew_rate and quiescent_current use typical '
+            'values only, never guarantees. Slew rate accepts V/s or SI-prefixed voltage/time, '
+            'such as V/µs. Preserve global supply, temperature, common-mode and output voltages, '
+            'load resistance and load reference, closed-loop gain, capacitive load, and row-specific '
+            'conditions wherever applicable. Quiescent current requires current_scope to distinguish '
+            'per-amplifier from whole-device values. Use the exact variant column, never substitute '
+            'an improved grade or another family member. Rail-relative common-mode/output limits '
+            'and unsupported noise or stability claims remain absent; do not invent numeric values '
+            'for them. Missing test context makes only the affected fact incomplete or absent.'
         )
     instructions += (
         ' Detected tables supply cell text and bounding boxes [x0, top, x1, bottom] in PDF points. '

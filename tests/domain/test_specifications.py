@@ -6,7 +6,7 @@ import pytest
 from agent_runtime.approval import ApprovalEngine
 from db.repository import SQLitePartsBinRepository
 from domain import AddPartRequest, AddStockRequest, DomainError, GetPartRequest, PartFields, PartsBinService, SearchPartsRequest, UpdatePartRequest
-from domain.specifications import SPECIFICATIONS, SpecificationDefinition, contract, numeric_value
+from domain.specifications import SPECIFICATIONS, SpecificationDefinition, contract, numeric_value, validate_facts
 from domain.repositories import RepositoryConflict
 from tools import PartsBinToolRegistry
 
@@ -93,6 +93,96 @@ def test_invalid_or_incompatible_units(raw, unit):
 def test_si_prefix_case_is_significant():
     assert numeric_value('1 MΩ', 'Ω') == 1_000_000
     assert numeric_value('1 mΩ', 'Ω') < 1
+
+
+@pytest.mark.parametrize('value', ['0.5 V/µs', '0.5 V/μs', '0.5 V/us', '0.5 MV/s', '500 mV/us'])
+def test_slew_rate_voltage_and_time_prefixes(value):
+    assert numeric_value(value, 'V/s') == 500_000
+
+
+@pytest.mark.parametrize('value', ['0.5 V', '0.5 V/ms/s', '0.5 V/US', '-0.5 V/us'])
+def test_invalid_slew_rate_units(value):
+    with pytest.raises(DomainError):
+        numeric_value(value, 'V/s')
+
+
+@pytest.mark.parametrize('category', ['op amp', 'opamps', 'op-amp', 'op_amp', 'operational amplifier'])
+def test_opamp_aliases_share_the_contract(category):
+    assert contract(category)['fields'] == contract('operational amplifier')['fields']
+    assert contract(category)['supported']
+    assert not contract('audio amplifier')['supported']
+
+
+def test_opamp_operating_range_review_restart_and_missing_facts(tmp_path):
+    repository, service, part = setup(tmp_path, 'op_amp', number='TEST-OP-B-TR')
+    qualified = {'supply_convention': 'total rail-to-rail', 'ambient_temperature': '-40 to 85 °C'}
+    proposed = [
+        fact('minimum_supply_voltage', '3 V', 'operating_minimum', number=part.part_number, conditions=qualified),
+        fact('maximum_supply_voltage', '36 V', 'operating_maximum', number=part.part_number, conditions=qualified),
+        fact('absolute_maximum_supply_voltage', '40 V', 'absolute_maximum', number=part.part_number, conditions=qualified),
+    ]
+    # A 5 V supply must fit both endpoints; a stress rating cannot satisfy them.
+    query = [requirement(proposed[0], '5 V', 'lte'), requirement(proposed[1], '5 V', 'gte')]
+    service.stage_specifications(part, proposed)
+    assert search(service, 'opamps', query)['incomplete_count'] == 1
+    restarted = PartsBinService(SQLitePartsBinRepository(repository.database))
+    restarted.apply_specification_review(part.id)
+    assert search(restarted, 'operational amplifier', query)['match_count'] == 1
+    assert search(restarted, 'op amp', [requirement(proposed[1], '38 V')])['match_count'] == 0
+    missing = fact('gain_bandwidth_product', '1 MHz', 'typical', conditions={
+        'supply_voltage': '5 V', 'ambient_temperature': '25 °C'})
+    found = search(restarted, 'op amp', query + [requirement(missing)])
+    assert found['incomplete'][0]['missing_or_unqualified'] == ['gain_bandwidth_product']
+    stored = restarted.get(GetPartRequest(part.id))
+    assert {key: value for key, value in vars(stored).items() if key != 'updated_at'} == {
+        key: value for key, value in vars(part).items() if key != 'updated_at'}
+    assert repository.inventory.specifications(part.id) == proposed
+
+
+@pytest.mark.parametrize('name,value,basis,qualified', [
+    ('input_offset_voltage', '3 mV', 'maximum_magnitude',
+     {'supply_voltage': '5 V', 'ambient_temperature': '25 °C', 'common_mode_voltage': '2.5 V'}),
+    ('input_bias_current', '35 nA', 'maximum_magnitude',
+     {'supply_voltage': '5 V', 'ambient_temperature': '25 °C', 'common_mode_voltage': '2.5 V'}),
+    ('gain_bandwidth_product', '1.2 MHz', 'typical',
+     {'supply_voltage': '5 V', 'ambient_temperature': '25 °C'}),
+    ('slew_rate', '0.5 V/µs', 'typical',
+     {'supply_voltage': '5 V', 'ambient_temperature': '25 °C', 'closed_loop_gain': '1 ratio'}),
+    ('quiescent_current', '300 µA', 'typical',
+     {'supply_voltage': '5 V', 'ambient_temperature': '25 °C', 'current_scope': 'per amplifier'}),
+])
+def test_opamp_qualified_facts_and_missing_conditions(tmp_path, name, value, basis, qualified):
+    repository, service, part = setup(tmp_path, 'op amp')
+    proposed = fact(name, value, basis, conditions=qualified)
+    query = [requirement(proposed, comparison='eq')]
+    service.stage_specifications(part, [proposed])
+    service.apply_specification_review(part.id)
+    assert search(service, 'opamp', query)['match_count'] == 1
+    # Matching two equally incomplete mappings must not confirm a requirement.
+    proposed['conditions'].pop('ambient_temperature')
+    service.stage_specifications(part, [proposed])
+    service.apply_specification_review(part.id)
+    result = search(service, 'opamp', [requirement(proposed)])
+    assert result['incomplete'][0]['missing_or_unqualified'] == [name]
+
+
+@pytest.mark.parametrize('name,value,basis', [
+    ('maximum_supply_voltage', '40 V', 'absolute_maximum'),
+    ('absolute_maximum_supply_voltage', '36 V', 'operating_maximum'),
+    ('input_offset_voltage', '0.3 mV', 'typical'),
+    ('input_bias_current', '10 nA', 'typical'),
+    ('gain_bandwidth_product', '1.2 MHz', 'minimum'),
+    ('slew_rate', '0.5 V/us', 'minimum'),
+])
+def test_opamp_bases_cannot_be_promoted_or_substituted(name, value, basis):
+    with pytest.raises(DomainError, match='requires basis'):
+        validate_facts('op amp', [fact(name, value, basis)], part_number='TEST-EXACT')
+
+
+def test_opamp_evidence_preserves_exact_grade_and_shipping_suffix():
+    proposed = fact('input_offset_voltage', '2 mV', 'maximum_magnitude', number='TEST-OP-BA-TR')
+    with pytest.raises(DomainError, match='exact ordering code'):
+        validate_facts('op amp', [proposed], part_number='TEST-OP-B-TR')
 
 
 @pytest.mark.parametrize('change', [

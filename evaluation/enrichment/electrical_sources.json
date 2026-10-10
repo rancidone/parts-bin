@@ -160,6 +160,54 @@
       "review": [
         "TA7618-AL_ requires a packaging code. Ask for the exact code; do not choose D or B automatically."
       ]
+    },
+    {
+      "category": "operational amplifier",
+      "manufacturer": "Texas Instruments",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.ti.com/lit/ds/symlink/lm358.pdf",
+      "id": "opamp_b_operating_and_stress_limits",
+      "part_number": "LM358BIDR",
+      "expected_outcome": "proposal",
+      "review": [
+        "Use the exact LM358BIDR ordering row and B electrical column; preserve the shipping suffix.",
+        "Recommended total supply is 3–36 V, distinct from the 40 V stress rating; preserve ambient −40 to 85 °C.",
+        "Maximum offset magnitude is 3 mV at 25 °C, not the BA limit. Preserve global supply, common-mode, output and load conditions.",
+        "Bandwidth 1.2 MHz and slew rate 0.5 V/µs are typical, not guaranteed minima. Leave unsupported guaranteed performance unknown.",
+        "Retain bias-current direction and per-amplifier versus device current scope."
+      ],
+      "layout_class": "ruled_tables"
+    },
+    {
+      "category": "operational amplifier",
+      "manufacturer": "Texas Instruments",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.ti.com/lit/ds/symlink/lm358.pdf",
+      "id": "opamp_ba_exact_offset_grade",
+      "part_number": "LM358BAIDR",
+      "expected_outcome": "proposal",
+      "review": [
+        "Use the exact BAIDR ordering row and BA column.",
+        "Offset magnitude maximum is 2 mV at 25 °C or 2.5 mV over −40 to 85 °C; select one with its full conditions.",
+        "Do not substitute B or legacy LM358 specifications."
+      ],
+      "layout_class": "ruled_tables"
+    },
+    {
+      "category": "operational amplifier",
+      "manufacturer": "Texas Instruments",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.ti.com/lit/ds/symlink/lm358.pdf",
+      "id": "opamp_missing_package_and_shipping",
+      "part_number": "LM358BI",
+      "expected_outcome": "needs_clarification",
+      "review": [
+        "This incomplete code does not establish an orderable package/shipping variant. Request the complete identity and stage no facts."
+      ],
+      "layout_class": "ruled_tables"
     }
   ]
 }
