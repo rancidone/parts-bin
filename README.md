@@ -53,6 +53,15 @@ Compose publishes port 8000. Treat this as local setup, not a recipe for exposin
 an authenticated service to the internet. Keep configuration and persistent data
 outside the image; see [backup and recovery](docs/operations.md#backup-and-recovery).
 
+## Inventory lookup
+
+Ask the chat to find stock by description, manufacturer, or a fragment of a part
+number, such as `PBSS5350T`. Candidate search keeps distinct ordering suffixes
+and quantities separate. Markings are discoverable when recorded in a description
+or part number; unrecorded markings need clarification. Partial matches identify
+candidates and do not establish interchangeable stock or electrical suitability.
+Exact ordering-code lookup remains available separately.
+
 ## Development checks
 
 Python tests live in `tests/`, mirroring the source directories. Pytest discovers

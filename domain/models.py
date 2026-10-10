@@ -58,6 +58,13 @@ class SearchPartsRequest:
 
 
 @dataclass(frozen=True)
+class SearchCandidatesRequest:
+    query: str
+    filters: Mapping[str, Any] = field(default_factory=dict)
+    minimum_quantity: int = 0
+
+
+@dataclass(frozen=True)
 class GetPartRequest:
     part_id: int
 
