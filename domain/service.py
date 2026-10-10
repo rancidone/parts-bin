@@ -15,6 +15,7 @@ from .normalization import normalize_part_payload, part_identity, validate_field
 
 from .search import values_match, nominal_value
 from . import specifications
+from .pagination import validate_page, next_offset
 
 SpecFetcher = Callable[[str], Awaitable[dict[str, Any]]]
 _EDITABLE = EDITABLE_PART_FIELDS
@@ -95,15 +96,29 @@ class PartsBinService:
             for text in (part.description, part.manufacturer, part.part_number)
         )), key=lambda part: part.id)
 
-    def search_specifications(self, request: SearchPartsRequest, requirements: list[dict], *, limit: int = 20) -> dict:
+    def search_page(self, request: SearchPartsRequest, *, limit: int = 20, offset: int = 0) -> dict:
+        validate_page(limit, offset)
+        rows = sorted(self.search(request), key=lambda part: part.id)
+        following = next_offset(len(rows), limit, offset)
+        return {"parts": rows[offset:offset + limit], "count": len(rows),
+                "truncated": following is not None, "next_offset": following}
+
+    def candidate_page(self, request: SearchCandidatesRequest, *, limit: int = 20, offset: int = 0) -> dict:
+        validate_page(limit, offset)
+        rows = self.search_candidates(request)
+        following = next_offset(len(rows), limit, offset)
+        return {"candidates": rows[offset:offset + limit], "count": len(rows),
+                "truncated": following is not None, "next_offset": following,
+                "match_kind": "candidate"}
+
+    def search_specifications(self, request: SearchPartsRequest, requirements: list[dict], *, limit: int = 20, offset: int = 0) -> dict:
         category = request.filters.get('part_category')
         if not isinstance(category, str):
             raise DomainError(ErrorCode.INVALID_INPUT, 'Specification search requires one explicit category')
-        if type(limit) is not int or not 1 <= limit <= 100:
-            raise DomainError(ErrorCode.INVALID_INPUT, 'Result limit must be between one and one hundred')
+        validate_page(limit, offset)
         checked = specifications.validate_requirements(category, requirements)
         matches, incomplete = [], []
-        for part in self.search(request):
+        for part in sorted(self.search(request), key=lambda part: part.id):
             eligible, missing, supporting = specifications.evaluate(
                 category, self.repository.inventory.specifications(part.id), checked)
             if not eligible:
@@ -112,9 +127,10 @@ class PartsBinService:
                 incomplete.append({'part': vars(part), 'missing_or_unqualified': missing})
             else:
                 matches.append({'part': vars(part), 'supporting_facts': supporting})
-        return {'matches': matches[:limit], 'incomplete': incomplete[:limit],
+        following = next_offset(max(len(matches), len(incomplete)), limit, offset)
+        return {'matches': matches[offset:offset + limit], 'incomplete': incomplete[offset:offset + limit],
                 'match_count': len(matches), 'incomplete_count': len(incomplete),
-                'truncated': len(matches) > limit or len(incomplete) > limit}
+                'truncated': following is not None, 'next_offset': following}
 
     def get_specifications(self, part_id: int) -> dict:
         part = self.get(GetPartRequest(part_id))

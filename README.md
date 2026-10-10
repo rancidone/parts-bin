@@ -62,6 +62,12 @@ or part number; unrecorded markings need clarification. Partial matches identify
 candidates and do not establish interchangeable stock or electrical suitability.
 Exact ordering-code lookup remains available separately.
 
+Inventory and candidate searches return bounded pages ordered by part ID. Follow
+`next_offset` with the same search arguments and limit until it is null. Counts
+cover the full search. Specification searches page confirmed matches and incomplete
+candidates separately, returning up to the limit from each group. Paging reads
+current committed data; restart if inventory or accepted facts change while paging.
+
 ## Development checks
 
 Python tests live in `tests/`, mirroring the source directories. Pytest discovers
