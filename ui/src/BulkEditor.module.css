@@ -1,0 +1,15 @@
+.dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; box-sizing: border-box; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); color: var(--fg); padding: 24px; }
+.dialog::backdrop { background: rgb(0 0 0 / 55%); }
+.dialog h2 { margin-top: 0; }
+.dialog p { font-size: .9rem; }
+.fields { border: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.fields label { display: flex; gap: 6px; align-items: center; font-size: .85rem; }
+.fields label + label { display: flex; flex-direction: column; align-items: stretch; margin-top: 6px; }
+.fields input:not([type=checkbox]), .fields select { padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); }
+.fields input:disabled, .fields select:disabled { opacity: .4; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.actions button { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; }
+.actions button:disabled { opacity: .5; cursor: default; }
+.review section { border-top: 1px solid var(--border); padding: 8px 0; }
+.review table { width: 100%; text-align: left; font-size: .9rem; border-collapse: collapse; table-layout: fixed; }
+.review th, .review td { padding: 6px; overflow-wrap: anywhere; vertical-align: top; }

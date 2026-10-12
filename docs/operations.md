@@ -55,6 +55,24 @@ a fresh approval; replay of already committed mutation outcomes remains intact.
 For rollback, the previous application can leave the extra nullable column in
 place. Restore a backup only when explicitly recovering data.
 
+## Bulk inventory edits
+
+In Inventory, select up to 100 rows individually or use **Select visible parts**
+after filtering. Selections remain selected when hidden by a filter; the selected
+count identifies hidden rows. Reloading inventory clears the selection.
+
+Choose **Edit selected**, check only fields to change, and enter their common new
+values. A checked blank field clears its value; quantity sets the same absolute
+count on every selected row. **Review changes** shows normalized before/after
+values for every selected part, including any changes caused by inventory
+normalization. Saving dismisses pending metadata reviews on the selected rows.
+
+**Approve changes** applies the whole batch through the shared approval engine.
+An invalid identity, duplicate, or changed record prevents the entire batch.
+If stock or pending evidence changes during review, prepare a fresh review before
+approving. Retrying the same approval replays its saved result. Bulk editing
+requires no model or supplier requests.
+
 ## Interrupted requests
 
 **Refresh history** reads saved events without repeating work. **Resume request**

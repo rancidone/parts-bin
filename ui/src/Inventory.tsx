@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { PartEditor } from './PartEditor'
+import { BulkEditor } from './BulkEditor'
 import { QuantityControl } from './QuantityControl'
 import { useQuantities } from './quantityContext'
 import { FieldReviewEditor } from './FieldReviewEditor'
@@ -23,6 +24,8 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
   const [pending, setPending] = useState<Map<number, PendingReview>>(new Map())
   const [accepting, setAccepting] = useState<Set<number>>(new Set())
   const [editing, setEditing] = useState<number | null>(null)
+  const [bulkIds, setBulkIds] = useState<Set<number>>(new Set())
+  const [bulkEditing, setBulkEditing] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
   const [deleting, setDeleting] = useState<Set<number>>(new Set())
   const [rowStatus, setRowStatus] = useState<Map<number, string>>(new Map())
@@ -44,6 +47,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
       if (!pendingResp.ok) throw new Error(pendingResp.statusText)
       const loadedParts: Part[] = await partsResp.json()
       setParts(loadedParts)
+      setBulkIds(new Set())
       remember(loadedParts)
       const pendingData = await pendingResp.json()
       setPending(new Map(
@@ -270,6 +274,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         throw new Error(detail)
       }
       setParts(prev => prev.filter(p => p.id !== id))
+      setBulkIds(prev => { const next = new Set(prev); next.delete(id); return next })
       setPending(prev => {
         const next = new Map(prev)
         next.delete(id)
@@ -409,6 +414,21 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
 
       {error && <div className={styles.error}>{error}</div>}
 
+      {bulkIds.size > 0 && <div className={styles.selection}>
+        <span>{bulkIds.size} selected{[...bulkIds].some(id => !displayed.some(part => part.id === id)) ? ' (including hidden rows)' : ''}</span>
+        <button className={styles.refreshBtn} disabled={savingEdit || adjustingQuantity.size > 0 || accepting.size > 0 || deleting.size > 0 || refreshing.size > 0} onClick={() => { cancelEdit(); setBulkEditing(true) }}>Edit selected</button>
+        <button className={styles.refreshBtn} onClick={() => setBulkIds(new Set())}>Clear selection</button>
+      </div>}
+      {bulkEditing && <BulkEditor parts={parts.filter(part => part.id != null && bulkIds.has(part.id))} onClose={() => setBulkEditing(false)} onSaved={updated => {
+        const changed = new Map(updated.map(part => [part.id!, part]))
+        setParts(prev => prev.map(part => changed.get(part.id!) ?? part))
+        remember(updated)
+        setPending(prev => new Map([...prev].filter(([id]) => !changed.has(id))))
+        setRowStatus(prev => { const next = new Map(prev); for (const part of updated) next.set(part.id!, 'Saved bulk edit.'); return next })
+        setBulkIds(new Set())
+        setBulkEditing(false)
+      }} />}
+
       {!loading && displayed.length === 0 && !error && (
         <div className={styles.empty}>{selectedPartId !== null ? 'This part is no longer in inventory.' : 'No parts found.'}</div>
       )}
@@ -418,6 +438,11 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
           <table className={styles.table}>
             <thead>
               <tr>
+                <th className={styles.th}><input type="checkbox" aria-label="Select visible parts" checked={displayed.length > 0 && displayed.every(part => part.id != null && bulkIds.has(part.id))} disabled={displayed.length > 100 || displayed.some(part => part.id == null) || new Set([...bulkIds, ...displayed.map(part => part.id!)]).size > 100} onChange={event => setBulkIds(prev => {
+                  const next = new Set(prev)
+                  for (const part of displayed) { if (event.target.checked) next.add(part.id!); else next.delete(part.id!) }
+                  return next
+                })} title="Select up to 100 parts; filter inventory to narrow the selection" /></th>
                 <SortHeader col="part_category" label="Category" />
                 <SortHeader col="value" label="Value" />
                 <SortHeader col="package" label="Package" />
@@ -439,6 +464,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                 return (
                   <Fragment key={p.id ?? i}>
                     <tr key={p.id ?? i} className={`${styles.row} ${review ? styles.rowPending : ''}`}>
+                      <td className={styles.td}><input type="checkbox" aria-label={`Select part #${id}`} checked={bulkIds.has(id)} disabled={p.id == null || (!bulkIds.has(id) && bulkIds.size >= 100)} onChange={event => setBulkIds(prev => { const next = new Set(prev); if (event.target.checked) next.add(id); else next.delete(id); return next })} /></td>
                       <td className={styles.td}>{p.part_category}</td>
                       <td className={styles.td}>{p.value ?? '—'}</td>
                       <td className={styles.td}>{p.package ?? '—'}</td>
@@ -494,10 +520,10 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                         </div>
                       </td>
                     </tr>
-                    {isEditing && <tr><td colSpan={8} className={styles.td}>
+                    {isEditing && <tr><td colSpan={9} className={styles.td}>
                       <PartEditor key={id} part={p} saving={savingEdit} onSave={draft => void saveEdit(id, draft)} onCancel={cancelEdit} />
                     </td></tr>}
-                    {expandedElectrical.has(id) && electrical.get(id) && !isEditing && <tr><td colSpan={8} className={styles.td}>
+                    {expandedElectrical.has(id) && electrical.get(id) && !isEditing && <tr><td colSpan={9} className={styles.td}>
                       <SpecificationResult value={electrical.get(id)!} />
                       {electrical.get(id)?.pending_review && <div className={styles.actionGroup}>
                         <button disabled={accepting.has(id)} onClick={() => void decideElectrical(id, true)}>Accept electrical specs</button>
@@ -509,7 +535,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                         key={`review-${id}`}
                         part={p}
                         review={review}
-                        colSpan={8}
+                        colSpan={9}
                         saving={accepting.has(id)}
                         onToggleField={key => toggleField(id, key)}
                         onEditField={(key, value) => editField(id, key, value)}
@@ -519,14 +545,14 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                     )}
                     {!review && status && p.id != null && !isEditing && (
                       <tr key={`status-${id}`} className={styles.statusRow}>
-                        <td colSpan={8} className={styles.statusCell}>
+                        <td colSpan={9} className={styles.statusCell}>
                           {status}
                         </td>
                       </tr>
                     )}
                     {showProvenance && p.id != null && !isEditing && (
                       <tr key={`provenance-${id}`} className={styles.provenanceRow}>
-                        <td colSpan={8} className={styles.provenanceCell}>
+                        <td colSpan={9} className={styles.provenanceCell}>
                           {provenance && provenance.length > 0 ? (
                             <div className={styles.provenanceList}>
                               {provenance.map((entry, index) => (

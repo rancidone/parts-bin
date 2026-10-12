@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from domain import PartsBinService
+from domain import BulkUpdateRequest, PartsBinService
 from domain.repositories import PartsBinRepository, StoredApproval
 from tools import ApprovalReceipt, PartsBinToolRegistry, ToolExecutionContext
 
@@ -25,6 +25,19 @@ class ApprovalEngine:
 
     def __init__(self, repository: PartsBinRepository) -> None:
         self.repository = repository
+
+    def preview_bulk_update(self, arguments: dict[str, Any], *, service: PartsBinService) -> dict:
+        """Bind the displayed batch preview to the same transaction's approval snapshot."""
+        self._check_database(service)
+        arguments = json.loads(json.dumps(arguments))
+        request_id = uuid4().hex
+        with service.transaction() as (bound, repository):
+            changes = bound.preview_bulk_update(BulkUpdateRequest(tuple(arguments['part_ids']), arguments['fields']))
+            snapshot = bound.approval_snapshot(tuple(arguments['part_ids']))
+            repository.approvals.insert(StoredApproval(request_id, 'inventory-bulk',
+                'bulk_update_parts', arguments, snapshot))
+        return {'request_id': request_id, 'changes': changes,
+                'cleared_reviews': [int(key) for key, row in snapshot.items() if row['review']]}
 
     def request(self, thread_id: str, tool_name: str, arguments: dict[str, Any],
                 *, service: PartsBinService) -> ApprovalRequest:

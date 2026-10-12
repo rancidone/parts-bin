@@ -172,6 +172,39 @@ async def inventory_pending(request: Request) -> dict:
     return {"reviews": _services(request).domain.list_pending_reviews()}
 
 
+@router.post('/inventory/bulk/preview')
+async def preview_inventory_bulk_update(request: Request, body: dict) -> dict:
+    if (set(body) != {'part_ids', 'fields'} or not isinstance(body['part_ids'], list)
+            or not isinstance(body['fields'], dict)):
+        raise HTTPException(status_code=422, detail='Supply part_ids and fields')
+    service = _services(request).domain
+    try:
+        return ApprovalEngine(service.repository).preview_bulk_update(body, service=service)
+    except DomainError as exc:
+        raise _domain_error(exc) from exc
+
+
+@router.post('/inventory/bulk/decide')
+async def decide_inventory_bulk_update(request: Request, body: dict) -> dict:
+    if (set(body) != {'request_id', 'approved'} or not isinstance(body['request_id'], str)
+            or type(body['approved']) is not bool):
+        raise HTTPException(status_code=422, detail='Supply request_id and a boolean approval decision')
+    service = _services(request).domain
+    engine = ApprovalEngine(service.repository)
+    if service.repository.approvals.get('inventory-bulk', body['request_id']) is None:
+        raise HTTPException(status_code=404, detail='Unknown bulk review')
+    try:
+        approval = engine.decide('inventory-bulk', body['request_id'], body['approved'])
+        if not body['approved']:
+            return {'approved': False}
+        result = await engine.execute(approval, PartsBinToolRegistry(service))
+        if not result['ok']:
+            raise HTTPException(status_code=409, detail=result['error'])
+        return {'approved': True, **result['result']}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.get("/inventory/{part_id}/provenance")
 async def inventory_part_provenance(request: Request, part_id: int) -> dict:
     try:

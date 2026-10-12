@@ -387,11 +387,17 @@ class PartsBinService:
         self.repository.inventory.clear_pending_review(request.part_id)
         return self.get(GetPartRequest(request.part_id))
 
-    def bulk_update(self, request: BulkUpdateRequest) -> list[Part]:
-        if not request.part_ids or len(set(request.part_ids)) != len(request.part_ids):
+    def preview_bulk_update(self, request: BulkUpdateRequest) -> list[dict]:
+        """Validate the entire batch and expose normalized changes without writing."""
+        if (not 1 <= len(request.part_ids) <= 100 or
+                any(type(part_id) is not int or part_id < 1 for part_id in request.part_ids) or
+                len(set(request.part_ids)) != len(request.part_ids)):
             raise DomainError(ErrorCode.INVALID_INPUT, "bulk selection must contain distinct part ids")
         if not request.fields:
             raise DomainError(ErrorCode.INVALID_INPUT, "bulk update fields are required")
+        unknown = set(request.fields) - _EDITABLE
+        if unknown:
+            raise DomainError(ErrorCode.INVALID_INPUT, "unsupported part field", details={"fields": sorted(unknown)})
         rows = [self.get(GetPartRequest(part_id)) for part_id in request.part_ids]
         updates: list[tuple[int, dict]] = []
         for row in rows:
@@ -399,6 +405,13 @@ class PartsBinService:
             merged.update(request.fields)
             updates.append((row.id, validate_fields(merged)))
         self._check_replacement_identities(updates)
+        return [{"before": vars(row), "after": {**vars(row), **fields}}
+                for row, (_, fields) in zip(rows, updates, strict=True)]
+
+    def bulk_update(self, request: BulkUpdateRequest) -> list[Part]:
+        preview = self.preview_bulk_update(request)
+        updates = [(row["before"]["id"], {name: row["after"][name] for name in _EDITABLE})
+                   for row in preview]
         try:
             self.repository.inventory.replace_parts(updates)
         except RepositoryConflict as exc:
