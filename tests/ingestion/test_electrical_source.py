@@ -172,6 +172,10 @@ async def test_supplied_manufacturer_is_preserved_despite_copyright_suffix():
         body = json.loads(request.content)
         assert 'must retain that exact supplied name' in body['instructions']
         assert json.loads(body['input'])['manufacturer'] == 'Texas Instruments'
+        fields = body['text']['format']['schema']['properties']['fields']['properties']
+        assert fields['manufacturer']['properties']['value']['enum'] == ['Texas Instruments']
+        assert fields['part_number']['properties']['value']['enum'] == [NUMBER]
+        assert fields['package'] == fields['description'] == {'type': 'null'}
         return httpx.Response(200, json={'status': 'completed', 'output': [
             {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
 
@@ -263,6 +267,8 @@ async def test_saved_datasheet_extracts_common_ratings_without_requiring_invento
         assert 'only that literal designation, not a comma-separated family list' in instructions
         assert 'retain that exact supplied name' in instructions
         assert 'If the exact identity is absent' not in instructions
+        fields = json.loads(request.content)['text']['format']['schema']['properties']['fields']['properties']
+        assert 'enum' not in fields['part_number']['properties']['value']
         return httpx.Response(200, json={'status': 'completed', 'output': [
             {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
 

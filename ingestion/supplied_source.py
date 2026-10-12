@@ -22,7 +22,7 @@ from pdfminer.layout import LTContainer, LTTextLine
 from ingestion.cache import EnrichmentCache
 from ingestion.errors import EnrichmentError
 
-POLICY_VERSION = "supplied-pdf-v26"
+POLICY_VERSION = "supplied-pdf-v27"
 ALLOWED_HOSTS = frozenset({"assets.nexperia.com", "www.nexperia.com", "www.ti.com",
                            "www.vishay.com", "www.coilcraft.com", "omronfs.omron.com",
                            "www.onsemi.com", "www.st.com", "www.analog.com",
@@ -182,7 +182,8 @@ async def retrieve_pdf(url: str, client: httpx.AsyncClient) -> Document:
                     datetime.now(timezone.utc).isoformat(), pages, tables, table_omission)
 
 
-def extraction_schema(category: str | None = None) -> dict:
+def extraction_schema(category: str | None = None, *, part_number: str | None = None,
+                      manufacturer: str | None = None) -> dict:
     evidence = {"type": "object", "additionalProperties": False,
                 "properties": {"page": {"type": "integer"}, "excerpt": {"type": "string"}},
                 "required": ["page", "excerpt"]}
@@ -200,6 +201,16 @@ def extraction_schema(category: str | None = None) -> dict:
         from ingestion.electrical_source import facts_schema
         schema['properties']['facts'] = facts_schema(category)
         schema['required'].append('facts')
+        fields = schema['properties']['fields']['properties']
+        for name in ('package', 'description'):
+            fields[name] = {'type': 'null'}
+    # The schema constrains claims; evidence and identity checks still run on
+    # the returned candidate. A null field permits unresolved identity.
+    for name, value in (('part_number', part_number), ('manufacturer', manufacturer)):
+        if value:
+            fields = schema['properties']['fields']['properties']
+            fields[name] = {**field, 'properties': {
+                **field['properties'], 'value': {'type': 'string', 'enum': [value]}}}
     return schema
 
 
@@ -670,7 +681,8 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
         'Table geometry is context only; cite supplied verbatim text passages for every fact. '
         'When uncertain, retain other supported facts and omit the affected fact.'
     )
-    schema = extraction_schema(category)
+    schema = extraction_schema(category, part_number=None if linked_part else part_number,
+                               manufacturer=manufacturer)
     response = await client.post("https://api.openai.com/v1/responses",
         headers={"Authorization": f"Bearer {api_key}"},
         json={"model": model, "store": False, "max_output_tokens": 4000 if category is not None else 2000,
