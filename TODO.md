@@ -9,11 +9,13 @@ electrical lookup are improved.
 
 ## Next: enrichment coverage and bot efficiency
 
-- Extend source-backed category coverage from concrete inventory requests, with
-  exact variants and independently reviewed conditions. Prioritize marked LEDs
-  and complete regulator ordering codes before attempting to enrich unmarked stock.
-- Improve extraction repeatability for LED minimum luminous intensity and regulator
-  limits. Keep missing facts, condition annotations that prevent exact comparison,
+- Extend independently reviewed source cases from concrete inventory requests,
+  including additional marked LED intensity grades and regulator voltage variants.
+  Existing category fields do not establish coverage for unreviewed variants;
+  clarify unmarked stock before choosing sources.
+- Measure longer-run extraction repeatability for LED intensity and wavelength
+  endpoints, regulator limits and exact manufacturer-name retention. Keep missing
+  facts, server rejections, condition annotations that prevent exact comparison,
   and source-selection omissions distinct; do not certify coverage from schema success.
 - Review production tool sequences as new real conversations accumulate. Compare
   whole-BOM input/result sizes and errors, duplicate and overlapping requirements,
@@ -26,9 +28,10 @@ electrical lookup are improved.
   short repeat trials and include the supplied-source
   [acceptance cases](evaluation/enrichment/acceptance.json), clarification and photo
   identification before selecting a production model.
-- Investigate the incomplete transformer packaging code that produced a proposal
-  rejected by identity validation instead of clarification. Keep source
-  retention, raw model output and server rejection distinct in bounded comparisons.
+- Include incomplete transformer packaging codes in repeatability comparisons:
+  request clarification without choosing a suffix, and track intermittent proposals
+  rejected by identity validation separately from successful clarification. Keep
+  source retention, raw model output and server rejection distinct.
 - Evaluate raster OCR on representative scanned datasheets, including page
   selection and table association, before deciding whether to add production OCR.
   Keep recognition measurements separate from electrical correctness.
