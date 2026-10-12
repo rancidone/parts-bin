@@ -20,6 +20,36 @@ class SpecificationDefinition:
 
 # Initial supported fields, not an inventory taxonomy. Unknown categories remain valid.
 SPECIFICATIONS = {
+    'linear regulator': {
+        'minimum_input_voltage': SpecificationDefinition('V', 'operating_minimum'),
+        'maximum_input_voltage': SpecificationDefinition('V', 'operating_maximum'),
+        'absolute_maximum_input_voltage': SpecificationDefinition('V', 'absolute_maximum'),
+        'output_mode': SpecificationDefinition(None, 'nominal', ('fixed', 'adjustable')),
+        'output_voltage': SpecificationDefinition('V', 'nominal'),
+        'rated_output_current': SpecificationDefinition('A', 'rated'),
+        'dropout_voltage': SpecificationDefinition('V', 'maximum'),
+        'quiescent_current': SpecificationDefinition('A', 'typical'),
+    },
+    'buck converter': {
+        'minimum_input_voltage': SpecificationDefinition('V', 'operating_minimum'),
+        'maximum_input_voltage': SpecificationDefinition('V', 'operating_maximum'),
+        'absolute_maximum_input_voltage': SpecificationDefinition('V', 'absolute_maximum'),
+        'output_mode': SpecificationDefinition(None, 'nominal', ('fixed', 'adjustable')),
+        'minimum_output_voltage': SpecificationDefinition('V', 'operating_minimum'),
+        'maximum_output_voltage': SpecificationDefinition('V', 'operating_maximum'),
+        'rated_output_current': SpecificationDefinition('A', 'rated'),
+        'switching_frequency': SpecificationDefinition('Hz', 'typical'),
+        'quiescent_current': SpecificationDefinition('A', 'typical'),
+    },
+    'led': {
+        'color': SpecificationDefinition(None, 'nominal'),
+        'forward_voltage': SpecificationDefinition('V', 'maximum'),
+        'continuous_forward_current': SpecificationDefinition('A', 'absolute_maximum_continuous'),
+        'peak_forward_current': SpecificationDefinition('A', 'absolute_maximum_pulsed'),
+        'minimum_dominant_wavelength': SpecificationDefinition('m', 'minimum'),
+        'maximum_dominant_wavelength': SpecificationDefinition('m', 'maximum'),
+        'luminous_intensity': SpecificationDefinition('cd', 'minimum'),
+    },
     'resistor': {
         'resistance': SpecificationDefinition('Ω', 'nominal'),
         'tolerance': SpecificationDefinition('%', 'maximum'),
@@ -94,6 +124,33 @@ MAX_CONDITIONS = 12
 # Minimum qualification for confirming sourced electrical facts. More conditions
 # may govern a particular document; these checks cannot certify source completeness.
 MINIMUM_SOURCE_CONDITIONS = {
+    'linear regulator': {
+        'minimum_input_voltage': (('ambient_temperature', 'junction_temperature'),),
+        'maximum_input_voltage': (('ambient_temperature', 'junction_temperature'),),
+        'absolute_maximum_input_voltage': (('ambient_temperature', 'junction_temperature'),),
+        'output_voltage': (('input_voltage',), ('output_current',), ('ambient_temperature', 'junction_temperature')),
+        'rated_output_current': (('ambient_temperature', 'junction_temperature'),),
+        'dropout_voltage': (('output_current',), ('output_voltage',), ('ambient_temperature', 'junction_temperature')),
+        'quiescent_current': (('input_voltage',), ('output_current',), ('ambient_temperature', 'junction_temperature')),
+    },
+    'buck converter': {
+        'minimum_input_voltage': (('ambient_temperature', 'junction_temperature'),),
+        'maximum_input_voltage': (('ambient_temperature', 'junction_temperature'),),
+        'absolute_maximum_input_voltage': (('ambient_temperature', 'junction_temperature'),),
+        'minimum_output_voltage': (('input_voltage',), ('ambient_temperature', 'junction_temperature')),
+        'maximum_output_voltage': (('input_voltage',), ('ambient_temperature', 'junction_temperature')),
+        'rated_output_current': (('ambient_temperature', 'junction_temperature'),),
+        'switching_frequency': (('input_voltage',), ('ambient_temperature', 'junction_temperature')),
+        'quiescent_current': (('input_voltage',), ('output_current',), ('operating_mode',), ('ambient_temperature', 'junction_temperature')),
+    },
+    'led': {
+        'forward_voltage': (('forward_current',), ('ambient_temperature', 'junction_temperature')),
+        'continuous_forward_current': (('ambient_temperature', 'junction_temperature'),),
+        'peak_forward_current': (('pulse_duration',), ('duty_cycle',), ('ambient_temperature', 'junction_temperature')),
+        'minimum_dominant_wavelength': (('forward_current',), ('ambient_temperature', 'junction_temperature')),
+        'maximum_dominant_wavelength': (('forward_current',), ('ambient_temperature', 'junction_temperature')),
+        'luminous_intensity': (('forward_current',), ('ambient_temperature', 'junction_temperature')),
+    },
     'capacitor': {
         'capacitance': (('measurement_frequency',), ('measurement_temperature',)),
         'rated_voltage': (('current_type', 'voltage_type'), ('rating_temperature',)),
@@ -161,7 +218,11 @@ def contract(category: str) -> dict:
             'minimum_source_conditions': MINIMUM_SOURCE_CONDITIONS.get(search_category(category), {}),
             **({'value_policy': 'Supply values are total positive-to-negative rail voltages. Check both operating endpoints to establish supply suitability; an absolute maximum is a stress rating. Offset voltage and bias current are worst-case magnitudes, retaining current direction where sourced. Typical bandwidth, slew rate and quiescent current are not guarantees. Preserve per-amplifier versus whole-device current scope and all applicable table conditions.'}
                if search_category(category) == 'operational amplifier' else {}),
-            'conditions_policy': 'Match complete condition mappings. Explicit Celsius/humidity intervals and center ± tolerance compare by equal endpoints; omitted conditions are incomplete. Preserve original conditions and evidence.',
+            **({'value_policy': 'Input operating endpoints must both cover the requested supply. Absolute maxima are stress limits. Fixed output voltage belongs to the exact voltage variant; an adjustable reference or example circuit is not a fixed output. Preserve input/output voltage, load, temperature, thermal and capacitor conditions. Rated load current is distinct from switch current limit; dropout is not input operating minimum. Typical current and switching frequency are not guarantees.'}
+               if search_category(category) in {'linear regulator', 'buck converter'} else {}),
+            **({'value_policy': 'Preserve exact color and intensity bin identity. Maximum forward voltage requires its test current and temperature. Continuous and pulsed stress currents are distinct; retain duty cycle and pulse duration. Dominant wavelength is distinct from peak wavelength. Minimum luminous intensity is distinct from typical intensity and luminous flux; retain test current, temperature and measurement geometry. Unmarked LEDs require identity clarification.'}
+               if search_category(category) == 'led' else {}),
+            'conditions_policy': 'Match complete condition mappings. Explicit scalar electrical conditions compare by SI units; Celsius/humidity intervals and center ± tolerance compare by equal endpoints; omitted conditions are incomplete. Preserve original conditions and evidence.',
             'evidence_policy': 'Only accepted source evidence confirms requirements. User assertions remain incomplete.'}
 
 

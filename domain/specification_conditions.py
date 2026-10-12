@@ -29,6 +29,16 @@ def interval(raw: str, unit: str):
     return None
 
 
+# Scalar electrical quantities compare by SI units only for named conditions.
+# Relations (VDS = VGS), ranges and unspecified qualifiers remain literal.
+_ELECTRICAL_UNITS = {
+    'forward_current': 'A', 'output_current': 'A', 'collector_current': 'A', 'drain_current': 'A',
+    'input_voltage': 'V', 'output_voltage': 'V', 'supply_voltage': 'V',
+    'gate_source_voltage': 'V', 'collector_emitter_voltage': 'V', 'reverse_voltage': 'V',
+    'measurement_frequency': 'Hz', 'pulse_duration': 's',
+}
+
+
 def comparable_conditions(raw):
     result = dict(raw)
     if 'voltage_type' in result and 'current_type' not in result:
@@ -50,6 +60,15 @@ def comparable_conditions(raw):
             del result[tolerance_key]
         if value is not None:
             result[key] = value
+    from .specifications import numeric_value
+    from .errors import DomainError
+    for key, unit in _ELECTRICAL_UNITS.items():
+        if key not in result:
+            continue
+        try:
+            result[key] = ('scalar', unit, numeric_value(result[key], unit))
+        except DomainError:
+            pass
     return result
 
 

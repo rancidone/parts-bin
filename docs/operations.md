@@ -256,3 +256,20 @@ model call. A failed refresh clears the prior result, so retry may incur another
 charge. Cache expiry does not affect staged or accepted evidence.
 An interrupted chat extraction requires an explicit new user turn to retry;
 resuming its execution does not repeat an uncertain paid stage.
+
+## BOM availability and electrical search
+
+Paste a BOM and ask for stock availability. The bot submits parsed rows to the
+whole-list inventory check; deduplicating beforehand is optional. The server
+combines identical requirements and retains original row indices. Unknown
+quantities and overlapping stock need clarification before claiming coverage.
+The check does not reserve stock. Lists over the input bound need separate
+submissions; do not assume those checks allocate stock across submissions.
+
+Use the category specification contract to discover available regulator and LED
+fields before searching accepted facts. Specify the test conditions when asking
+for voltage, current or optical performance. Input operating ranges require both
+endpoints; absolute maxima do not establish operation. Fixed and adjustable
+outputs differ. Unmarked LEDs need identity clarification before source-backed
+extraction. New fields do not populate existing stock automatically: supply a
+manufacturer datasheet, inspect the proposal and approve it through review.

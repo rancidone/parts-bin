@@ -1182,6 +1182,1035 @@
           "text": "PBSS5350T,215: 4 in stock. PBSS5350T,115: missing. LM358N: out of stock (0). NE5532P: 6 in stock. Required quantities were not supplied."
         }
       ]
+    },
+    {
+      "id": "inventory_lookup_ldo_operating_range",
+      "starting_database": {
+        "parts": [
+          {
+            "part_category": "linear_regulator",
+            "profile": "discrete_ic",
+            "quantity": 4,
+            "part_number": "TEST-EXACT",
+            "package": "TEST-PACKAGE"
+          }
+        ],
+        "specifications": [
+          {
+            "part_id": 1,
+            "accepted": true,
+            "facts": [
+              {
+                "name": "minimum_input_voltage",
+                "value": "2.5 V",
+                "basis": "operating_minimum",
+                "conditions": {
+                  "ambient_temperature": "-40 to 85 °C"
+                },
+                "evidence": {
+                  "kind": "source",
+                  "excerpt": "Synthetic datasheet passage: rated power 250 mW at 25 °C.",
+                  "url": "https://example.com/datasheet.pdf",
+                  "page": 2,
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "retrieved_at": "2026-10-10T12:00:00+00:00",
+                  "part_number": "TEST-EXACT"
+                }
+              },
+              {
+                "name": "maximum_input_voltage",
+                "value": "6 V",
+                "basis": "operating_maximum",
+                "conditions": {
+                  "ambient_temperature": "-40 to 85 °C"
+                },
+                "evidence": {
+                  "kind": "source",
+                  "excerpt": "Synthetic datasheet passage: rated power 250 mW at 25 °C.",
+                  "url": "https://example.com/datasheet.pdf",
+                  "page": 2,
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "retrieved_at": "2026-10-10T12:00:00+00:00",
+                  "part_number": "TEST-EXACT"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "conversation": [
+        {
+          "user": "Do I have an LDO whose source-backed operating input range covers 5 V at ambient -40 to 85 °C? Check both endpoints."
+        }
+      ],
+      "allowed_approvals": {},
+      "tool_constraints": {
+        "required_sequence": [
+          "get_specification_contract",
+          "search_parts"
+        ],
+        "forbidden": [
+          "add_part",
+          "add_stock",
+          "update_part",
+          "bulk_update_parts",
+          "delete_part",
+          "ingest_datasheet",
+          "lookup_part_specs"
+        ],
+        "max_calls": 2
+      },
+      "expected_final_state": {
+        "parts_count": 1,
+        "reviews": {}
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "4",
+          "TEST-EXACT"
+        ]
+      },
+      "recorded_turns": [
+        {
+          "tool_calls": [
+            {
+              "name": "get_specification_contract",
+              "arguments": {
+                "category": "LDO"
+              }
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "search_parts",
+              "arguments": {
+                "filters": {
+                  "part_category": "LDO"
+                },
+                "requirements": [
+                  {
+                    "name": "minimum_input_voltage",
+                    "basis": "operating_minimum",
+                    "conditions": {
+                      "ambient_temperature": "-40 to 85 °C"
+                    },
+                    "value": "5 V",
+                    "comparison": "lte"
+                  },
+                  {
+                    "name": "maximum_input_voltage",
+                    "basis": "operating_maximum",
+                    "conditions": {
+                      "ambient_temperature": "-40 to 85 °C"
+                    },
+                    "value": "5 V",
+                    "comparison": "gte"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "text": "Yes, 4 TEST-EXACT records meet the sourced requirements under the stated conditions."
+        }
+      ]
+    },
+    {
+      "id": "inventory_lookup_led_intensity",
+      "starting_database": {
+        "parts": [
+          {
+            "part_category": "led",
+            "profile": "discrete_ic",
+            "quantity": 4,
+            "part_number": "TEST-EXACT",
+            "package": "TEST-PACKAGE"
+          }
+        ],
+        "specifications": [
+          {
+            "part_id": 1,
+            "accepted": true,
+            "facts": [
+              {
+                "name": "luminous_intensity",
+                "value": "1.6 mcd",
+                "basis": "minimum",
+                "conditions": {
+                  "forward_current": "10 mA",
+                  "ambient_temperature": "25 °C"
+                },
+                "evidence": {
+                  "kind": "source",
+                  "excerpt": "Synthetic datasheet passage: rated power 250 mW at 25 °C.",
+                  "url": "https://example.com/datasheet.pdf",
+                  "page": 2,
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "retrieved_at": "2026-10-10T12:00:00+00:00",
+                  "part_number": "TEST-EXACT"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "conversation": [
+        {
+          "user": "Do I have LEDs with source-backed minimum luminous intensity at least 1.6 mcd at 10 mA forward current and ambient 25 °C?"
+        }
+      ],
+      "allowed_approvals": {},
+      "tool_constraints": {
+        "required_sequence": [
+          "get_specification_contract",
+          "search_parts"
+        ],
+        "forbidden": [
+          "add_part",
+          "add_stock",
+          "update_part",
+          "bulk_update_parts",
+          "delete_part",
+          "ingest_datasheet",
+          "lookup_part_specs"
+        ],
+        "max_calls": 2
+      },
+      "expected_final_state": {
+        "parts_count": 1,
+        "reviews": {}
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "4",
+          "TEST-EXACT"
+        ]
+      },
+      "recorded_turns": [
+        {
+          "tool_calls": [
+            {
+              "name": "get_specification_contract",
+              "arguments": {
+                "category": "LEDs"
+              }
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "search_parts",
+              "arguments": {
+                "filters": {
+                  "part_category": "LEDs"
+                },
+                "requirements": [
+                  {
+                    "name": "luminous_intensity",
+                    "basis": "minimum",
+                    "conditions": {
+                      "forward_current": "10 mA",
+                      "ambient_temperature": "25 °C"
+                    },
+                    "value": "1.6 mcd",
+                    "comparison": "gte"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "text": "Yes, 4 TEST-EXACT records meet the sourced requirements under the stated conditions."
+        }
+      ]
+    },
+    {
+      "id": "inventory_lookup_buck_operating_range",
+      "starting_database": {
+        "parts": [
+          {
+            "part_category": "buck_converter",
+            "profile": "discrete_ic",
+            "quantity": 4,
+            "part_number": "TEST-EXACT",
+            "package": "TEST-PACKAGE"
+          }
+        ],
+        "specifications": [
+          {
+            "part_id": 1,
+            "accepted": true,
+            "facts": [
+              {
+                "name": "minimum_input_voltage",
+                "value": "2.7 V",
+                "basis": "operating_minimum",
+                "conditions": {
+                  "ambient_temperature": "-40 to 85 °C"
+                },
+                "evidence": {
+                  "kind": "source",
+                  "excerpt": "Synthetic datasheet passage: rated power 250 mW at 25 °C.",
+                  "url": "https://example.com/datasheet.pdf",
+                  "page": 2,
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "retrieved_at": "2026-10-10T12:00:00+00:00",
+                  "part_number": "TEST-EXACT"
+                }
+              },
+              {
+                "name": "maximum_input_voltage",
+                "value": "5.5 V",
+                "basis": "operating_maximum",
+                "conditions": {
+                  "ambient_temperature": "-40 to 85 °C"
+                },
+                "evidence": {
+                  "kind": "source",
+                  "excerpt": "Synthetic datasheet passage: rated power 250 mW at 25 °C.",
+                  "url": "https://example.com/datasheet.pdf",
+                  "page": 2,
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "retrieved_at": "2026-10-10T12:00:00+00:00",
+                  "part_number": "TEST-EXACT"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "conversation": [
+        {
+          "user": "Do I have a buck converter whose source-backed operating input range covers 5 V at ambient -40 to 85 °C? Check both endpoints."
+        }
+      ],
+      "allowed_approvals": {},
+      "tool_constraints": {
+        "required_sequence": [
+          "get_specification_contract",
+          "search_parts"
+        ],
+        "forbidden": [
+          "add_part",
+          "add_stock",
+          "update_part",
+          "bulk_update_parts",
+          "delete_part",
+          "ingest_datasheet",
+          "lookup_part_specs"
+        ],
+        "max_calls": 2
+      },
+      "expected_final_state": {
+        "parts_count": 1,
+        "reviews": {}
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "4",
+          "TEST-EXACT"
+        ]
+      },
+      "recorded_turns": [
+        {
+          "tool_calls": [
+            {
+              "name": "get_specification_contract",
+              "arguments": {
+                "category": "buck converter"
+              }
+            }
+          ]
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "search_parts",
+              "arguments": {
+                "filters": {
+                  "part_category": "buck converter"
+                },
+                "requirements": [
+                  {
+                    "name": "minimum_input_voltage",
+                    "basis": "operating_minimum",
+                    "conditions": {
+                      "ambient_temperature": "-40 to 85 °C"
+                    },
+                    "value": "5 V",
+                    "comparison": "lte"
+                  },
+                  {
+                    "name": "maximum_input_voltage",
+                    "basis": "operating_maximum",
+                    "conditions": {
+                      "ambient_temperature": "-40 to 85 °C"
+                    },
+                    "value": "5 V",
+                    "comparison": "gte"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "text": "Yes, 4 TEST-EXACT records meet the sourced requirements under the stated conditions."
+        }
+      ]
+    },
+    {
+      "id": "inventory_lookup_bom_whole_46",
+      "starting_database": {
+        "parts": [
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-00"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-01"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-02"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-03"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-04"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-05"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-06"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-07"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-08"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-09"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-10"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-11"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-12"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-13"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-14"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-15"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-16"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-17"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-18"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-19"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-20"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-21"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-22"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-23"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-24"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-25"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-26"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-27"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-28"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-29"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-30"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-31"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-32"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-33"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-34"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-35"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-36"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-37"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-38"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-39"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-40"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-41"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-42"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-43"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-44"
+          },
+          {
+            "part_category": "test",
+            "profile": "discrete_ic",
+            "quantity": 2,
+            "part_number": "TEST-BOM-45"
+          }
+        ]
+      },
+      "conversation": [
+        {
+          "user": "Check stock only for this BOM. Each row requests one unit:\nTEST-BOM-00 1\nTEST-BOM-01 1\nTEST-BOM-02 1\nTEST-BOM-03 1\nTEST-BOM-04 1\nTEST-BOM-05 1\nTEST-BOM-06 1\nTEST-BOM-07 1\nTEST-BOM-08 1\nTEST-BOM-09 1\nTEST-BOM-10 1\nTEST-BOM-11 1\nTEST-BOM-12 1\nTEST-BOM-13 1\nTEST-BOM-14 1\nTEST-BOM-15 1\nTEST-BOM-16 1\nTEST-BOM-17 1\nTEST-BOM-18 1\nTEST-BOM-19 1\nTEST-BOM-20 1\nTEST-BOM-21 1\nTEST-BOM-22 1\nTEST-BOM-23 1\nTEST-BOM-24 1\nTEST-BOM-25 1\nTEST-BOM-26 1\nTEST-BOM-27 1\nTEST-BOM-28 1\nTEST-BOM-29 1\nTEST-BOM-30 1\nTEST-BOM-31 1\nTEST-BOM-32 1\nTEST-BOM-33 1\nTEST-BOM-34 1\nTEST-BOM-35 1\nTEST-BOM-36 1\nTEST-BOM-37 1\nTEST-BOM-38 1\nTEST-BOM-39 1\nTEST-BOM-40 1\nTEST-BOM-41 1\nTEST-BOM-42 1\nTEST-BOM-43 1\nTEST-BOM-44 1\nTEST-BOM-45 1"
+        }
+      ],
+      "allowed_approvals": {},
+      "tool_constraints": {
+        "required_sequence": [
+          "check_inventory"
+        ],
+        "max_calls": 1,
+        "forbidden": [
+          "add_part",
+          "add_stock",
+          "update_part",
+          "lookup_part_specs",
+          "ingest_datasheet"
+        ]
+      },
+      "expected_final_state": {
+        "parts_count": 46,
+        "reviews": {}
+      },
+      "answer_assertions": {
+        "contains_all": [
+          "TEST-BOM-00",
+          "TEST-BOM-01",
+          "TEST-BOM-02",
+          "TEST-BOM-03",
+          "TEST-BOM-04",
+          "TEST-BOM-05",
+          "TEST-BOM-06",
+          "TEST-BOM-07",
+          "TEST-BOM-08",
+          "TEST-BOM-09",
+          "TEST-BOM-10",
+          "TEST-BOM-11",
+          "TEST-BOM-12",
+          "TEST-BOM-13",
+          "TEST-BOM-14",
+          "TEST-BOM-15",
+          "TEST-BOM-16",
+          "TEST-BOM-17",
+          "TEST-BOM-18",
+          "TEST-BOM-19",
+          "TEST-BOM-20",
+          "TEST-BOM-21",
+          "TEST-BOM-22",
+          "TEST-BOM-23",
+          "TEST-BOM-24",
+          "TEST-BOM-25",
+          "TEST-BOM-26",
+          "TEST-BOM-27",
+          "TEST-BOM-28",
+          "TEST-BOM-29",
+          "TEST-BOM-30",
+          "TEST-BOM-31",
+          "TEST-BOM-32",
+          "TEST-BOM-33",
+          "TEST-BOM-34",
+          "TEST-BOM-35",
+          "TEST-BOM-36",
+          "TEST-BOM-37",
+          "TEST-BOM-38",
+          "TEST-BOM-39",
+          "TEST-BOM-40",
+          "TEST-BOM-41",
+          "TEST-BOM-42",
+          "TEST-BOM-43",
+          "TEST-BOM-44",
+          "TEST-BOM-45"
+        ]
+      },
+      "recorded_turns": [
+        {
+          "tool_calls": [
+            {
+              "name": "check_inventory",
+              "arguments": {
+                "items": [
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-00"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-01"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-02"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-03"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-04"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-05"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-06"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-07"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-08"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-09"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-10"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-11"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-12"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-13"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-14"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-15"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-16"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-17"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-18"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-19"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-20"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-21"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-22"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-23"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-24"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-25"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-26"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-27"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-28"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-29"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-30"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-31"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-32"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-33"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-34"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-35"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-36"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-37"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-38"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-39"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-40"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-41"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-42"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-43"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-44"
+                    },
+                    "quantity": 1
+                  },
+                  {
+                    "filters": {
+                      "part_number": "TEST-BOM-45"
+                    },
+                    "quantity": 1
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "text": "All 46 rows have sufficient stock. Each requests 1 and has 2 in one matching record:\nTEST-BOM-00: required 1, available 2, sufficient\nTEST-BOM-01: required 1, available 2, sufficient\nTEST-BOM-02: required 1, available 2, sufficient\nTEST-BOM-03: required 1, available 2, sufficient\nTEST-BOM-04: required 1, available 2, sufficient\nTEST-BOM-05: required 1, available 2, sufficient\nTEST-BOM-06: required 1, available 2, sufficient\nTEST-BOM-07: required 1, available 2, sufficient\nTEST-BOM-08: required 1, available 2, sufficient\nTEST-BOM-09: required 1, available 2, sufficient\nTEST-BOM-10: required 1, available 2, sufficient\nTEST-BOM-11: required 1, available 2, sufficient\nTEST-BOM-12: required 1, available 2, sufficient\nTEST-BOM-13: required 1, available 2, sufficient\nTEST-BOM-14: required 1, available 2, sufficient\nTEST-BOM-15: required 1, available 2, sufficient\nTEST-BOM-16: required 1, available 2, sufficient\nTEST-BOM-17: required 1, available 2, sufficient\nTEST-BOM-18: required 1, available 2, sufficient\nTEST-BOM-19: required 1, available 2, sufficient\nTEST-BOM-20: required 1, available 2, sufficient\nTEST-BOM-21: required 1, available 2, sufficient\nTEST-BOM-22: required 1, available 2, sufficient\nTEST-BOM-23: required 1, available 2, sufficient\nTEST-BOM-24: required 1, available 2, sufficient\nTEST-BOM-25: required 1, available 2, sufficient\nTEST-BOM-26: required 1, available 2, sufficient\nTEST-BOM-27: required 1, available 2, sufficient\nTEST-BOM-28: required 1, available 2, sufficient\nTEST-BOM-29: required 1, available 2, sufficient\nTEST-BOM-30: required 1, available 2, sufficient\nTEST-BOM-31: required 1, available 2, sufficient\nTEST-BOM-32: required 1, available 2, sufficient\nTEST-BOM-33: required 1, available 2, sufficient\nTEST-BOM-34: required 1, available 2, sufficient\nTEST-BOM-35: required 1, available 2, sufficient\nTEST-BOM-36: required 1, available 2, sufficient\nTEST-BOM-37: required 1, available 2, sufficient\nTEST-BOM-38: required 1, available 2, sufficient\nTEST-BOM-39: required 1, available 2, sufficient\nTEST-BOM-40: required 1, available 2, sufficient\nTEST-BOM-41: required 1, available 2, sufficient\nTEST-BOM-42: required 1, available 2, sufficient\nTEST-BOM-43: required 1, available 2, sufficient\nTEST-BOM-44: required 1, available 2, sufficient\nTEST-BOM-45: required 1, available 2, sufficient\nNo stock was reserved."
+        }
+      ]
     }
   ]
 }

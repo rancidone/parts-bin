@@ -295,6 +295,54 @@
       "review": [
         "A saved link does not authorize extracting transformer ratings for a resistor or overriding a manufacturer contradiction. Stage no facts."
       ]
+    },
+    {
+      "id": "ldo_fixed_voltage_variant",
+      "category": "linear_regulator",
+      "part_number": "AP2112K-3.3TRG1",
+      "manufacturer": "Diodes Incorporated",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.diodes.com/datasheet/download/AP2112.pdf",
+      "expected_outcome": "proposal",
+      "layout_class": "ruled_tables",
+      "review": [
+        "Exact 3.3 V ordering variant; recommended input 2.5–6 V differs from 6.5 V stress limit.",
+        "Page 8: fixed 3.3 V; dropout maximum 400 mV at 600 mA and 3.3 V output, 25 °C. Retain global 4.3 V input, 1 µF ceramic input/output capacitor and row load conditions."
+      ]
+    },
+    {
+      "id": "buck_adjustable_operating_limits",
+      "category": "buck_converter",
+      "part_number": "TLV62565DBVR",
+      "manufacturer": "Texas Instruments",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.ti.com/lit/ds/symlink/tlv62565.pdf",
+      "expected_outcome": "proposal",
+      "layout_class": "ruled_tables",
+      "review": [
+        "Exact DBVR ordering code. Recommended input 2.7–5.5 V differs from 7 V stress rating.",
+        "Output adjustable; page 4 output range 0.6 V to VIN, not fixed 1.8 V from example circuit. No numeric maximum_output_voltage can represent VIN.",
+        "Page 5 switching frequency typical 1.5 MHz at global 3.6 V input and typical 25 °C. No row-specific 500 mA output load is given; preserve sourced medium-to-heavy-load qualification separately. Switch current limits are not rated output current."
+      ]
+    },
+    {
+      "id": "led_red_voltage_and_intensity",
+      "category": "led",
+      "part_number": "TLHR4400",
+      "manufacturer": "Vishay",
+      "quantity": 4,
+      "value": null,
+      "url": "https://www.vishay.com/docs/83006/tlhg440.pdf",
+      "expected_outcome": "proposal",
+      "layout_class": "ruled_tables",
+      "review": [
+        "Exact red variant, not another color or intensity grade.",
+        "Page 2: forward voltage maximum 3 V at 20 mA; intensity minimum 1.6 mcd at 10 mA; ambient 25 °C.",
+        "Dominant wavelength range 612–625 nm at 10 mA is not typical peak wavelength 635 nm.",
+        "Continuous current 30 mA is a stress limit; surge current 1 A at ≤10 µs has no duty cycle and must not be forced into a pulsed rating."
+      ]
     }
   ]
 }
