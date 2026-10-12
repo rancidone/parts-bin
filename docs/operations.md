@@ -231,7 +231,11 @@ Detected table cells retain their bounds so merged cells can be interpreted
 without filling blanks. Review uncertain associations in the original viewer.
 
 Electrical evidence can include several source passages; review every cited row,
-heading and footnote before approving. Capacitor capacitance requires explicit
+heading and footnote before approving. Electrical extraction considers each
+supported field explicitly and cites identity evidence by supplied passage ID.
+Null fields remain unknown; an explicit decision and authentic source passage
+do not establish complete interpretation. Metadata-only extraction continues
+to use short source quotations. Capacitor capacitance requires explicit
 measurement frequency and temperature;
 its rated voltage requires AC/DC and rating temperature before a match can be
 confirmed. Incomplete facts may remain in a review or accepted history, but

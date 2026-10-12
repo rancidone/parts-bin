@@ -13,6 +13,7 @@ from domain import AddPartRequest, GetPartRequest, PartFields, PartsBinService
 from ingestion import supplied_source as source
 from ingestion.datasheet import DatasheetFetcher
 from tools import ApprovalReceipt, PartsBinToolRegistry, ToolExecutionContext
+from tests.ingestion.electrical_fixtures import model_response
 
 
 URL = 'https://www.vishay.com/docs/example.pdf'
@@ -44,7 +45,7 @@ async def extract(raw, category='resistor', document=DOCUMENT):
         assert json.loads(body['input'])['specification_contract']['category'] == category
         assert 'facts' in body['text']['format']['schema']['required']
         return httpx.Response(200, json={'status': 'completed', 'output': [
-            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': model_response(raw, request)}]}]})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         return await source.extract(document, NUMBER, 'Vishay', category=category,
                                     api_key='fake', model='test', client=client)
@@ -177,7 +178,7 @@ async def test_supplied_manufacturer_is_preserved_despite_copyright_suffix():
         assert fields['part_number']['properties']['value']['enum'] == [NUMBER]
         assert fields['package'] == fields['description'] == {'type': 'null'}
         return httpx.Response(200, json={'status': 'completed', 'output': [
-            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': model_response(raw, request)}]}]})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         result = await source.extract(document, NUMBER, 'Texas Instruments', category='buck_converter',
@@ -205,9 +206,9 @@ async def test_led_endpoints_keep_separate_measurement_conditions():
             ('maximum_dominant_wavelength', '625 nm', 'maximum', '10 mA'),
             ('forward_voltage', '3 V', 'maximum', '20 mA')]]
     result = await extract(candidate(passage=text, facts=facts), 'led', document)
-    assert [(fact['name'], fact['value'], fact['basis'], fact['conditions']['forward_current'])
-            for fact in result['facts']] == [(fact['name'], fact['value'], fact['basis'],
-                                             fact['conditions'][0]['value']) for fact in facts]
+    assert {fact['name']: (fact['value'], fact['basis'], fact['conditions']['forward_current'])
+            for fact in result['facts']} == {fact['name']: (fact['value'], fact['basis'],
+                                             fact['conditions'][0]['value']) for fact in facts}
 
 
 async def test_switch_keeps_paired_load_and_complete_test_environment():
@@ -270,7 +271,7 @@ async def test_saved_datasheet_extracts_common_ratings_without_requiring_invento
         fields = json.loads(request.content)['text']['format']['schema']['properties']['fields']['properties']
         assert 'enum' not in fields['part_number']['properties']['value']
         return httpx.Response(200, json={'status': 'completed', 'output': [
-            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': model_response(raw, request)}]}]})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         result = await source.extract(document, 'MMBT2907', 'onsemi', category='bjt', linked_part=True,
@@ -329,9 +330,9 @@ async def test_saved_link_does_not_convert_evidenced_mismatch_into_facts():
     raw = {'outcome': 'no_match', 'clarification': 'This document describes a resistor, not a transistor.',
            'mismatch_evidence': {'page': 1, 'excerpt': PASSAGE},
            'fields': dict.fromkeys(source.FIELDS), 'facts': []}
-    def handler(_):
+    def handler(request):
         return httpx.Response(200, json={'status': 'completed', 'output': [
-            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': model_response(raw, request)}]}]})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         result = await source.extract(DOCUMENT, 'MMBT2907', None, category='bjt', linked_part=True,
                                       api_key='fake', model='test', client=client)
@@ -381,7 +382,7 @@ async def test_standalone_device_title_keeps_bjt_facts_for_review(tmp_path):
         supplied = json.loads(body['input'])['pages']
         assert 'BC517\n' in supplied[0]['text'] and '30 V' in supplied[0]['text']
         return httpx.Response(200, json={'status': 'completed', 'output': [
-            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': model_response(raw, request)}]}]})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         result = await source.extract(document, 'BC517', None, category='bjt',

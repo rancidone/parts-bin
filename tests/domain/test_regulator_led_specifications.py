@@ -28,7 +28,7 @@ async def test_bot_contract_review_restart_and_qualified_search(tmp_path, stored
     registry = PartsBinToolRegistry(service)
     response = await registry.execute('get_specification_contract', {'category': alias})
     assert response['result']['fields'][name]['basis'] == basis
-    assert name in facts_schema(stored)['items']['properties']['name']['enum']
+    assert name in facts_schema(stored)['required']
     proposed = fact(name, value, basis, conditions=conditions)
     args = {'filters': {'part_category': alias}, 'requirements': [requirement(proposed, query_value)], 'minimum_quantity': 4}
     service.stage_specifications(part, [proposed])

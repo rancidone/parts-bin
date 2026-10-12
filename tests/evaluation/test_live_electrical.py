@@ -6,6 +6,7 @@ import pytest
 
 from evaluation.live_electrical import load_cases, run_electrical
 from ingestion.supplied_source import Document
+from tests.ingestion.electrical_fixtures import model_response
 
 
 def document(case):
@@ -33,7 +34,7 @@ async def test_offline_transport_is_labeled_and_measures_one_request_without_cre
         calls.append(json.loads(request.content))
         return httpx.Response(200, json={'status': 'completed', 'model': 'test-snapshot',
             'usage': {'input_tokens': 123, 'output_tokens': 45}, 'output': [
-                {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(response(case))}]}]})
+                {'type': 'message', 'content': [{'type': 'output_text', 'text': model_response(response(case), request)}]}]})
     path = await run_electrical(tmp_path, api_key='do-not-record-secret', model='test',
         case_ids=[case['id']], http_transport=httpx.MockTransport(handler),
         retriever=AsyncMock(return_value=document(case)))
