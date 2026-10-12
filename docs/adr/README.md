@@ -30,3 +30,5 @@ changes, add a new ADR and mark the old one superseded with a link.
 Keep unresolved proposals in [TODO](../../TODO.md), commands in
 [operations](../operations.md), and configuration in
 [the sample config](../../config.example.toml).
+
+- [0017: Check a bounded BOM in one domain operation](0017-whole-bom-availability-check.md)

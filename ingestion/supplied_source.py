@@ -22,7 +22,7 @@ from pdfminer.layout import LTContainer, LTTextLine
 from ingestion.cache import EnrichmentCache
 from ingestion.errors import EnrichmentError
 
-POLICY_VERSION = "supplied-pdf-v24"
+POLICY_VERSION = "supplied-pdf-v25"
 ALLOWED_HOSTS = frozenset({"assets.nexperia.com", "www.nexperia.com", "www.ti.com",
                            "www.vishay.com", "www.coilcraft.com", "omronfs.omron.com",
                            "www.onsemi.com", "www.st.com", "www.analog.com",
@@ -268,7 +268,8 @@ def validate_candidate(candidate: dict, part_number: str, manufacturer: str | No
 def specification_windows(document: Document, part_number: str) -> list[tuple[int, int, str]]:
     """Reserve source sections before repeated ordering codes fill the budget."""
     heading = re.compile(r'(?im)^\s*(?:\d+(?:\.\d+)*\s+)?'
-        r'(Absolute Maximum Ratings|Recommended Operating Conditions|Electrical Characteristics|Contact Form|Specifications)[^\n]*$')
+        r'(?:[A-Z][A-Z0-9]*(?:-\d+(?:\.\d+)?)?[ \t]+)?'
+        r'(Absolute Maximum Ratings|Recommended Operating Conditions|Optical[ \t]+and[ \t]+Electrical[ \t]+Characteristics|Electrical[ \t]+Characteristics|Contact Form|Specifications)[^\n]*$')
     sections = []
     for i, text in enumerate(document.pages):
         for match in heading.finditer(text):
@@ -277,12 +278,19 @@ def specification_windows(document: Document, part_number: str) -> list[tuple[in
             devices = re.findall(r'\b[A-Z][A-Z0-9-]*\d[A-Z0-9-]*\b', match.group(), re.I)
             specificity = max((len(device) for device in devices
                 if part_number.casefold().startswith(device.casefold())), default=0)
+            # Some voltage variants put package letters before the voltage in
+            # ordering codes but omit them in electrical section titles. Rank
+            # these titles only; this never establishes ordering-code identity.
+            variant = re.match(r'([A-Z]+\d+)[A-Z]*-(\d+(?:\.\d+)?)', part_number, re.I)
+            if variant and re.search(r'\b' + re.escape(variant[1]) + r'[A-Z]*-' +
+                                     re.escape(variant[2]) + r'(?![\d.])', match.group(), re.I):
+                specificity += 1000
             sections.append((i, match, specificity))
     best = max((score for _, match, score in sections
-                if match[1].lower() == 'electrical characteristics'), default=0)
+                if ' '.join(match[1].lower().split()) == 'electrical characteristics'), default=0)
     windows = []
     for i, match, score in sections:
-        kind = match[1].lower()
+        kind = ' '.join(match[1].lower().split())
         if kind == 'electrical characteristics' and best and score != best:
             continue
         text = document.pages[i]
@@ -517,6 +525,10 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
     if category is not None:
         from domain.specifications import contract
         instructions += (
+            ' For regulators, inspect the matching voltage-variant electrical section. Extract supported '
+            'dropout, quiescent current and switching frequency rows with all global table conditions. '
+            'Typical temperature defaults apply to typical values; bounds retain the stated range. '
+            'Never substitute another output-voltage variant or use a stress-temperature limit as a test condition. '
             ' Also extract electrical facts using the supplied category contract. Leave unsupported or '
             'missing facts absent. Every value, basis and condition must be supported by its quoted '
             'passages for the exact variant. Preserve rated versus operating versus absolute maximum '

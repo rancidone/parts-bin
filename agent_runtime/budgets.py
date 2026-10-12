@@ -9,7 +9,8 @@ from typing import Any
 
 MAX_HISTORY_BYTES = 12_000
 MAX_TOOL_RESULT_BYTES = 12_000
-# Accommodate the typed tools, a 100-line BOM, and its bounded result batches.
+MAX_BOM_RESULT_BYTES = 48_000
+# Accommodate the typed tools, a 100-line BOM, and its compact whole-list result.
 MAX_INPUT_BYTES = 128_000
 # Opaque provider state is not UTF-8 prompt text. Bound it separately while
 # preserving the original reasoning items required for stateless continuation.
@@ -55,12 +56,15 @@ def bounded_history(history: tuple[dict[str, str], ...]) -> tuple[dict[str, str]
     return tuple(([notice] if omitted else []) + kept)
 
 
-def model_tool_result(result: dict[str, Any]) -> dict[str, Any]:
+def model_tool_result(result: dict[str, Any], *, tool: str | None = None) -> dict[str, Any]:
     """Keep saved/UI results intact; mark oversized model payloads explicitly."""
-    if size(result) <= MAX_TOOL_RESULT_BYTES:
+    if size(result) <= (MAX_BOM_RESULT_BYTES if tool == "check_inventory" else MAX_TOOL_RESULT_BYTES):
         return result
+    message = ("Tool execution finished, but its result exceeds the model context budget. The full outcome is saved in conversation events. Do not infer omitted facts or repeat mutations. "
+               + ("For this BOM, submit a smaller list or inspect the saved result." if tool == 'check_inventory'
+                  else "For reads, narrow filters or use a smaller page limit; otherwise inspect the saved result."))
     return {
         "ok": result.get("ok", False),
         "result_omitted": True,
-        "message": "Tool execution finished, but its result exceeds the model context budget. The full outcome is saved in conversation events. Do not infer any omitted facts or repeat mutations. For reads, narrow filters or use a smaller page limit; otherwise ask the user to inspect the saved result.",
+        "message": message,
     }

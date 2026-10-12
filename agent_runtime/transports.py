@@ -39,7 +39,7 @@ class OpenAIResponsesTransport:
                     input_items.append({"type": "function_call", "call_id": exchange["call_id"],
                                         "name": exchange["name"], "arguments": encoded(exchange.get("arguments", {}))})
                 input_items.append({"type": "function_call_output", "call_id": exchange["call_id"],
-                                    "output": encoded(model_tool_result(exchange["result"]))})
+                                    "output": encoded(model_tool_result(exchange["result"], tool=exchange["name"]))})
         # Images have their own preprocessing bound; base64 is not text tokens.
         text_input = [{**item, "content": [part for part in item["content"] if part.get("type") != "input_image"]}
                       if isinstance(item.get("content"), list) else item for item in input_items]

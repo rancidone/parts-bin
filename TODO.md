@@ -7,8 +7,17 @@ Decisions and rationale belong in [ADRs](docs/adr/README.md).
 Cloud experiments remain deferred while local ingestion and evidence-backed
 electrical lookup are improved.
 
-## Next: extraction interpretation and repeatability
+## Next: enrichment coverage and bot efficiency
 
+- Extend source-backed category coverage from concrete inventory requests, with
+  exact variants and independently reviewed conditions. Prioritize marked LEDs
+  and complete regulator ordering codes before attempting to enrich unmarked stock.
+- Improve extraction repeatability for LED minimum luminous intensity and regulator
+  limits. Keep missing facts, condition annotations that prevent exact comparison,
+  and source-selection omissions distinct; do not certify coverage from schema success.
+- Review production tool sequences as new real conversations accumulate. Compare
+  whole-BOM input/result sizes and errors, duplicate and overlapping requirements,
+  and specification search calls; keep synthetic scenarios separate from production.
 - Compare electrical table interpretation across models and sources, including
   op-amp qualifier retention, using independent expectations for global conditions,
   min/max endpoints, paired load ratings and reference-circuit values. Keep

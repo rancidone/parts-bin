@@ -109,8 +109,7 @@ async def test_opaque_reasoning_has_a_separate_bound_and_is_preserved():
     assert len(captured) == 1
 
 
-@pytest.mark.parametrize('legacy_pages', [False, True])
-async def test_bom_batches_fit_budget_with_real_tools_and_preserve_all_outcomes(tmp_path, legacy_pages):
+async def test_whole_bom_fits_budget_with_real_tools_and_preserves_all_outcomes(tmp_path):
     from agent_runtime.runtime import SYSTEM_INSTRUCTIONS
     from db.repository import SQLitePartsBinRepository
     from domain import PartsBinService
@@ -121,13 +120,11 @@ async def test_bom_batches_fit_budget_with_real_tools_and_preserve_all_outcomes(
                    'parameters': tool['inputSchema'], 'strict': False} for tool in registry.list_tools())
     items = [{'filters': {'part_category': 'capacitor', 'value': f'{i} nF', 'package': '0603'},
               'quantity': 10} for i in range(100)]
-    exchanges = []
-    for offset in range(0, 100, 20):
-        arguments = {'items': items, 'offset': offset} if legacy_pages else {'items': items[offset:offset + 20]}
-        result = await registry.execute('check_inventory', arguments)
-        assert result['ok']
-        exchanges.append({'type': 'tool_result', 'call_id': str(offset), 'name': 'check_inventory',
-                          'arguments': arguments, 'result': result})
+    arguments = {'items': items}
+    result = await registry.execute('check_inventory', arguments)
+    assert result['ok']
+    exchanges = [{'type': 'tool_result', 'call_id': 'bom', 'name': 'check_inventory',
+                  'arguments': arguments, 'result': result}]
     captured = []
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request:
             captured.append(json.loads(request.content)) or httpx.Response(200, json={'output': []}))) as client:
@@ -136,7 +133,18 @@ async def test_bom_batches_fit_budget_with_real_tools_and_preserve_all_outcomes(
                          tools, tuple(exchanges)))
     outputs = [json.loads(item['output']) for item in captured[0]['input']
                if item.get('type') == 'function_call_output']
-    assert len(outputs) == 5
+    assert len(outputs) == 1
     assert all('result_omitted' not in output for output in outputs)
     rows = [row for output in outputs for row in output['result']['items']]
     assert [row['filters'] for row in rows] == [item['filters'] for item in items]
+
+
+def test_larger_bom_result_budget_remains_bounded_and_other_tools_unchanged():
+    from agent_runtime.budgets import MAX_BOM_RESULT_BYTES, model_tool_result
+    result = {'ok': True, 'result': {'items': ['x' * (MAX_TOOL_RESULT_BYTES + 1)]}}
+    assert model_tool_result(result, tool='check_inventory') == result
+    assert model_tool_result(result, tool='search_parts')['result_omitted']
+    oversized = {'ok': True, 'result': {'items': ['x' * MAX_BOM_RESULT_BYTES]}}
+    omitted = model_tool_result(oversized, tool='check_inventory')
+    assert omitted['result_omitted'] and 'smaller list' in omitted['message']
+    assert oversized['result']['items']  # Authoritative result is preserved.

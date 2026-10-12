@@ -18,6 +18,7 @@ import httpx
 from agent_runtime import ApprovalEngine, OpenAIResponsesRuntime, OpenAIResponsesTransport
 from domain import PartsBinService
 from tools import PartsBinToolRegistry
+from .tool_efficiency import assess_tool_efficiency
 from .runner import (
     EvaluationFailure, INVENTORY_LOOKUP_SCENARIOS_PATH, _snapshot,
     live_enabled, load_scenarios, run_scenario,
@@ -145,6 +146,7 @@ async def run_lookup(workspace: Path, *, api_key: str, model: str,
             "estimated_cost_usd": None,
             "cost_note": "Use returned model snapshots and usage with current account pricing; missing usage is unknown, not zero.",
             "events": [event.payload() for event in events],
+            "tool_efficiency": assess_tool_efficiency([event.payload() for event in events]),
             "semantic_review": {"correctness": "needs_review", "clarification_usefulness": "needs_review"},
         })
         save()

@@ -33,8 +33,8 @@ async def test_bom_reports_stock_shortages_and_exact_missing_identity(registry):
     assert result['ok']
     rows = result['result']['items']
     assert [row['status'] for row in rows] == [
-        'sufficient', 'missing', 'out_of_stock', 'insufficient', 'in_stock', 'missing']
-    assert [row['shortage'] for row in rows] == [0, None, 1, 1, None, None]
+        'in_stock', 'missing', 'out_of_stock', 'insufficient', 'missing']
+    assert [row['shortage'] for row in rows] == [None, None, 1, 1, None]
     assert rows[0]['parts'][0]['part_number'] == 'PBSS5350T,215'
     assert result['result']['stock_reserved'] is False
     assert registry.service.list() == before
@@ -63,14 +63,9 @@ async def test_large_list_has_one_result_per_item_and_bounded_matches(registry):
         add(registry, f'R-{index}', index, value='10k', category='resistor', package=f'P{index}')
     items = [{'filters': {'part_number': f'UNKNOWN-{index}'}} for index in range(99)]
     items.append({'filters': {'part_category': 'resistor', 'value': '10k'}, 'quantity': 7})
-    rows = []
-    offset = 0
-    while offset is not None:
-        result = await registry.execute('check_inventory', {'items': items, 'offset': offset})
-        assert result['result']['count'] == 100
-        assert len(result['result']['items']) <= 20
-        rows.extend(result['result']['items'])
-        offset = result['result']['next_offset']
+    result = await registry.execute('check_inventory', {'items': items})
+    assert result['result']['count'] == 100
+    rows = result['result']['items']
     assert len(rows) == 100
     assert [row['index'] for row in rows] == list(range(100))
     assert all(row['status'] == 'missing' for row in rows[:-1])
@@ -97,8 +92,39 @@ async def test_invalid_bom_lines_are_rejected(registry, items):
     assert result['error']['code'] == 'invalid_input'
 
 
-async def test_invalid_page_limit_explains_supported_bounds(registry):
+async def test_pagination_arguments_are_not_part_of_whole_bom_contract(registry):
     result = await registry.execute('check_inventory', {
         'items': [{'filters': {'part_number': 'NE5532P'}}], 'limit': 100})
-    assert result['error']['details'] == {'field': 'limit', 'minimum': 1, 'maximum': 20}
-    assert '1 through 20' in result['error']['message']
+    assert result['error']['code'] == 'invalid_input'
+
+
+async def test_duplicates_are_summed_and_unknown_quantities_remain_unknown(registry):
+    add(registry, 'EXACT', 3)
+    result = await registry.execute('check_inventory', {'items': [
+        {'filters': {'part_number': 'EXACT'}, 'quantity': 2},
+        {'filters': {'part_number': 'EXACT'}, 'quantity': 2}]})
+    row = result['result']['items'][0]
+    assert row['input_indices'] == [0, 1]
+    assert row['requested_quantity'] == 4 and row['status'] == 'insufficient'
+    result = await registry.execute('check_inventory', {'items': [
+        {'filters': {'part_number': 'EXACT'}, 'quantity': 2}, {'filters': {'part_number': 'EXACT'}}]})
+    row = result['result']['items'][0]
+    assert row['quantity_incomplete'] and row['requested_quantity'] is None
+    assert row['known_requested_quantity'] == 2 and row['shortage'] is None
+
+
+async def test_generic_and_exact_rows_disclose_overlapping_stock(registry):
+    add(registry, 'EXACT', 3, value='10k', category='resistor', package='0402')
+    result = await registry.execute('check_inventory', {'items': [
+        {'filters': {'part_number': 'EXACT'}, 'quantity': 2},
+        {'filters': {'part_category': 'resistor', 'value': '10k'}, 'quantity': 2}]})
+    assert result['result']['overlapping_requirements'] == [[0, 1]]
+
+
+async def test_shared_stock_groups_are_not_repeated_for_each_variant(registry):
+    add(registry, 'FIRST', 3, value='10k', category='resistor', package='0402')
+    add(registry, 'SECOND', 3, value='10k', category='resistor', package='0603')
+    result = await registry.execute('check_inventory', {'items': [
+        {'filters': {'part_category': 'resistor', 'value': '10k'}, 'quantity': 2},
+        {'filters': {'part_category': 'resistor', 'value': '10000r'}, 'quantity': 2}]})
+    assert result['result']['overlapping_requirements'] == [[0, 1]]

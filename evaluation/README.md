@@ -306,3 +306,11 @@ Rasterizing clean digital pages tests controlled text recovery, not real scan
 quality or automatic page discovery. Recognition confidence does not measure
 cell association, unit meaning or electrical correctness. The production path
 continues to direct image-only sources to visual review.
+
+Live lookup reports include tool counts, errors, result bytes and repeated reads
+within a user turn. These are review flags, not automatic efficiency judgments:
+approvals, mutations, external inventory changes and error recovery can justify
+another read. Review actual call sequences alongside response usage and answers.
+The whole-BOM scenario checks a single submission rather than model-managed
+pagination. Category scenarios use synthetic accepted evidence to measure bot
+search behavior separately from live manufacturer extraction quality.

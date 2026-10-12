@@ -2549,6 +2549,536 @@
       },
       "unsupported_fact_names": [],
       "review_note": "Rendered pages 1–2. Page 2 exact D2F-01F row is low operating force in the 0.1 A group; contact diagram is SPDT. Ratings table gives D2F-01 models 0.1 A at 30 VDC, resistive load, with ambient 20 ±2 °C, humidity 65 ±5%, and 30 operations/min. Both rating facts retain the paired other value and test conditions. Standard D2F/D2F-F and D2F-5 ratings are unrelated variants; the minimum applicable load and safety-standard table are distinct contexts."
+    },
+    {
+      "id": "ldo_fixed_voltage_variant",
+      "source": {
+        "url": "https://www.diodes.com/datasheet/download/AP2112.pdf",
+        "sha256": "ef8d376f2ec356e29172eb9e053819a0ebdcc576dba7fc9ab0505c568427920f"
+      },
+      "layout_class": "ruled_tables",
+      "facts": {
+        "minimum_input_voltage": {
+          "values": [
+            "2.5 V"
+          ],
+          "basis": "operating_minimum",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            3
+          ]
+        },
+        "maximum_input_voltage": {
+          "values": [
+            "6 V"
+          ],
+          "basis": "operating_maximum",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            3
+          ]
+        },
+        "output_voltage": {
+          "values": [
+            "3.3 V"
+          ],
+          "basis": "nominal",
+          "conditions": [
+            {
+              "names": [
+                "input_voltage"
+              ],
+              "values": [
+                "4.3 V"
+              ],
+              "unit": "V"
+            },
+            {
+              "names": [
+                "output_current"
+              ],
+              "values": [
+                "1 mA to 30 mA"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            8
+          ]
+        },
+        "dropout_voltage": {
+          "values": [
+            "400 mV",
+            "200 mV",
+            "8 mV"
+          ],
+          "basis": "maximum",
+          "conditions": [
+            {
+              "names": [
+                "input_voltage"
+              ],
+              "values": [
+                "4.3 V"
+              ],
+              "unit": "V"
+            },
+            {
+              "names": [
+                "output_current"
+              ],
+              "values": [
+                "600 mA",
+                "300 mA",
+                "10 mA"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C",
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            8
+          ],
+          "paired_conditions": [
+            {
+              "value": "400 mV",
+              "conditions": {
+                "output_current": "600 mA"
+              }
+            },
+            {
+              "value": "200 mV",
+              "conditions": {
+                "output_current": "300 mA"
+              }
+            },
+            {
+              "value": "8 mV",
+              "conditions": {
+                "output_current": "10 mA"
+              }
+            }
+          ]
+        },
+        "quiescent_current": {
+          "values": [
+            "55 µA"
+          ],
+          "basis": "typical",
+          "conditions": [
+            {
+              "names": [
+                "input_voltage"
+              ],
+              "values": [
+                "4.3 V"
+              ],
+              "unit": "V"
+            },
+            {
+              "names": [
+                "output_current"
+              ],
+              "values": [
+                "0 mA"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            8
+          ]
+        }
+      },
+      "unsupported_fact_names": [],
+      "selection_context": {
+        "passages": [
+          {
+            "page": 8,
+            "text": "AP2112-3.3  Electrical  Characteristics"
+          },
+          {
+            "page": 8,
+            "text": "IOUT = 600mA"
+          },
+          {
+            "page": 8,
+            "text": "Quiescent Current"
+          }
+        ]
+      }
+    },
+    {
+      "id": "buck_adjustable_operating_limits",
+      "source": {
+        "url": "https://www.ti.com/lit/ds/symlink/tlv62565.pdf",
+        "sha256": "acec9293334c09b585b5f5a8f0ac901aa64b65a2a7b06a3b54c6b9018b5de543"
+      },
+      "layout_class": "ruled_tables",
+      "facts": {
+        "minimum_input_voltage": {
+          "values": [
+            "2.7 V"
+          ],
+          "basis": "operating_minimum",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            4
+          ]
+        },
+        "maximum_input_voltage": {
+          "values": [
+            "5.5 V"
+          ],
+          "basis": "operating_maximum",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "-40 to 85 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            4
+          ]
+        },
+        "output_mode": {
+          "values": [
+            "adjustable"
+          ],
+          "basis": "nominal",
+          "conditions": [],
+          "pages": [
+            1
+          ]
+        },
+        "switching_frequency": {
+          "values": [
+            "1.5 MHz"
+          ],
+          "basis": "typical",
+          "conditions": [
+            {
+              "names": [
+                "input_voltage"
+              ],
+              "values": [
+                "3.6 V"
+              ],
+              "unit": "V"
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            5
+          ]
+        },
+        "quiescent_current": {
+          "values": [
+            "50 µA"
+          ],
+          "basis": "typical",
+          "conditions": [
+            {
+              "names": [
+                "input_voltage"
+              ],
+              "values": [
+                "3.6 V"
+              ],
+              "unit": "V"
+            },
+            {
+              "names": [
+                "output_current"
+              ],
+              "values": [
+                "0 mA"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "operating_mode"
+              ],
+              "values": [
+                "Not switching"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            5
+          ]
+        }
+      },
+      "unsupported_fact_names": [
+        "maximum_output_voltage"
+      ],
+      "selection_context": {
+        "passages": [
+          {
+            "page": 5,
+            "text": "Switching frequency"
+          },
+          {
+            "page": 5,
+            "text": "typical values are at TA = 25°C"
+          }
+        ]
+      }
+    },
+    {
+      "id": "led_red_voltage_and_intensity",
+      "source": {
+        "url": "https://www.vishay.com/docs/83006/tlhg440.pdf",
+        "sha256": "d190590f2fa3d07642f07fb08c20ac8a1f5ee35d3dd9c54f666dec0ed53f853e"
+      },
+      "layout_class": "ruled_tables",
+      "facts": {
+        "color": {
+          "values": [
+            "Red"
+          ],
+          "basis": "nominal",
+          "conditions": [],
+          "pages": [
+            1
+          ]
+        },
+        "forward_voltage": {
+          "values": [
+            "3 V"
+          ],
+          "basis": "maximum",
+          "conditions": [
+            {
+              "names": [
+                "forward_current"
+              ],
+              "values": [
+                "20 mA"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            2
+          ]
+        },
+        "continuous_forward_current": {
+          "values": [
+            "30 mA"
+          ],
+          "basis": "absolute_maximum_continuous",
+          "conditions": [
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            2
+          ]
+        },
+        "minimum_dominant_wavelength": {
+          "values": [
+            "612 nm"
+          ],
+          "basis": "minimum",
+          "conditions": [
+            {
+              "names": [
+                "forward_current"
+              ],
+              "values": [
+                "10 mA"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            2
+          ]
+        },
+        "maximum_dominant_wavelength": {
+          "values": [
+            "625 nm"
+          ],
+          "basis": "maximum",
+          "conditions": [
+            {
+              "names": [
+                "forward_current"
+              ],
+              "values": [
+                "10 mA"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            2
+          ]
+        },
+        "luminous_intensity": {
+          "values": [
+            "1.6 mcd"
+          ],
+          "basis": "minimum",
+          "conditions": [
+            {
+              "names": [
+                "forward_current"
+              ],
+              "values": [
+                "10 mA"
+              ],
+              "unit": "A"
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            }
+          ],
+          "pages": [
+            2
+          ]
+        }
+      },
+      "unsupported_fact_names": [
+        "peak_forward_current"
+      ],
+      "selection_context": {
+        "passages": [
+          {
+            "page": 2,
+            "text": "Luminous intensity"
+          },
+          {
+            "page": 2,
+            "text": "TLHR4400"
+          },
+          {
+            "page": 2,
+            "text": "OPTICAL AND ELECTRICAL CHARACTERISTICS"
+          }
+        ]
+      }
     }
   ]
 }

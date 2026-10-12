@@ -17,6 +17,12 @@ def search_category(raw: str) -> str:
     """Compare known category synonyms without changing stored stock identity."""
     text = raw.strip().lower()
     spelling = re.sub(r"[\s_-]+", "", text)
+    if spelling in {"linearregulator", "linearregulators", "ldo", "ldos"}:
+        return "linear regulator"
+    if spelling in {"buckconverter", "buckconverters"}:
+        return "buck converter"
+    if spelling in {"led", "leds", "lightemittingdiode", "lightemittingdiodes"}:
+        return "led"
     if spelling in {"opamp", "opamps", "operationalamplifier", "operationalamplifiers"}:
         return "operational amplifier"
     if spelling in {"bjt", "bjts", "bipolartransistor", "bipolartransistors", "bipolarjunctiontransistor", "bipolarjunctiontransistors"}:

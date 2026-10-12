@@ -274,3 +274,14 @@ def test_selected_specification_rows_retain_governing_merged_temperature_geometr
     assert sorted(selected[0]['cells'], key=lambda cell: cell['text']) == sorted(
         table['cells'], key=lambda cell: cell['text'])
     assert next(cell for cell in selected[0]['cells'] if 'Temperature' in cell['text'])['box'] == [50, 10, 100, 30]
+
+
+def test_voltage_variant_titles_with_layout_spaces_reserve_correct_section():
+    from ingestion.supplied_source import Document, specification_windows
+    doc = Document('https://example.com/source.pdf', 'a' * 64, '2026-10-12T00:00:00+00:00', (
+        'Electrical Characteristics\nAP2112-1.2  Electrical  Characteristics\nwrong voltage row',
+        'Electrical Characteristics (Cont.)\nAP2112-3.3  Electrical  Characteristics\ncorrect voltage row',
+    ))
+    selected = specification_windows(doc, 'AP2112K-3.3TRG1')
+    assert any('correct voltage row' in text for _, _, text in selected)
+    assert not any('wrong voltage row' in text for _, _, text in selected)

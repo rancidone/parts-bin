@@ -76,7 +76,8 @@ class PartsBinService:
         # the domain without rewriting stored rows, timestamps, or evidence.
         category = filters.get("part_category")
         category_alias = category is not None and search_category(category) in {
-            "operational amplifier", "bjt", "mosfet", "diode", "transistor"}
+            "operational amplifier", "bjt", "mosfet", "diode", "transistor",
+            "linear regulator", "buck converter", "led"}
         if category_alias:
             filters.pop("part_category")
         value = filters.pop("value", None)
@@ -129,18 +130,11 @@ class PartsBinService:
                 "truncated": following is not None, "next_offset": following,
                 "match_kind": "candidate"}
 
-    def check_inventory(self, request: CheckInventoryRequest, *, limit: int = 20, offset: int = 0) -> dict:
-        """Check independent BOM lines without reserving or consuming stock.
-
-        A quantity is covered only by one matching stock record. Distinct
-        ordering codes or packages are never assumed to be interchangeable.
-        """
+    def check_inventory(self, request: CheckInventoryRequest) -> dict:
+        """Check a whole bounded BOM, grouping identical rows without allocating stock."""
         if not 1 <= len(request.items) <= 100:
             raise DomainError(ErrorCode.INVALID_INPUT, "Check one to one hundred inventory items")
-        validate_page(limit, offset)
-        if limit > 20:
-            raise DomainError(ErrorCode.INVALID_INPUT, "Inventory check pages contain at most twenty items")
-        results = []
+        groups = {}
         for index, item in enumerate(request.items):
             filters = dict(item.filters)
             if any(not isinstance(value, str) or not value.strip() for value in filters.values()):
@@ -149,26 +143,40 @@ class PartsBinService:
                 raise DomainError(ErrorCode.INVALID_INPUT, "Each item needs a part number or a category and value")
             if item.quantity is not None and (type(item.quantity) is not int or item.quantity < 1):
                 raise DomainError(ErrorCode.INVALID_INPUT, "Requested quantity must be a positive integer")
+            # Exact submitted filters define duplicates. Related ordering codes,
+            # generic rows and explicit variants remain separate requirements.
+            key = tuple(sorted(filters.items()))
+            group = groups.setdefault(key, {"filters": filters, "input_indices": [], "quantity": 0, "unknown_quantity": False})
+            group["input_indices"].append(index)
+            group["unknown_quantity"] |= item.quantity is None
+            group["quantity"] += item.quantity or 0
+        results, stock_groups = [], {}
+        for group in groups.values():
+            filters = group['filters']
             parts = self.search(SearchPartsRequest(filters))
             available = max((part.quantity for part in parts), default=0)
+            requested = None if group['unknown_quantity'] else group['quantity']
             if not parts:
-                status = "missing"
+                status = 'missing'
             elif available == 0:
-                status = "out_of_stock"
-            elif item.quantity is None:
-                status = "in_stock"
+                status = 'out_of_stock'
+            elif requested is None:
+                status = 'in_stock'
             else:
-                status = "sufficient" if available >= item.quantity else "insufficient"
-            # Put the most stocked record first so a covering record is visible
-            # even when the compact response omits additional variants.
+                status = 'sufficient' if available >= requested else 'insufficient'
             ordered = sorted(parts, key=lambda part: (-part.quantity, part.id))
-            results.append({"index": index, "filters": filters, "requested_quantity": item.quantity,
+            results.append({"index": group['input_indices'][0], "input_indices": group['input_indices'],
+                            "filters": filters, "requested_quantity": requested,
+                            "known_requested_quantity": group['quantity'], "quantity_incomplete": group['unknown_quantity'],
                             "status": status, "max_available_quantity": available,
-                            "shortage": None if item.quantity is None else max(0, item.quantity - available),
-                            "match_count": len(parts), "parts": ordered[:1],
-                            "truncated": len(parts) > 1})
-        return {"items": results[offset:offset + limit], "count": len(results),
-                "next_offset": next_offset(len(results), limit, offset), "stock_reserved": False}
+                            "shortage": None if requested is None else max(0, requested - available),
+                            "match_count": len(parts), "parts": ordered[:1], "truncated": len(parts) > 1})
+            for part in parts:
+                stock_groups.setdefault(part.id, []).append(group['input_indices'][0])
+        return {"items": results, "count": len(results), "input_count": len(request.items),
+                "overlapping_requirements": [list(indices) for indices in dict.fromkeys(
+                    tuple(indices) for indices in stock_groups.values() if len(indices) > 1)],
+                "stock_reserved": False}
 
     def search_specifications(self, request: SearchPartsRequest, requirements: list[dict], *, limit: int = 20, offset: int = 0) -> dict:
         category = request.filters.get('part_category')
