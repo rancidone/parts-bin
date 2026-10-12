@@ -501,3 +501,58 @@ def test_bulk_decision_is_bound_to_server_review(client):
     parts = bulk_parts(http)
     review = http.post('/inventory/bulk/preview', json={'part_ids': [parts[0].id], 'fields': {'quantity': 0}}).json()
     assert http.post('/inventory/bulk/decide', json={'request_id': review['request_id'], 'approved': True, 'fields': {'quantity': 99}}).status_code == 422
+
+
+def test_electrical_search_contracts_and_validation(client):
+    http, _ = client
+    contracts = http.get('/inventory/specification-contracts')
+    assert contracts.status_code == 200
+    resistor = next(item for item in contracts.json()['categories'] if item['category'] == 'resistor')
+    assert resistor['fields']['resistance']['unit'] == 'Ω'
+    requirement = {'name': 'resistance', 'comparison': 'eq', 'value': '10 kΩ',
+                   'basis': 'nominal', 'conditions': {}}
+    query = {'filters': {'part_category': 'resistor'}, 'requirements': [requirement]}
+    response = http.post('/inventory/specification-search', json=query)
+    assert response.status_code == 200
+    assert response.json() == {'matches': [], 'incomplete': [], 'match_count': 0,
+                               'incomplete_count': 0, 'truncated': False, 'next_offset': None}
+    for change in [{'offset': -1}, {'limit': 101}, {'minimum_quantity': True},
+                   {'requirements': []}, {'filters': {}}, {'unexpected': 1},
+                   {'requirements': [{**requirement, 'basis': 'absolute_maximum'}]}]:
+        assert http.post('/inventory/specification-search', json={**query, **change}).status_code == 422
+
+
+def test_electrical_search_separates_accepted_pending_and_asserted_evidence(client):
+    from domain import AddPartRequest, PartFields, GetPartRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    parts = [service.add_part(AddPartRequest(PartFields(
+        'operational amplifier', 'discrete_ic', 4, part_number=f'LM358BIDR-{i}', package='SOIC-8')))
+             for i in range(4)]
+    facts = sourced_opamp_facts()
+    facts[0]['evidence']['part_number'] = parts[0].part_number
+    service.stage_specifications(parts[0], facts)
+    service.apply_specification_review(parts[0].id)
+    service.stage_specifications(parts[1], [{**facts[0], 'evidence': {**facts[0]['evidence'], 'part_number': parts[1].part_number}}])
+    asserted = [{**facts[0], 'evidence': {'kind': 'user_assertion', 'excerpt': 'I think supply is 3 V'}}]
+    service.stage_specifications(parts[2], asserted)
+    service.apply_specification_review(parts[2].id)
+    service.stage_specifications(parts[3], [{**facts[0], 'value': '5 V', 'evidence': {**facts[0]['evidence'], 'part_number': parts[3].part_number}}])
+    service.apply_specification_review(parts[3].id)
+    before_search = service.list()
+    query = {'filters': {'part_category': 'opamp'}, 'requirements': [{
+        **{key: facts[0][key] for key in ('name', 'value', 'basis', 'conditions')},
+        'comparison': 'lte'}], 'limit': 1}
+    first = http.post('/inventory/specification-search', json=query).json()
+    assert first['match_count'] == 1 and first['incomplete_count'] == 2
+    assert first['matches'][0]['part']['id'] == parts[0].id
+    assert first['matches'][0]['supporting_facts'] == facts
+    assert first['incomplete'][0]['part']['id'] == parts[1].id
+    assert first['next_offset'] == 1
+    second = http.post('/inventory/specification-search', json={**query, 'offset': 1}).json()
+    assert second['matches'] == []
+    assert second['incomplete'][0]['part']['id'] == parts[2].id
+    assert second['next_offset'] is None
+    assert service.list() == before_search
+    assert all(service.get(GetPartRequest(part.id)).quantity == 4 for part in parts)
+    assert service.get_specifications(parts[1].id)['pending_review'] is not None

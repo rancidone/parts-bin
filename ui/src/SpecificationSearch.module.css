@@ -1,0 +1,10 @@
+.panel { overflow: auto; padding: 16px; }
+.panel form { max-width: 960px; }
+.row { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.panel label { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 160px; }
+.panel input, .panel select, .panel textarea, .panel button { padding: 8px; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+.panel textarea { min-height: 70px; }
+.panel fieldset { border: 1px solid var(--border); border-radius: 8px; margin: 12px 0; }
+.panel p { color: var(--muted); font-size: .85rem; }
+.panel button { cursor: pointer; }
+.panel button:disabled { opacity: .5; cursor: default; }

@@ -91,6 +91,16 @@ cover the full search. Specification searches page confirmed matches and incompl
 candidates separately, returning up to the limit from each group. Paging reads
 current committed data; restart if inventory or accepted facts change while paging.
 
+In Inventory, choose **Filter electrical specs**, select a category, and add
+requirements using the supported fields and rating bases. Include units and the
+complete test conditions, one `condition=value` per line. **Search accepted
+specifications** shows confirmed matches with evidence separately from candidates
+that need evidence or matching conditions. Pending reviews and user assertions
+cannot confirm a match. **Next results** pages both groups; restart the search
+after changing stock or accepting facts. Open a result's part link to inspect or
+edit it, or choose **Browse inventory** to return to the stock table. These filters
+read committed inventory without model or supplier calls.
+
 ## Development checks
 
 Python tests live in `tests/`, mirroring the source directories. Pytest discovers

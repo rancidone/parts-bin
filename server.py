@@ -24,6 +24,8 @@ from domain import (
     AdjustStockRequest, ApplyReviewRequest, DeletePartRequest, DomainError, FetchSpecsRequest,
     ProvenanceRequest, RejectReviewRequest, UpdatePartRequest, GetPartRequest,
 )
+from domain.models import SearchPartsRequest
+from domain.specifications import SPECIFICATIONS, contract
 from fastapi import APIRouter, Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -170,6 +172,25 @@ async def inventory(request: Request) -> list[dict]:
 @router.get("/inventory/pending")
 async def inventory_pending(request: Request) -> dict:
     return {"reviews": _services(request).domain.list_pending_reviews()}
+
+
+@router.get('/inventory/specification-contracts')
+async def inventory_specification_contracts() -> dict:
+    return {'categories': [contract(category) for category in SPECIFICATIONS]}
+
+
+@router.post('/inventory/specification-search')
+async def inventory_specification_search(request: Request, body: dict) -> dict:
+    if (set(body) - {'filters', 'requirements', 'minimum_quantity', 'limit', 'offset'}
+            or not isinstance(body.get('filters'), dict)
+            or 'requirements' not in body):
+        raise HTTPException(status_code=422, detail='Supply filters and electrical requirements')
+    try:
+        return _services(request).domain.search_specifications(
+            SearchPartsRequest(body['filters'], body.get('minimum_quantity', 0)),
+            body['requirements'], limit=body.get('limit', 20), offset=body.get('offset', 0))
+    except DomainError as exc:
+        raise _domain_error(exc) from exc
 
 
 @router.post('/inventory/bulk/preview')

@@ -5,6 +5,7 @@ import { QuantityControl } from './QuantityControl'
 import { useQuantities } from './quantityContext'
 import { FieldReviewEditor } from './FieldReviewEditor'
 import { SpecificationResult } from './SpecificationFacts'
+import { SpecificationSearch } from './SpecificationSearch'
 import type { SpecificationState } from './SpecificationFacts'
 import { downloadCSV } from './csv'
 import type { FieldProvenance, FieldReview, Part, PendingReview } from './types'
@@ -18,6 +19,8 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
+  const [searchElectrical, setSearchElectrical] = useState(false)
+  const electricalMode = searchElectrical && selectedPartId === null
   const [sortKey, setSortKey] = useState<SortKey>('part_category')
   const [sortAsc, setSortAsc] = useState(true)
   const [refreshing, setRefreshing] = useState<Set<number>>(new Set())
@@ -388,8 +391,10 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
   return (
     <div className={styles.container}>
       <div className={styles.toolbar}>
+        <button className={styles.refreshBtn} aria-pressed={electricalMode} onClick={() => { onClearSelection(); setSearchElectrical(!electricalMode) }}>{electricalMode ? 'Browse inventory' : 'Filter electrical specs'}</button>
         <input
           className={styles.search}
+          disabled={electricalMode}
           aria-label="Filter inventory"
           value={filter}
           onChange={e => { onClearSelection(); setFilter(e.target.value) }}
@@ -401,11 +406,13 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         <button
           className={styles.exportBtn}
           onClick={() => downloadCSV(displayed, 'inventory.csv')}
-          disabled={displayed.length === 0}
+          disabled={electricalMode || displayed.length === 0}
         >
           Export CSV
         </button>
       </div>
+
+      {electricalMode ? <SpecificationSearch key={loading ? 'loading' : 'ready'} /> : <>
 
       {selectedPartId !== null && <div className={styles.selection}>
         <span>Viewing part #{selectedPartId}</span>
@@ -595,6 +602,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
           </table>
         </div>
       )}
+      </>}
     </div>
   )
 }

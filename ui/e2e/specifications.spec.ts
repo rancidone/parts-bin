@@ -100,3 +100,44 @@ test('every category has an editable datasheet link without changing quantity', 
   await page.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(page.getByRole('link', { name: 'Datasheet', exact: true })).toHaveCount(0)
 })
+
+test('electrical filters send qualified requirements and page confirmed and incomplete groups', async ({ context, page }) => {
+  const searches: Record<string, unknown>[] = []
+  await context.route('**/inventory**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (path === '/inventory/specification-contracts') return route.fulfill({ json: { categories: [{
+      category: 'operational amplifier', fields: { minimum_supply_voltage: { unit: 'V', basis: 'operating_minimum', choices: [] } },
+      minimum_source_conditions: { minimum_supply_voltage: [['supply_convention'], ['ambient_temperature']] },
+      evidence_policy: 'Only accepted source evidence confirms requirements.', conditions_policy: 'Match complete condition mappings.',
+    }] } })
+    if (path === '/inventory/specification-search') {
+      const query = route.request().postDataJSON()
+      searches.push(query)
+      return route.fulfill({ json: { matches: [{ part: { ...part, id: query.offset ? 44 : 42 }, supporting_facts: [fact] }],
+        incomplete: [{ part: { ...part, id: query.offset ? 45 : 43 }, missing_or_unqualified: ['minimum_supply_voltage'] }],
+        match_count: 21, incomplete_count: 21, next_offset: query.offset ? null : 20, truncated: !query.offset } })
+    }
+    return route.fulfill({ json: path === '/inventory/pending' ? { reviews: {} } : [part] })
+  })
+  await page.goto('/#/inventory')
+  await page.getByRole('button', { name: 'Filter electrical specs', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Comparison', exact: true }).selectOption('lte')
+  await page.getByLabel('Required value', { exact: true }).fill('3 V')
+  await page.getByLabel('Conditions (one condition=value per line)', { exact: true }).fill('supply_convention=total rail-to-rail\nambient_temperature=-40 to 85 °C')
+  await page.getByRole('button', { name: 'Search accepted specifications', exact: true }).click()
+  await expect(page.getByRole('article', { name: 'Part 42: confirmed match' })).toContainText('Meets stated requirements')
+  await expect(page.getByRole('article', { name: 'Part 43: needs evidence' })).toContainText('Not confirmed for: minimum supply voltage')
+  expect(searches[0]).toEqual({ filters: { part_category: 'operational amplifier' }, minimum_quantity: 0, limit: 20, offset: 0,
+    requirements: [{ name: 'minimum_supply_voltage', comparison: 'lte', value: '3 V', basis: 'operating_minimum', conditions: fact.conditions }] })
+  await page.getByRole('button', { name: 'Next results', exact: true }).click()
+  await expect(page.getByRole('article', { name: 'Part 44: confirmed match' })).toBeVisible()
+  await expect(page.getByRole('article', { name: 'Part 42: confirmed match' })).toHaveCount(0)
+  expect(searches[1].offset).toBe(20)
+  await page.getByRole('link', { name: 'Part #44', exact: true }).click()
+  await expect(page.getByText('Viewing part #44', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Filter electrical specs', exact: true }).click()
+  await page.getByLabel('Required value', { exact: true }).fill('2 V')
+  await expect(page.getByRole('region', { name: 'Specification search results' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Browse inventory', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Edit part', exact: true })).toBeVisible()
+})
