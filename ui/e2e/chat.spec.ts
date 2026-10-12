@@ -56,6 +56,47 @@ async function fixture(context: BrowserContext, initial: AgentEvent[]) {
     failHistory: (failed: boolean) => { historyUnavailable = failed } }
 }
 
+test('user messages preserve BOM whitespace and wrap long identifiers after sending and reloading', async ({ context, page }) => {
+  const text = "Here's my BOM:\n\nQty    Part\n  2\tC1255\n  1    C14663\n" + 'X'.repeat(200)
+  const message = event(1, 'user_message', { text, execution_id: 'work' })
+  const f = await fixture(context, [])
+  await page.setViewportSize({ width: 390, height: 844 })
+  await f.open(page)
+  f.respond(route => {
+    f.histories.set('current', [message, done])
+    return stream(route, [message, done])
+  })
+  await page.getByRole('textbox', { name: 'Message' }).fill(text)
+  await page.getByRole('button', { name: 'Send message' }).click()
+  const check = async () => {
+    const bubble = page.getByText("Here's my BOM:", { exact: false }).and(page.locator('div'))
+    await expect(bubble).toBeVisible()
+    expect(await bubble.textContent()).toBe(text)
+    const layout = await bubble.evaluate(element => {
+      const node = element.firstChild!
+      const content = node.textContent!
+      const at = (value: string) => {
+        const start = content.indexOf(value)
+        const range = document.createRange()
+        range.setStart(node, start)
+        range.setEnd(node, start + 1)
+        const rect = range.getBoundingClientRect()
+        return { top: rect.top, left: rect.left }
+      }
+      return { heading: at("Here's"), header: at('Qty'), row: at('2\t'), nextRow: at('1    C'),
+        width: element.clientWidth, scrollWidth: element.scrollWidth }
+    })
+    const lineHeight = layout.nextRow.top - layout.row.top
+    expect(lineHeight).toBeGreaterThan(0)
+    expect(layout.header.top - layout.heading.top).toBeGreaterThan(lineHeight * 1.5)
+    expect(layout.row.left).toBeGreaterThan(layout.header.left)
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.width)
+  }
+  await check()
+  await page.reload()
+  await check()
+})
+
 test('assistant Markdown tables render in streamed replies and restored history', async ({ context, page }) => {
   const text = `You have four op-amp records in your inventory:
 
