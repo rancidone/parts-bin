@@ -7,37 +7,29 @@ Decisions and rationale belong in [ADRs](docs/adr/README.md).
 Cloud experiments remain deferred while local ingestion and evidence-backed
 electrical lookup are improved.
 
-## Next: enrichment coverage and bot efficiency
+## Next: inventory workflows
 
-- Extend independently reviewed source cases from concrete inventory requests,
-  including additional marked LED intensity grades and regulator voltage variants.
-  Existing category fields do not establish coverage for unreviewed variants;
-  clarify unmarked stock before choosing sources.
-- Measure longer-run extraction repeatability for LED intensity and wavelength
-  endpoints, regulator limits and exact manufacturer-name retention. Keep missing
-  facts, server rejections, condition annotations that prevent exact comparison,
-  and source-selection omissions distinct; do not certify coverage from schema success.
-- Review production tool sequences as new real conversations accumulate. Compare
-  whole-BOM input/result sizes and errors, duplicate and overlapping requirements,
-  and specification search calls; keep synthetic scenarios separate from production.
-- Compare electrical table interpretation across models and sources, including
-  op-amp qualifier retention, using independent expectations for global conditions,
-  min/max endpoints, paired load ratings and reference-circuit values. Keep
-  qualifier completeness, extraction coverage and repeatability separate; use
-  source review, latency and measured usage when selecting a model. Extend beyond
-  short repeat trials and include the supplied-source
-  [acceptance cases](evaluation/enrichment/acceptance.json), clarification and photo
-  identification before selecting a production model.
-- Include incomplete transformer packaging codes in repeatability comparisons:
-  request clarification without choosing a suffix, and track intermittent proposals
-  rejected by identity validation separately from successful clarification. Keep
-  source retention, raw model output and server rejection distinct.
-- Evaluate raster OCR on representative scanned datasheets, including page
-  selection and table association, before deciding whether to add production OCR.
-  Keep recognition measurements separate from electrical correctness.
-- Measure automatic source discovery separately from supplied-source extraction
-  before choosing integrations. Remove source paths that do not justify their
-  maintenance burden; distinguish retrieval failure from no matching part.
+- Add inventory UI filters for accepted electrical specifications using the
+  existing typed search contract; show incomplete evidence separately from matches.
+
+## Deferred enrichment measurements
+
+Prioritize product features. Resume paid evaluation only for a concrete user
+request or a production failure that justifies its cost; accept incomplete
+extraction and keep unsupported fields unknown.
+
+- Extend independently reviewed source cases from actual stock and ingestion
+  failures, including marked LED intensity grades, regulator voltage variants,
+  incomplete transformer packaging codes, and ambiguous stock.
+- Review production tool sequences as real conversations accumulate, including
+  whole-BOM result sizes, overlapping requirements, and specification searches.
+- When evaluation is justified, distinguish retrieval and source-selection
+  failures, missing facts, server rejections, and qualifier mismatches. Compare
+  model interpretation against independent source expectations rather than
+  treating schema success as correctness.
+- Evaluate scanned-datasheet OCR and automatic source discovery separately when
+  concrete requests need them; retain integrations only when reliability justifies
+  their complexity and cost.
 
 ## Requirements and inventory scale
 

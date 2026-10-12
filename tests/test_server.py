@@ -419,3 +419,83 @@ def test_datasheet_link_on_unsupported_category_remains_available_without_extrac
     assert response.json()['electrical']['outcome'] == 'unsupported'
     assert service.get(GetPartRequest(part.id)).datasheet_url == part.datasheet_url
     service.datasheet_fetcher.assert_not_awaited()
+
+
+def bulk_parts(http):
+    from domain import AddPartRequest, PartFields
+    service = http.app.state.services.domain
+    return [service.add_part(AddPartRequest(PartFields(
+        part_category='resistor', profile='passive', quantity=quantity, value=value,
+        package='0402', description='old')))
+        for value, quantity in [('10k', 3), ('22k', 7)]]
+
+
+def test_bulk_review_is_read_only_then_applies_once(client):
+    http, _ = client
+    parts = bulk_parts(http)
+    service = http.app.state.services.domain
+    before = service.list()
+    service.repository.inventory.save_pending_review(parts[0].id, {'description': 'pending'}, [])
+    payload = {'part_ids': [part.id for part in parts], 'fields': {'package': ' 0603 ', 'description': None}}
+    response = http.post('/inventory/bulk/preview', json=payload)
+    assert response.status_code == 200
+    review = response.json()
+    assert service.list() == before
+    assert review['cleared_reviews'] == [parts[0].id]
+    assert [row['after']['package'] for row in review['changes']] == ['0603', '0603']
+    assert [row['after']['quantity'] for row in review['changes']] == [3, 7]
+    decision = {'request_id': review['request_id'], 'approved': True}
+    result = http.post('/inventory/bulk/decide', json=decision)
+    assert result.status_code == 200
+    saved = service.list()
+    assert [part.quantity for part in saved] == [3, 7]
+    assert all(part.package == '0603' and part.description is None for part in saved)
+    assert service.list_pending_reviews() == {}
+    assert http.post('/inventory/bulk/decide', json=decision).json() == result.json()
+    assert service.list() == saved
+
+
+def test_bulk_decline_and_changed_stock_never_apply(client):
+    from domain import AdjustStockRequest
+    http, _ = client
+    parts = bulk_parts(http)
+    service = http.app.state.services.domain
+    payload = {'part_ids': [part.id for part in parts], 'fields': {'quantity': 12}}
+    review = http.post('/inventory/bulk/preview', json=payload).json()
+    before = service.list()
+    assert http.post('/inventory/bulk/decide', json={'request_id': review['request_id'], 'approved': False}).status_code == 200
+    assert http.post('/inventory/bulk/decide', json={'request_id': review['request_id'], 'approved': True}).status_code == 409
+    assert service.list() == before
+    review = http.post('/inventory/bulk/preview', json=payload).json()
+    service.adjust_stock(AdjustStockRequest(parts[1].id, 1))
+    changed = service.list()
+    response = http.post('/inventory/bulk/decide', json={'request_id': review['request_id'], 'approved': True})
+    assert response.status_code == 409
+    assert service.list() == changed
+
+
+@pytest.mark.parametrize('fields', [{'quantity': -1}, {'id': 9}, {'value': '47k'}, {}])
+def test_bulk_invalid_batch_has_no_partial_writes(client, fields):
+    http, _ = client
+    parts = bulk_parts(http)
+    service = http.app.state.services.domain
+    before = service.list()
+    response = http.post('/inventory/bulk/preview', json={'part_ids': [p.id for p in parts], 'fields': fields})
+    assert response.status_code in (409, 422)
+    assert service.list() == before
+
+
+@pytest.mark.parametrize('ids', [[], [1, 1], [True], ['1'], list(range(1, 102)), [[1]], [999]])
+def test_bulk_invalid_selection(client, ids):
+    http, _ = client
+    bulk_parts(http)
+    assert http.post('/inventory/bulk/preview', json={'part_ids': ids, 'fields': {'description': 'test'}}).status_code in (404, 422)
+
+
+def test_bulk_decision_is_bound_to_server_review(client):
+    http, _ = client
+    assert http.post('/inventory/bulk/decide', json={'request_id': 'missing', 'approved': True}).status_code == 404
+    assert http.post('/inventory/bulk/decide', json={'request_id': 'missing', 'approved': 1}).status_code == 422
+    parts = bulk_parts(http)
+    review = http.post('/inventory/bulk/preview', json={'part_ids': [parts[0].id], 'fields': {'quantity': 0}}).json()
+    assert http.post('/inventory/bulk/decide', json={'request_id': review['request_id'], 'approved': True, 'fields': {'quantity': 99}}).status_code == 422
