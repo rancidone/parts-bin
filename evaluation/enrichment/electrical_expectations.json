@@ -6,7 +6,7 @@
       "id": "bjt_exact_gain_variant",
       "source": {
         "url": "https://www.onsemi.com/pdf/datasheet/bc337-fsc-d.pdf",
-        "sha256": "f5d3b8fb14d85faf7e961533a7a658f85cb553884891a239c48cebe5637458eb"
+        "sha256": "9dd0de3f8d692f957e8099e35a11a3e9e6c7d77127370c428ba46f15a7840716"
       },
       "layout_class": "ruled_tables",
       "facts": {
@@ -102,13 +102,33 @@
       "unsupported_fact_names": [
         "pulsed_collector_current"
       ],
-      "review_note": "Literal BU suffix and gain group are separate from a transistor marking. Gain classification references the page-2 hFE1 test conditions."
+      "review_note": "Literal BU suffix and gain group are separate from a transistor marking. Gain classification references the page-2 hFE1 test conditions.",
+      "selection_context": {
+        "passages": [
+          {
+            "page": 1,
+            "text": "BC33725BU"
+          },
+          {
+            "page": 1,
+            "text": "TA = 25°C unless otherwise noted."
+          },
+          {
+            "page": 2,
+            "text": "VCE = 1 V, IC = 100 mA"
+          },
+          {
+            "page": 2,
+            "text": "160 ~ 400"
+          }
+        ]
+      }
     },
     {
       "id": "bjt_40_gain_variant",
       "source": {
         "url": "https://www.onsemi.com/pdf/datasheet/bc337-fsc-d.pdf",
-        "sha256": "f5d3b8fb14d85faf7e961533a7a658f85cb553884891a239c48cebe5637458eb"
+        "sha256": "9dd0de3f8d692f957e8099e35a11a3e9e6c7d77127370c428ba46f15a7840716"
       },
       "layout_class": "ruled_tables",
       "facts": {
@@ -434,7 +454,35 @@
         }
       },
       "unsupported_fact_names": [],
-      "review_note": "Threshold value and bound must agree (1 V minimum or 2 V maximum), requiring manual review. Note b applies to RDS(on), not the absolute pulsed-current note a."
+      "review_note": "Threshold value and bound must agree (1 V minimum or 2 V maximum), requiring manual review. Note b applies to RDS(on), not the absolute pulsed-current note a.",
+      "selection_context": {
+        "passages": [
+          {
+            "page": 1,
+            "text": "IRLZ44PbF"
+          },
+          {
+            "page": 1,
+            "text": "TC = 25 °C, unless otherwise noted"
+          },
+          {
+            "page": 2,
+            "text": "SPECIFICATIONS (TJ = 25 °C, unless otherwise noted)"
+          },
+          {
+            "page": 2,
+            "text": "VGS = 5.0 V"
+          },
+          {
+            "page": 2,
+            "text": "ID = 31 A b"
+          },
+          {
+            "page": 2,
+            "text": "Pulse width ≤ 300 μs; duty cycle ≤ 2 %"
+          }
+        ]
+      }
     },
     {
       "id": "mosfet_halogen_free_variant",
@@ -872,7 +920,31 @@
         }
       },
       "unsupported_fact_names": [],
-      "review_note": "Pair Isat 0.74/0.80/0.83 A with 10/20/30% drop, and Irms 0.65/0.90 A with 20/40 °C rise. Measurement voltage is Vrms. Endpoints and RMS qualifiers require manual review."
+      "review_note": "Pair Isat 0.74/0.80/0.83 A with 10/20/30% drop, and Irms 0.65/0.90 A with 20/40 °C rise. Measurement voltage is Vrms. Endpoints and RMS qualifiers require manual review.",
+      "selection_context": {
+        "passages": [
+          {
+            "page": 1,
+            "text": "LPS4018-223MRC"
+          },
+          {
+            "page": 1,
+            "text": "LPS4018-223MR_"
+          },
+          {
+            "page": 1,
+            "text": "100 kHz, 0.1 Vrms"
+          },
+          {
+            "page": 1,
+            "text": "micro-ohmmeter"
+          },
+          {
+            "page": 1,
+            "text": "25°C ambient. This information is for reference only"
+          }
+        ]
+      }
     },
     {
       "id": "transformer_ratio_and_missing_ratings",
@@ -914,7 +986,27 @@
         "minimum_frequency",
         "maximum_frequency"
       ],
-      "review_note": "3–5.5 V input and 5 V, 0.4 A output describe the converter application. 5000 Vrms isolation is not an operating rating."
+      "review_note": "3–5.5 V input and 5 V, 0.4 A output describe the converter application. 5000 Vrms isolation is not an operating rating.",
+      "selection_context": {
+        "passages": [
+          {
+            "page": 1,
+            "text": "TA7618-ALD"
+          },
+          {
+            "page": 1,
+            "text": "pri : sec"
+          },
+          {
+            "page": 1,
+            "text": "1 : 4"
+          },
+          {
+            "page": 1,
+            "text": "5000 Vrms, one minute isolation"
+          }
+        ]
+      }
     },
     {
       "id": "capacitor_voltage_conditions",
@@ -1005,7 +1097,41 @@
         }
       },
       "unsupported_fact_names": [],
-      "review_note": "Vertically merged 500 V nominal DC cell governs the exact row. 600 V at 70 °C and 350 V at 105 °C are different operating ratings."
+      "review_note": "Vertically merged 500 V nominal DC cell governs the exact row. 600 V at 70 °C and 350 V at 105 °C are different operating ratings.",
+      "selection_context": {
+        "passages": [
+          {
+            "page": 3,
+            "text": "UNDC"
+          },
+          {
+            "page": 3,
+            "text": "85 °C"
+          },
+          {
+            "page": 3,
+            "text": "MKP1848C51050JK2"
+          },
+          {
+            "page": 16,
+            "text": "1 kHz at room temperature"
+          }
+        ],
+        "merged_cells": [
+          {
+            "page": 3,
+            "cell": {
+              "box": [
+                53.7,
+                563.22,
+                81.51,
+                720.72
+              ],
+              "text": "500"
+            }
+          }
+        ]
+      }
     },
     {
       "id": "opamp_b_operating_and_stress_limits",
@@ -2165,7 +2291,33 @@
         }
       },
       "unsupported_fact_names": [],
-      "review_note": "Rendered PDF pages 4–7 and exact LM358BAIDR ordering row on PDF page 38 (addendum page 6). Supply limits use total rail span. Offset values must pair with temperature and exact grade. Negative bias-current bounds are stored as magnitudes with direction. The 50 nA bound is characterized only (page-7 note 1). Global test supply is 5–36 V with common-mode/output and load reference at half supply. Quiescent 300 µA is typical per amplifier at 5 V and zero output current over the merged −40 to 85 °C cell; do not use 460/800 µA maxima. Equivalent unlisted qualifier wording needs manual review."
+      "review_note": "Rendered PDF pages 4–7 and exact LM358BAIDR ordering row on PDF page 38 (addendum page 6). Supply limits use total rail span. Offset values must pair with temperature and exact grade. Negative bias-current bounds are stored as magnitudes with direction. The 50 nA bound is characterized only (page-7 note 1). Global test supply is 5–36 V with common-mode/output and load reference at half supply. Quiescent 300 µA is typical per amplifier at 5 V and zero output current over the merged −40 to 85 °C cell; do not use 460/800 µA maxima. Equivalent unlisted qualifier wording needs manual review.",
+      "selection_context": {
+        "passages": [
+          {
+            "page": 7,
+            "text": "Quiescent current per amplifier"
+          },
+          {
+            "page": 7,
+            "text": "300"
+          }
+        ],
+        "merged_cells": [
+          {
+            "page": 7,
+            "cell": {
+              "box": [
+                368.33,
+                134.07,
+                441.99,
+                157.17
+              ],
+              "text": "TA = –40°C to +85°C"
+            }
+          }
+        ]
+      }
     },
     {
       "id": "four_10k_resistors",

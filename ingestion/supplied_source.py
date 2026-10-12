@@ -22,7 +22,7 @@ from pdfminer.layout import LTContainer, LTTextLine
 from ingestion.cache import EnrichmentCache
 from ingestion.errors import EnrichmentError
 
-POLICY_VERSION = "supplied-pdf-v23"
+POLICY_VERSION = "supplied-pdf-v24"
 ALLOWED_HOSTS = frozenset({"assets.nexperia.com", "www.nexperia.com", "www.ti.com",
                            "www.vishay.com", "www.coilcraft.com", "omronfs.omron.com",
                            "www.onsemi.com", "www.st.com", "www.analog.com",
@@ -268,7 +268,7 @@ def validate_candidate(candidate: dict, part_number: str, manufacturer: str | No
 def specification_windows(document: Document, part_number: str) -> list[tuple[int, int, str]]:
     """Reserve source sections before repeated ordering codes fill the budget."""
     heading = re.compile(r'(?im)^\s*(?:\d+(?:\.\d+)*\s+)?'
-        r'(Absolute Maximum Ratings|Recommended Operating Conditions|Electrical Characteristics|Contact Form)[^\n]*$')
+        r'(Absolute Maximum Ratings|Recommended Operating Conditions|Electrical Characteristics|Contact Form|Specifications)[^\n]*$')
     sections = []
     for i, text in enumerate(document.pages):
         for match in heading.finditer(text):
@@ -286,11 +286,19 @@ def specification_windows(document: Document, part_number: str) -> list[tuple[in
         if kind == 'electrical characteristics' and best and score != best:
             continue
         text = document.pages[i]
-        limit = {'electrical characteristics': 1800, 'contact form': 900}.get(kind, 2100)
+        limit = {'electrical characteristics': 1800, 'specifications': 1800,
+                 'contact form': 900}.get(kind, 2100)
         end = min(len(text), match.start() + limit)
-        next_heading = re.search(r'(?m)^\d+(?:\.\d+)+\s+[A-Z]', text[match.end():end])
+        # Numeric table rows (for example 1.1 N m mounting torque) are not
+        # section headings. Numbered titles require two words, so unit rows
+        # cannot expand a reservation into the following section.
+        next_heading = heading.search(text, match.end(), end)
         if next_heading:
-            end = match.end() + next_heading.start()
+            end = next_heading.start()
+        numbered = re.search(r'(?m)^\d+(?:\.\d+)+[ \t]+[A-Z][A-Za-z]+[ \t]+[A-Za-z]{2,}',
+                             text[match.end():end])
+        if numbered:
+            end = match.end() + numbered.start()
         windows.append((i, match.start(), text[match.start():end]))
         if kind == 'electrical characteristics':
             for sub in re.finditer(r'(?im)^(?:FREQUENCY RESPONSE|POWER SUPPLY)\s*$', text):
@@ -381,7 +389,15 @@ def select_excerpts(document: Document, part_number: str) -> tuple[list[dict], b
     # Reserve context for distant methods/notes before filling the remaining
     # budget with identity rows. Select a page at most once in this reservation.
     method_used, method_pages = 0, set()
-    methods.sort(key=lambda item: (not re.search(r'inspection requirements|routine test|measurement|test conditions', item[2], re.I), item[0], item[1]))
+    section_pages = {i for i, _, _ in sections}
+    def method_priority(item):
+        i, _, text = item
+        if re.search(r'inspection requirements|routine test|measurement', text, re.I):
+            return 0
+        if i in section_pages and re.search(r'(?im)^\s*notes\s*$', text):
+            return 1
+        return 2
+    methods.sort(key=lambda item: (method_priority(item), item[0], item[1]))
     for i, start, text in methods:
         cost = len(text.encode('utf-8'))
         if i in method_pages or any(page == i and text in chosen for page, _, chosen in selected):

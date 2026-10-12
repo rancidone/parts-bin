@@ -239,6 +239,23 @@ See the official [structured-output guide](https://developers.openai.com/api/doc
 
 ## Independent PDF completeness and OCR experiments
 
+Measure source retention separately from model extraction using independently
+reviewed `selection_context` anchors in the electrical expectations:
+
+```sh
+uv run python -m evaluation.source_selection \
+  --case capacitor_voltage_conditions --pdf /path/to/captured-source.pdf \
+  --output /path/to/selection-review.json
+```
+
+This offline command parses a bounded PDF capture and records the actual selected
+passages and geometry, missing anchors and source-hash agreement. It exits 2 for
+review; it makes no provider requests. Review original page layouts before adding
+anchors or updating hashes. Exact merged-cell bounds check geometry retention,
+not the correctness of a rating inferred from that geometry. Keep expectations
+out of model inputs. Inspect numeric shared cells, specification footnotes and
+distant measurement methods independently; a retained row alone is insufficient.
+
 `enrichment/electrical_expectations.json` contains expectations independently
 reviewed from rendered source pages. Keep this file out of model inputs. Recheck
 the pages before changing expectations; changed source hashes invalidate scores.
