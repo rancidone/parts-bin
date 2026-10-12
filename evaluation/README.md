@@ -273,6 +273,10 @@ range. For switches, check that the contact-form heading and designation reach
 the selected passages and cited evidence, separately from the load ratings.
 Compare raw model facts with validated candidates to distinguish model omissions
 from facts rejected by the server.
+Explicit electrical condition ranges with units on both endpoints compare by
+their SI values in the independent evaluator. Both endpoints must agree;
+annotations remain review failures. This evaluation comparison does not broaden
+the application's condition-matching rules.
 Saved-link cases can name an `expectation_case_id` when the independently reviewed
 ratings apply to the same electrical grade. The report retains both case IDs and
 still checks the captured source hash. This association is evaluation metadata;
