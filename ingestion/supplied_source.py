@@ -22,7 +22,7 @@ from pdfminer.layout import LTContainer, LTTextLine
 from ingestion.cache import EnrichmentCache
 from ingestion.errors import EnrichmentError
 
-POLICY_VERSION = "supplied-pdf-v25"
+POLICY_VERSION = "supplied-pdf-v26"
 ALLOWED_HOSTS = frozenset({"assets.nexperia.com", "www.nexperia.com", "www.ti.com",
                            "www.vishay.com", "www.coilcraft.com", "omronfs.omron.com",
                            "www.onsemi.com", "www.st.com", "www.analog.com",
@@ -517,6 +517,10 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
         "into a quotation. Leave description null if no short contiguous phrase supports it. "
         "For manufacturer and part_number, prefer quoting only the exact literal name/code, "
         "without surrounding copyright dates or other text. "
+        "If a manufacturer is supplied, fields.manufacturer.value must retain that exact supplied "
+        "name when it occurs in the source. Quote that name alone; do not expand it with a corporate "
+        "suffix from a copyright notice. If the supplied name cannot be evidenced, request "
+        "clarification rather than substituting a different manufacturer name. "
         "Copy a short contiguous verbatim passage from the selected text on one cited page for each field. Do not reconstruct table rows, reorder words, or add punctuation to a quote. If the needed evidence is absent, leave the field null or request clarification. Keep descriptions qualitative; "
         "do not put numeric ratings, operating limits, or pinouts in descriptions. Preserve PNP/NPN polarity. "
         "Pages may contain selected excerpts rather than full text. Missing identity or evidence in "
@@ -529,6 +533,17 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
             'dropout, quiescent current and switching frequency rows with all global table conditions. '
             'Typical temperature defaults apply to typical values; bounds retain the stated range. '
             'Never substitute another output-voltage variant or use a stress-temperature limit as a test condition. '
+            'Inspect each supported regulator field separately: recommended input endpoints, output mode, '
+            'fixed output voltage or adjustable output endpoints, rated output current, dropout, '
+            'quiescent current and switching frequency. A bound expressed relative to VIN cannot '
+            'be replaced with a numeric example voltage. Keep numeric conditions separate from '
+            'qualification notes; do not append test-method prose to a voltage, current or temperature. '
+            'For LEDs, inspect the exact color and intensity-grade row and its MIN/TYP/MAX headings. '
+            'Extract supported minimum luminous intensity and both dominant-wavelength endpoints '
+            'when evidenced, retaining their own forward-current and ambient-temperature conditions. '
+            'Do not substitute typical intensity, peak wavelength or another grade. Continuous '
+            'current stress limits and surge current are separate; a surge row without required '
+            'pulse conditions must remain absent from a pulsed-current field. '
             ' Also extract electrical facts using the supplied category contract. Leave unsupported or '
             'missing facts absent. Every value, basis and condition must be supported by its quoted '
             'passages for the exact variant. Preserve rated versus operating versus absolute maximum '

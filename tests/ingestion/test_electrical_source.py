@@ -161,6 +161,51 @@ async def test_missing_facts_remain_unknown():
     assert result['facts'] == []
 
 
+async def test_supplied_manufacturer_is_preserved_despite_copyright_suffix():
+    text = f'{NUMBER} Texas Instruments Incorporated. Recommended input 2.7 to 5.5 V.'
+    document = source.Document(URL, 'a' * 64, DOCUMENT.retrieved_at, (text,))
+    raw = candidate(passage=text, facts=[])
+    raw['fields']['manufacturer'] = {
+        'value': 'Texas Instruments', 'evidence': {'page': 1, 'excerpt': 'Texas Instruments'}}
+
+    def handler(request):
+        body = json.loads(request.content)
+        assert 'must retain that exact supplied name' in body['instructions']
+        assert json.loads(body['input'])['manufacturer'] == 'Texas Instruments'
+        return httpx.Response(200, json={'status': 'completed', 'output': [
+            {'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(raw)}]}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await source.extract(document, NUMBER, 'Texas Instruments', category='buck_converter',
+                                      api_key='fake', model='test', client=client)
+    assert result['fields']['manufacturer']['value'] == 'Texas Instruments'
+    # A genuine longer corporate name still cannot silently replace the supplied identity.
+    raw['fields']['manufacturer']['value'] = 'Texas Instruments Incorporated'
+    raw['fields']['manufacturer']['evidence']['excerpt'] = 'Texas Instruments Incorporated'
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(source.EnrichmentError, match='conflicts with the supplied manufacturer'):
+            await source.extract(document, NUMBER, 'Texas Instruments', category='buck_converter',
+                                 api_key='fake', model='test', client=client)
+
+
+async def test_led_endpoints_keep_separate_measurement_conditions():
+    text = (f'{NUMBER} Vishay. Red. Luminous intensity minimum 1.6 mcd at 10 mA; '
+            'dominant wavelength minimum 612 nm, maximum 625 nm at 10 mA; '
+            'forward voltage maximum 3 V at 20 mA. Ambient 25 °C.')
+    document = source.Document(URL, 'a' * 64, DOCUMENT.retrieved_at, (text,))
+    facts = [raw_fact(name, value, basis, [
+        {'name': 'forward_current', 'value': current},
+        {'name': 'ambient_temperature', 'value': '25 °C'}]) for name, value, basis, current in [
+            ('luminous_intensity', '1.6 mcd', 'minimum', '10 mA'),
+            ('minimum_dominant_wavelength', '612 nm', 'minimum', '10 mA'),
+            ('maximum_dominant_wavelength', '625 nm', 'maximum', '10 mA'),
+            ('forward_voltage', '3 V', 'maximum', '20 mA')]]
+    result = await extract(candidate(passage=text, facts=facts), 'led', document)
+    assert [(fact['name'], fact['value'], fact['basis'], fact['conditions']['forward_current'])
+            for fact in result['facts']] == [(fact['name'], fact['value'], fact['basis'],
+                                             fact['conditions'][0]['value']) for fact in facts]
+
+
 async def test_switch_keeps_paired_load_and_complete_test_environment():
     qualified = {
         'rated_voltage': '30 V', 'current_type': 'DC', 'load_type': 'resistive',
