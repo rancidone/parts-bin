@@ -95,3 +95,10 @@ async def test_invalid_bom_lines_are_rejected(registry, items):
     result = await registry.execute('check_inventory', {'items': items})
     assert not result['ok']
     assert result['error']['code'] == 'invalid_input'
+
+
+async def test_invalid_page_limit_explains_supported_bounds(registry):
+    result = await registry.execute('check_inventory', {
+        'items': [{'filters': {'part_number': 'NE5532P'}}], 'limit': 100})
+    assert result['error']['details'] == {'field': 'limit', 'minimum': 1, 'maximum': 20}
+    assert '1 through 20' in result['error']['message']
