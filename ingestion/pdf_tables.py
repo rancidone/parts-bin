@@ -36,7 +36,7 @@ def relevant_tables(tables: tuple[dict, ...], part_number: str, *,
         height = median(cell['box'][3] - cell['box'][1] for cell in cells) if cells else 0
         visible = ' '.join(' '.join(item['text'].split()) for item in (excerpts or ()) if item['page'] == table['page'])
         return [cell for cell in cells if cell['box'][3] - cell['box'][1] > height * 1.5
-                and len(cell['text']) >= 8 and ' '.join(cell['text'].split()) in visible]
+                and cell['text'].strip() and ' '.join(cell['text'].split()) in visible]
 
     for table in sorted(tables, key=lambda table: (not bool(merged_cells(table)), len(table['cells']))):
         cells = table['cells']

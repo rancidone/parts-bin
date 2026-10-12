@@ -7,12 +7,8 @@ Decisions and rationale belong in [ADRs](docs/adr/README.md).
 Cloud experiments remain deferred while local ingestion and evidence-backed
 electrical lookup are improved.
 
-## Next: source context and extraction evaluation
+## Next: extraction interpretation and repeatability
 
-- Extend source-selection evaluation to additional supplier layouts, checking
-  governing headings, vertically merged cells and distant
-  measurement-method sections within the existing budgets. Fix measured omissions
-  without part-specific rules.
 - Compare electrical table interpretation across models and sources, including
   op-amp qualifier retention, using independent expectations for global conditions,
   min/max endpoints, paired load ratings and reference-circuit values. Keep
@@ -21,6 +17,9 @@ electrical lookup are improved.
   short repeat trials and include the supplied-source
   [acceptance cases](evaluation/enrichment/acceptance.json), clarification and photo
   identification before selecting a production model.
+- Investigate the incomplete transformer packaging code that produced a proposal
+  rejected by identity validation instead of clarification. Keep source
+  retention, raw model output and server rejection distinct in bounded comparisons.
 - Evaluate raster OCR on representative scanned datasheets, including page
   selection and table association, before deciding whether to add production OCR.
   Keep recognition measurements separate from electrical correctness.

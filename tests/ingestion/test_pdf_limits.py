@@ -211,6 +211,51 @@ def test_contact_form_survives_ordering_repetitions_and_is_citable():
     assert all(item['text'] in document.pages[item['page'] - 1] for item in passages)
 
 
+def test_numeric_rating_row_cannot_end_a_specification_section():
+    page = ('Absolute Maximum Ratings\nCurrent\t50 A\n'
+            '1.1\tN m\nNotes\nPulse limited by junction temperature\n'
+            'Specifications (TJ = 25 C)\nOn resistance\t0.028 ohm\n'
+            '1.2 Thermal Information\nUnrelated thermal data\n')
+    document = source.Document('https://www.vishay.com/test.pdf', 'hash', 'now', (page,))
+    windows = source.specification_windows(document, 'MOS-1')
+    assert 'Pulse limited by junction temperature' in windows[0][2]
+    assert 'On resistance' not in windows[0][2]
+    assert 'Specifications (TJ = 25 C)' in windows[1][2]
+    assert 'Unrelated thermal data' not in windows[1][2]
+
+
+def test_specification_footnotes_precede_repeated_table_test_headers():
+    document = source.Document('https://www.vishay.com/test.pdf', 'hash', 'now', (
+        'Power device\nAbsolute Maximum Ratings\nCurrent\t50 A\n1.1\tN m\n'
+        'Notes\nPulse limited by junction temperature\n' + 'MOS-1\tOrdering\n' * 1000,
+        'Specifications (TJ = 25 C)\nPARAMETER\tTEST CONDITIONS\n'
+        'On resistance\tGate voltage 5 V\n' + 'Other parameter\n' * 180 +
+        'Notes\nPulse width <= 300 us; duty cycle <= 2 %\n',
+    ))
+    excerpts, _ = source.select_excerpts(document, 'MOS-1')
+    passages, _ = source.electrical_passages(excerpts)
+    assert any('Pulse width <= 300 us; duty cycle <= 2 %' in item['text'] for item in passages)
+    assert sum(len(item['text'].encode()) for item in passages) <= source.MAX_EXCERPT_BYTES
+
+
+def test_short_numeric_merged_cell_retains_bounds_without_filling_rows():
+    from ingestion.pdf_tables import relevant_tables
+    cells = [
+        {'box': [0, 0, 30, 10], 'text': 'Voltage'},
+        {'box': [30, 0, 100, 10], 'text': 'Ordering code'},
+        {'box': [0, 10, 30, 50], 'text': '500'},
+        {'box': [30, 10, 100, 20], 'text': 'CAP-1'},
+        {'box': [30, 20, 100, 30], 'text': 'CAP-2'},
+        {'box': [30, 30, 100, 40], 'text': 'CAP-3'},
+        {'box': [30, 40, 100, 50], 'text': 'CAP-4'},
+    ]
+    selected, _ = relevant_tables(({'page': 3, 'cells': cells},), 'CAP-1',
+        excerpts=[{'page': 3, 'text': 'CAP-1\n500\n'}])
+    assert next(c for c in selected[0]['cells'] if c['text'] == '500')['box'] == [0, 10, 30, 50]
+    assert sum(c['text'] == '500' for c in selected[0]['cells']) == 1
+    assert all(c in cells for c in selected[0]['cells'])
+
+
 def test_selected_specification_rows_retain_governing_merged_temperature_geometry():
     from ingestion.pdf_tables import relevant_tables
     table = {'page': 2, 'cells': [
