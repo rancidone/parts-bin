@@ -14,7 +14,7 @@ EXPECTATIONS = Path(__file__).parent / 'enrichment' / 'electrical_expectations.j
 def _equal(raw, expected, unit=None):
     if not isinstance(raw, str):
         return False
-    if unit == '°C':
+    if unit in {'°C', '%'}:
         left, right = interval(raw, unit), interval(expected, unit)
         return left is not None and left == right
     if unit:

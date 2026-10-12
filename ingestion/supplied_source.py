@@ -22,7 +22,7 @@ from pdfminer.layout import LTContainer, LTTextLine
 from ingestion.cache import EnrichmentCache
 from ingestion.errors import EnrichmentError
 
-POLICY_VERSION = "supplied-pdf-v22"
+POLICY_VERSION = "supplied-pdf-v23"
 ALLOWED_HOSTS = frozenset({"assets.nexperia.com", "www.nexperia.com", "www.ti.com",
                            "www.vishay.com", "www.coilcraft.com", "omronfs.omron.com",
                            "www.onsemi.com", "www.st.com", "www.analog.com",
@@ -268,7 +268,7 @@ def validate_candidate(candidate: dict, part_number: str, manufacturer: str | No
 def specification_windows(document: Document, part_number: str) -> list[tuple[int, int, str]]:
     """Reserve source sections before repeated ordering codes fill the budget."""
     heading = re.compile(r'(?im)^\s*(?:\d+(?:\.\d+)*\s+)?'
-        r'(Absolute Maximum Ratings|Recommended Operating Conditions|Electrical Characteristics)[^\n]*$')
+        r'(Absolute Maximum Ratings|Recommended Operating Conditions|Electrical Characteristics|Contact Form)[^\n]*$')
     sections = []
     for i, text in enumerate(document.pages):
         for match in heading.finditer(text):
@@ -286,7 +286,7 @@ def specification_windows(document: Document, part_number: str) -> list[tuple[in
         if kind == 'electrical characteristics' and best and score != best:
             continue
         text = document.pages[i]
-        limit = 1800 if kind == 'electrical characteristics' else 2100
+        limit = {'electrical characteristics': 1800, 'contact form': 900}.get(kind, 2100)
         end = min(len(text), match.start() + limit)
         next_heading = re.search(r'(?m)^\d+(?:\.\d+)+\s+[A-Z]', text[match.end():end])
         if next_heading:
@@ -517,10 +517,15 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
             'IDs or use a passage merely because it concerns the same family. Metadata fields still '
             'need short verbatim quotes, with original punctuation and Unicode characters. '
             'For the three resistor facts, extract nominal resistance, maximum tolerance and rated '
-            'power if supported; preserve temperature and the rating characteristic/stability class. '
+            'power if supported; preserve temperature and the rating characteristic. '
             'A global-model label does not replace a rating characteristic. A power column '
-            'label such as U or V and its stability limits are governing qualifiers: retain '
-            'rating_characteristic and stability limits or omit the power fact. '
+            'label such as U or V and its applicable nominal tolerance range govern which '
+            'rating applies to the exact ordering code. Retain rating_characteristic and '
+            'rating_tolerance_range when supplied. A column tolerance range is not a '
+            'resistance-change limit from a separate performance or stability test; do not '
+            'require unrelated test limits to extract rated power or substitute them for '
+            'the column tolerance range. Cite the rating row, its column headings and the '
+            'ordering evidence that selects that column. '
             ' Return each specification name at most once. When several values are given under '
             'different conditions, select one supported value with its complete conditions; do not '
             'merge conditions or repeat the name. Use explicit condition names such as '
@@ -549,6 +554,8 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
             'selecting one endpoint; otherwise omit it. A capacitor nominal voltage requires '
             'its DC/AC and reference temperature, distinct from derated operating values. '
             'An Irms reference value must retain reference_only and temperature rise. '
+            'Extract contact_form when explicitly supported by a contact-form heading and '
+            'designation applicable to the exact switch. Do not infer it from terminal count. '
             'A switch voltage and current must each retain the other rating as a condition, '
             'along with DC/AC, load type and source test environment. If selected excerpts '
             'omit an applicable heading or note, leave that fact absent rather than guessing.'
