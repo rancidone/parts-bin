@@ -44,7 +44,9 @@ The checked-in inventory lookup scenarios use isolated synthetic stock and a
 recorded transport, so they make no provider requests. They assert the exact
 committed record IDs returned for equivalent value notation, exact ordering
 suffixes, package and unit ambiguity, per-record stock thresholds, partial
-markings, and a value that exists only in pending enrichment. Electrical lookup
+markings, and an explicit request to inspect a value that exists only in pending
+enrichment. Ordinary availability checks use committed stock and do not inspect
+pending reviews. Electrical lookup
 compares accepted synthetic source facts separately from accepted user assertions
 and pending source proposals. Every lookup checks that inventory, reviews, and
 evidence are preserved. The clarification checks require representative

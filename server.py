@@ -22,7 +22,7 @@ from inventory_export import export_csv
 from tools import PartsBinToolRegistry
 from domain import (
     AdjustStockRequest, ApplyReviewRequest, DeletePartRequest, DomainError, FetchSpecsRequest,
-    ProvenanceRequest, RejectReviewRequest, UpdatePartRequest,
+    ProvenanceRequest, RejectReviewRequest, UpdatePartRequest, GetPartRequest,
 )
 from fastapi import APIRouter, Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -200,7 +200,8 @@ async def decide_inventory_bulk_update(request: Request, body: dict) -> dict:
         result = await engine.execute(approval, PartsBinToolRegistry(service))
         if not result['ok']:
             raise HTTPException(status_code=409, detail=result['error'])
-        return {'approved': True, **result['result']}
+        return {'approved': True, 'parts': [vars(service.get(GetPartRequest(part['id'])))
+                                           for part in result['result']['parts']]}
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

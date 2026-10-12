@@ -436,7 +436,8 @@ def test_bulk_review_is_read_only_then_applies_once(client):
     service = http.app.state.services.domain
     before = service.list()
     service.repository.inventory.save_pending_review(parts[0].id, {'description': 'pending'}, [])
-    payload = {'part_ids': [part.id for part in parts], 'fields': {'package': ' 0603 ', 'description': None}}
+    payload = {'part_ids': [part.id for part in parts], 'fields': {
+        'package': ' 0603 ', 'description': None, 'datasheet_url': 'https://example.com/datasheet.pdf'}}
     response = http.post('/inventory/bulk/preview', json=payload)
     assert response.status_code == 200
     review = response.json()
@@ -447,6 +448,7 @@ def test_bulk_review_is_read_only_then_applies_once(client):
     decision = {'request_id': review['request_id'], 'approved': True}
     result = http.post('/inventory/bulk/decide', json=decision)
     assert result.status_code == 200
+    assert all(part['datasheet_url'] == 'https://example.com/datasheet.pdf' for part in result.json()['parts'])
     saved = service.list()
     assert [part.quantity for part in saved] == [3, 7]
     assert all(part.package == '0603' and part.description is None for part in saved)
