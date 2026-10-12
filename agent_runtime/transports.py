@@ -8,8 +8,8 @@ from typing import Any
 import httpx
 
 from .models import ModelTurn, ToolCall
-from .budgets import (MAX_INPUT_BYTES, MAX_OUTPUT_TOKENS, ModelBudgetError,
-                      bounded_history, model_tool_result, size)
+from .budgets import (MAX_INPUT_BYTES, MAX_OUTPUT_TOKENS, MAX_REASONING_STATE_BYTES,
+                      ModelBudgetError, bounded_history, encoded, model_tool_result, size)
 from .runtime import ModelRequest
 
 
@@ -37,12 +37,19 @@ class OpenAIResponsesTransport:
                 # A caller supplying only a tool outcome must provide its call too.
                 if exchange["call_id"] not in call_ids:
                     input_items.append({"type": "function_call", "call_id": exchange["call_id"],
-                                        "name": exchange["name"], "arguments": json.dumps(exchange.get("arguments", {}))})
+                                        "name": exchange["name"], "arguments": encoded(exchange.get("arguments", {}))})
                 input_items.append({"type": "function_call_output", "call_id": exchange["call_id"],
-                                    "output": json.dumps(model_tool_result(exchange["result"]), separators=(",", ":"))})
+                                    "output": encoded(model_tool_result(exchange["result"]))})
         # Images have their own preprocessing bound; base64 is not text tokens.
         text_input = [{**item, "content": [part for part in item["content"] if part.get("type") != "input_image"]}
                       if isinstance(item.get("content"), list) else item for item in input_items]
+        reasoning_bytes = sum(len(item.get("encrypted_content", "").encode("utf-8"))
+                              for item in input_items if item.get("type") == "reasoning"
+                              and item.get("encrypted_content"))
+        text_input = [{key: value for key, value in item.items() if key != "encrypted_content"}
+                      if item.get("type") == "reasoning" else item for item in text_input]
+        if reasoning_bytes > MAX_REASONING_STATE_BYTES:
+            raise ModelBudgetError("context_budget_exceeded", "This request exceeds the saved reasoning budget. Saved outcomes remain available; start a narrower request without repeating completed mutations.")
         if size({"instructions": request.system, "input": text_input, "tools": request.tools}) > MAX_INPUT_BYTES:
             raise ModelBudgetError("context_budget_exceeded", "This request exceeds the model input budget. Saved outcomes remain available; start a narrower request without repeating completed mutations.")
         response = await self.client.post(f"{self.base_url}/responses", headers={"Authorization": f"Bearer {self.api_key}"},

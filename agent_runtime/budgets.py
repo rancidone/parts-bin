@@ -9,7 +9,11 @@ from typing import Any
 
 MAX_HISTORY_BYTES = 12_000
 MAX_TOOL_RESULT_BYTES = 12_000
-MAX_INPUT_BYTES = 64_000
+# Accommodate the typed tools, a 100-line BOM, and its bounded result batches.
+MAX_INPUT_BYTES = 128_000
+# Opaque provider state is not UTF-8 prompt text. Bound it separately while
+# preserving the original reasoning items required for stateless continuation.
+MAX_REASONING_STATE_BYTES = 1_000_000
 MAX_OUTPUT_TOKENS = 8_192
 HISTORY_NOTICE = "Earlier conversation turns were omitted to fit the context budget. Ask for clarification when a reference needs omitted context; do not invent it."
 

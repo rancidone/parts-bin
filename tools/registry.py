@@ -268,7 +268,10 @@ def _validate(name: str, args: dict[str, Any], schema: dict[str, Any]) -> None:
     for key, value in args.items():
         rule = schema["properties"][key]
         if not _matches(value, rule):
-            raise DomainError(ErrorCode.INVALID_INPUT, f"Invalid argument: {key}", details={"field": key})
+            bounds = {bound: rule[bound] for bound in ("minimum", "maximum") if bound in rule}
+            hint = f" (expected {bounds['minimum']} through {bounds['maximum']})" if set(bounds) == {"minimum", "maximum"} else ""
+            raise DomainError(ErrorCode.INVALID_INPUT, f"Invalid argument: {key}{hint}",
+                              details={"field": key, **bounds})
     for key, rule in schema.get("properties", {}).items():
         if key in args and isinstance(args[key], dict) and rule.get("additionalProperties") is False:
             _validate_object(args[key], rule)
