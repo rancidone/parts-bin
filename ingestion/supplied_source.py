@@ -471,6 +471,10 @@ async def extract(document: Document, part_number: str, manufacturer: str | None
         "suffix to the inventory identity. A family heading covering different electrical grades or "
         "variants cannot establish which variant is stocked; request clarification in that case. "
         "A substring of a longer code or a marking alone does not establish device identity. "
+        "A code followed by an underscore or another ordering placeholder is incomplete, not a "
+        "standalone device title. If the source requires a packaging or variant code to replace "
+        "that placeholder, request the complete code; do not quote the prefix as an exact identity "
+        "or choose a suffix. "
     )
     if linked_part:
         identity_instructions = (

@@ -2619,7 +2619,8 @@
               ],
               "values": [
                 "1 mA to 30 mA"
-              ]
+              ],
+              "unit": "A"
             },
             {
               "names": [

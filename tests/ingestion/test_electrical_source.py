@@ -236,7 +236,7 @@ async def test_electrical_evidence_must_be_visible_to_model():
             await extract(raw)
 
 
-@pytest.mark.parametrize('dash', ['-', '−', '–', '‐', '‑'])
+@pytest.mark.parametrize('dash', ['-', '−', '–', '‐', '‑', '_'])
 async def test_identity_quote_cannot_be_only_longer_variant(dash):
     longer = PASSAGE.replace(NUMBER, NUMBER + dash + 'TR')
     raw = candidate(passage=longer, facts=[])

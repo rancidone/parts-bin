@@ -59,6 +59,23 @@ def test_equivalent_units_compare_without_model_assistance():
     assert check_completeness(case, candidate, 'bjt')['qualifier_coverage'] == 1
 
 
+@pytest.mark.parametrize('current,matched', [
+    ('0.001 A to 0.03 A', True),
+    ('1 mA to 0.03 A', True),
+    ('0.002 A to 0.03 A', False),
+    ('0.001 A to 0.04 A', False),
+    ('0.03 A to 0.001 A', False),
+    ('0.03 A', False),
+    ('0.001 A to 0.03 A (typical only)', False),
+])
+def test_regulator_load_range_compares_both_explicit_endpoints(current, matched):
+    case, candidate = fixture('ldo_fixed_voltage_variant')
+    voltage = next(fact for fact in candidate['facts'] if fact['name'] == 'output_voltage')
+    voltage['conditions']['output_current'] = current
+    result = check_completeness(case, candidate, 'linear_regulator')
+    assert ('output_voltage' not in result['issues']) == matched
+
+
 @pytest.mark.parametrize('case_id,neighbor_offset', [
     ('opamp_b_operating_and_stress_limits', '2 mV'),
     ('opamp_ba_exact_offset_grade', '3 mV'),
