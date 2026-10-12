@@ -85,6 +85,18 @@ def test_excerpt_selection_keeps_summary_when_ordering_codes_dominate():
     assert sum(len(item['text'].encode('utf-8')) for item in excerpts) <= source.MAX_EXCERPT_BYTES
 
 
+def test_opening_features_and_operating_table_survive_ordering_repetitions():
+    opening = 'Converter family description. ' * 46 + '\nAdjustable Output Voltage\nExternal resistor divider.\n'
+    ratings = 'Recommended Operating Conditions\nInput voltage 2.7 to 5.5 V.\n'
+    document = source.Document('https://www.ti.com/test.pdf', 'hash', 'now',
+        (opening, ratings, 'EXACT-CODE SOT-23 ordering information.\n' * 400))
+    excerpts, omitted = source.select_excerpts(document, 'EXACT-CODE')
+    assert omitted
+    assert any(item['page'] == 1 and 'Adjustable Output Voltage' in item['text'] for item in excerpts)
+    assert any(item['page'] == 2 and 'Input voltage 2.7 to 5.5 V' in item['text'] for item in excerpts)
+    assert sum(len(item['text'].encode()) for item in excerpts) <= source.MAX_EXCERPT_BYTES
+
+
 @pytest.mark.parametrize('identity,body,supported_context', [
     ('ABC-123', 'Order code\tPackage\tPins\nABC-123\tQFN\t24\nABC-123X\tSOIC\t8\n', 'ABC-123\tQFN\t24'),
     ('MOD-24', 'Module\tDimensions\nMOD-24\t12 mm x\n\t8 mm\nNEXT-25\t20 mm\n', 'MOD-24\t12 mm x\n\t8 mm'),

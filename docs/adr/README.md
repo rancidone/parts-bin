@@ -32,3 +32,4 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 [the sample config](../../config.example.toml).
 
 - [0017: Check a bounded BOM in one domain operation](0017-whole-bom-availability-check.md)
+- [0018: Require field decisions and source-bound identity citations](0018-explicit-extraction-decisions-and-identity-passages.md)

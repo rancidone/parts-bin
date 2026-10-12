@@ -5,7 +5,7 @@ from domain.specifications import MAX_CONDITIONS, contract, definition, validate
 from ingestion.errors import EnrichmentError
 
 
-def facts_schema(category: str) -> dict:
+def facts_schema(category: str, *, passage_ids: list[int] | None = None) -> dict:
     fields = contract(category)['fields']
     if not fields:
         raise EnrichmentError('This inventory category has no electrical extraction contract')
@@ -13,19 +13,55 @@ def facts_schema(category: str) -> dict:
                  'properties': {'name': {'type': 'string'}, 'value': {'type': 'string'}},
                  'required': ['name', 'value']}
     properties = {
-        'name': {'type': 'string', 'enum': list(fields)},
         'value': {'type': 'string'},
-        'basis': {'type': 'string', 'enum': sorted({item['basis'] for item in fields.values()})},
         # Strict Responses schemas use fixed object keys; convert pairs only after validation.
         'conditions': {'type': 'array', 'items': condition, 'maxItems': MAX_CONDITIONS},
         'evidence': {'type': 'object', 'additionalProperties': False,
                      'properties': {'passage_ids': {'type': 'array', 'minItems': 1, 'maxItems': 4,
-                                                    'items': {'type': 'integer'}}},
+                                                    'items': {'type': 'integer', **({'enum': passage_ids} if passage_ids else {})}}},
                      'required': ['passage_ids']},
     }
-    return {'type': 'array', 'maxItems': 20, 'items': {
-        'type': 'object', 'additionalProperties': False,
-        'properties': properties, 'required': list(properties)}}
+    return {'type': 'object', 'additionalProperties': False, 'required': list(fields),
+            'properties': {name: {'type': ['object', 'null'], 'additionalProperties': False,
+                'properties': {**properties, 'basis': {'type': 'string', 'enum': [item['basis']]}},
+                'required': [*properties, 'basis']} for name, item in fields.items()}}
+
+
+def source_fact_records(raw: dict, category: str) -> list[dict]:
+    """Require an explicit decision for every field; null remains unsupported."""
+    names = contract(category)['fields']
+    if not isinstance(raw, dict) or set(raw) != set(names):
+        raise EnrichmentError('Electrical extraction must consider every supported field')
+    records = []
+    for name, value in raw.items():
+        if value is None:
+            continue
+        if not isinstance(value, dict) or set(value) != {'value', 'basis', 'conditions', 'evidence'}:
+            raise EnrichmentError('Invalid electrical fact')
+        records.append({'name': name, **value})
+    return records
+
+
+def resolve_source_metadata(raw: dict, passages: list[dict]) -> dict:
+    """Resolve model-selected identity citations to actual supplied source text."""
+    def resolve(evidence):
+        if not isinstance(evidence, dict) or set(evidence) != {'passage_id'}:
+            raise EnrichmentError('Identity evidence must cite a supplied passage ID')
+        index = evidence['passage_id']
+        if type(index) is not int or not 1 <= index <= len(passages):
+            raise EnrichmentError('Identity evidence must cite a supplied passage ID')
+        passage = passages[index - 1]
+        return {'page': passage['page'], 'excerpt': passage['text']}
+
+    raw = dict(raw)
+    fields = raw.get('fields')
+    if not isinstance(fields, dict):
+        raise EnrichmentError('Invalid extraction fields')
+    raw['fields'] = {name: {**item, 'evidence': resolve(item.get('evidence'))}
+                     if isinstance(item, dict) else item for name, item in fields.items()}
+    if raw.get('mismatch_evidence') is not None:
+        raw['mismatch_evidence'] = resolve(raw['mismatch_evidence'])
+    return raw
 
 
 def validate_source_facts(raw: list, category: str, part_number: str, document,

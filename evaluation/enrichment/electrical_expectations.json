@@ -2902,6 +2902,10 @@
           {
             "page": 5,
             "text": "typical values are at TA = 25°C"
+          },
+          {
+            "page": 1,
+            "text": "Adjustable Output Voltage"
           }
         ]
       }
