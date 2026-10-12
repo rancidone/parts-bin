@@ -42,7 +42,7 @@ function SpecificationMatch({ part, facts, missing }: { part: Part; facts?: Fact
   return <article className={styles.card} aria-label={`Part ${part.id}: ${incomplete ? 'needs evidence' : 'confirmed match'}`}>
     <div className={styles.cardHeader}>
       <div className={styles.identity}><strong>{[part.part_category, part.value, part.package].filter(Boolean).join(' · ')}</strong>
-        <span>{part.part_number ?? 'Ordering code unknown'} · Part #{part.id}</span></div>
+        <span>{part.part_number ?? 'Ordering code unknown'} · <a href={`#/inventory/${part.id}`}>Part #{part.id}</a></span></div>
       <span className={styles.stock}>{part.quantity} in stock</span>
     </div>
     <span className={incomplete ? styles.incomplete : styles.confirmed}>{incomplete ? 'Needs evidence or matching conditions' : 'Meets stated requirements'}</span>

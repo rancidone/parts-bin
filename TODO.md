@@ -7,11 +7,6 @@ Decisions and rationale belong in [ADRs](docs/adr/README.md).
 Cloud experiments remain deferred while local ingestion and evidence-backed
 electrical lookup are improved.
 
-## Next: inventory workflows
-
-- Add inventory UI filters for accepted electrical specifications using the
-  existing typed search contract; show incomplete evidence separately from matches.
-
 ## Deferred enrichment measurements
 
 Prioritize product features. Resume paid evaluation only for a concrete user
