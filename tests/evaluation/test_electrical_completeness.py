@@ -152,6 +152,53 @@ def test_reviewed_supply_wording_preserves_endpoints_and_rail_convention():
         case, candidate, 'operational amplifier')['issues']['input_offset_voltage']
 
 
+def test_resistor_power_cannot_use_neighboring_characteristic_or_hide_scope():
+    case, candidate = fixture('four_10k_resistors')
+    power = candidate['facts'][-1]
+    power['value'] = '3.25 W'
+    power['conditions']['rating_characteristic'] = 'V'
+    result = check_completeness(case, candidate, 'resistor')
+    assert 'wrong or unreviewed value' in result['issues']['rated_power']
+    assert 'missing or unreviewed qualifier: rating_characteristic' in result['issues']['rated_power']
+    power['value'] = '2.5 W'
+    power['conditions']['rating_characteristic'] = 'U'
+    power['conditions'].pop('rating_tolerance_range')
+    assert 'missing or unreviewed qualifier: rating_tolerance_range' in check_completeness(
+        case, candidate, 'resistor')['issues']['rated_power']
+
+
+def test_resistor_test_stability_limit_does_not_replace_column_tolerance_range():
+    case, candidate = fixture('four_10k_resistors')
+    power = candidate['facts'][-1]
+    power['conditions']['rating_tolerance_range'] = '±(0.5 % + 0.05 Ω) ΔR'
+    assert 'missing or unreviewed qualifier: rating_tolerance_range' in check_completeness(
+        case, candidate, 'resistor')['issues']['rated_power']
+
+
+def test_switch_ratings_require_pairing_and_complete_test_environment():
+    case, candidate = fixture('switch_low_current_variant')
+    voltage, current = candidate['facts'][1:]
+    voltage['conditions'].pop('load_current')
+    current['conditions'].pop('operating_frequency')
+    result = check_completeness(case, candidate, 'switch')
+    assert result['value_coverage'] == 1
+    assert 'missing or unreviewed qualifier: load_current' in result['issues']['rated_voltage']
+    assert 'missing or unreviewed qualifier: operating_frequency' in result['issues']['rated_current']
+    current['value'] = '3 A'
+    assert 'wrong or unreviewed value' in check_completeness(case, candidate, 'switch')['issues']['rated_current']
+
+
+def test_switch_explicit_humidity_and_temperature_intervals_preserve_tolerances():
+    case, candidate = fixture('switch_low_current_variant')
+    for fact in candidate['facts'][1:]:
+        fact['conditions']['ambient_humidity'] = '60 to 70 %'
+        fact['conditions']['ambient_temperature'] = '18 to 22 °C'
+    assert check_completeness(case, candidate, 'switch')['qualifier_coverage'] == 1
+    candidate['facts'][-1]['conditions']['ambient_humidity'] = '65 %'
+    assert 'missing or unreviewed qualifier: ambient_humidity' in check_completeness(
+        case, candidate, 'switch')['issues']['rated_current']
+
+
 def test_ocr_transcript_keeps_lines_and_separates_recognition_from_truth():
     header = 'block_num\tpar_num\tline_num\tconf\ttext\n'
     text, quality = transcript(header + '1\t1\t1\t99\t22\n1\t1\t1\t50\tuH\n1\t1\t2\t100\t0.74\n')

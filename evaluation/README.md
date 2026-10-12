@@ -245,6 +245,17 @@ the pages before changing expectations; changed source hashes invalidate scores.
 The comparator flags missing values, qualifiers, mismatched value/condition
 pairs and unsupported application ratings. Unlisted equivalent wording and
 quotation interpretation still require visual review.
+Resistor expectations distinguish the selected power characteristic and its
+applicable tolerance range from separate stability tests. Switch expectations
+check contact form, paired current/voltage ratings and the complete test
+environment. Explicit humidity intervals compare by endpoints, so removing the
+source tolerance cannot pass as equivalent wording.
+For resistor power, inspect the ordering example, rating row and column headings
+together; a performance-test resistance-change limit is not a nominal tolerance
+range. For switches, check that the contact-form heading and designation reach
+the selected passages and cited evidence, separately from the load ratings.
+Compare raw model facts with validated candidates to distinguish model omissions
+from facts rejected by the server.
 Saved-link cases can name an `expectation_case_id` when the independently reviewed
 ratings apply to the same electrical grade. The report retains both case IDs and
 still checks the captured source hash. This association is evaluation metadata;

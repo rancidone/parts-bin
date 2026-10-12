@@ -2166,6 +2166,237 @@
       },
       "unsupported_fact_names": [],
       "review_note": "Rendered PDF pages 4–7 and exact LM358BAIDR ordering row on PDF page 38 (addendum page 6). Supply limits use total rail span. Offset values must pair with temperature and exact grade. Negative bias-current bounds are stored as magnitudes with direction. The 50 nA bound is characterized only (page-7 note 1). Global test supply is 5–36 V with common-mode/output and load reference at half supply. Quiescent 300 µA is typical per amplifier at 5 V and zero output current over the merged −40 to 85 °C cell; do not use 460/800 µA maxima. Equivalent unlisted qualifier wording needs manual review."
+    },
+    {
+      "id": "four_10k_resistors",
+      "source": {
+        "url": "https://www.vishay.com/docs/30204/rsns.pdf",
+        "sha256": "cfd51f92df1fde89d85efbec581448a5529551120fc081a82688296ee08f4b76"
+      },
+      "layout_class": "ruled_multiline_headers",
+      "facts": {
+        "resistance": {
+          "values": [
+            "10 kΩ"
+          ],
+          "basis": "nominal",
+          "conditions": [],
+          "pages": [
+            2
+          ]
+        },
+        "tolerance": {
+          "values": [
+            "1 %"
+          ],
+          "basis": "maximum",
+          "conditions": [],
+          "pages": [
+            2
+          ]
+        },
+        "rated_power": {
+          "values": [
+            "2.5 W"
+          ],
+          "basis": "rated",
+          "conditions": [
+            {
+              "names": [
+                "rating_temperature",
+                "ambient_temperature"
+              ],
+              "values": [
+                "25 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "rating_characteristic"
+              ],
+              "values": [
+                "U",
+                "characteristic U"
+              ]
+            },
+            {
+              "names": [
+                "rating_tolerance_range",
+                "tolerance_range"
+              ],
+              "values": [
+                "±0.05 % to ±5 %",
+                "±0.05% to ±5%",
+                "0.05 % to 5 %",
+                "0.05 to 5 %"
+              ]
+            }
+          ],
+          "pages": [
+            1,
+            2
+          ]
+        }
+      },
+      "unsupported_fact_names": [],
+      "review_note": "Rendered pages 1–3 of revision 27-Apr-2026. Page 2 gives the complete RS02C10K00FS7017 ordering example, 10K00 = 10 kΩ, F = 1%, and special 17. Page 1 RS02C...17 row assigns 2.5 W at 25 °C to characteristic U, whose column applies to tolerances ±0.05% through ±5%; 1% falls in U. The 3.25 W characteristic V column applies to ±3% through ±10%, not this F variant. This column tolerance range is not a resistance stability guarantee. Page 3 performance-test ΔR limits and derating curves are separate; do not invent a derated power or conflate those tests with nominal tolerance."
+    },
+    {
+      "id": "switch_low_current_variant",
+      "source": {
+        "url": "https://omronfs.omron.com/en_US/ecb/products/pdf/en-d2f.pdf",
+        "sha256": "d3f2ed08101cf7ec6f57577643225f73faa5475026dda0072bcddf2d99fb04db"
+      },
+      "layout_class": "ruled_merged_cells",
+      "facts": {
+        "contact_form": {
+          "values": [
+            "SPDT"
+          ],
+          "basis": "nominal",
+          "conditions": [],
+          "pages": [
+            2
+          ]
+        },
+        "rated_voltage": {
+          "values": [
+            "30 V"
+          ],
+          "basis": "rated",
+          "conditions": [
+            {
+              "names": [
+                "current_type",
+                "voltage_type"
+              ],
+              "values": [
+                "DC"
+              ]
+            },
+            {
+              "names": [
+                "load_type"
+              ],
+              "values": [
+                "resistive",
+                "resistive load"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "20 ± 2 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "ambient_humidity"
+              ],
+              "values": [
+                "65 ± 5 %"
+              ],
+              "unit": "%"
+            },
+            {
+              "names": [
+                "operating_frequency"
+              ],
+              "values": [
+                "30 operations/min",
+                "30 operations per minute"
+              ]
+            },
+            {
+              "names": [
+                "load_current",
+                "rated_current"
+              ],
+              "values": [
+                "0.1 A"
+              ],
+              "unit": "A"
+            }
+          ],
+          "pages": [
+            1,
+            2
+          ]
+        },
+        "rated_current": {
+          "values": [
+            "0.1 A"
+          ],
+          "basis": "rated",
+          "conditions": [
+            {
+              "names": [
+                "current_type",
+                "voltage_type"
+              ],
+              "values": [
+                "DC"
+              ]
+            },
+            {
+              "names": [
+                "load_type"
+              ],
+              "values": [
+                "resistive",
+                "resistive load"
+              ]
+            },
+            {
+              "names": [
+                "ambient_temperature"
+              ],
+              "values": [
+                "20 ± 2 °C"
+              ],
+              "unit": "°C"
+            },
+            {
+              "names": [
+                "ambient_humidity"
+              ],
+              "values": [
+                "65 ± 5 %"
+              ],
+              "unit": "%"
+            },
+            {
+              "names": [
+                "operating_frequency"
+              ],
+              "values": [
+                "30 operations/min",
+                "30 operations per minute"
+              ]
+            },
+            {
+              "names": [
+                "load_voltage",
+                "rated_voltage"
+              ],
+              "values": [
+                "30 V"
+              ],
+              "unit": "V"
+            }
+          ],
+          "pages": [
+            1,
+            2
+          ]
+        }
+      },
+      "unsupported_fact_names": [],
+      "review_note": "Rendered pages 1–2. Page 2 exact D2F-01F row is low operating force in the 0.1 A group; contact diagram is SPDT. Ratings table gives D2F-01 models 0.1 A at 30 VDC, resistive load, with ambient 20 ±2 °C, humidity 65 ±5%, and 30 operations/min. Both rating facts retain the paired other value and test conditions. Standard D2F/D2F-F and D2F-5 ratings are unrelated variants; the minimum applicable load and safety-standard table are distinct contexts."
     }
   ]
 }

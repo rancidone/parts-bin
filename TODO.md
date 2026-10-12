@@ -7,7 +7,28 @@ Decisions and rationale belong in [ADRs](docs/adr/README.md).
 Cloud experiments remain deferred while local ingestion and evidence-backed
 electrical lookup are improved.
 
-## Next: electrical requirements and enrichment
+## Next: source context and extraction evaluation
+
+- Extend source-selection evaluation to additional supplier layouts, checking
+  governing headings, vertically merged cells and distant
+  measurement-method sections within the existing budgets. Fix measured omissions
+  without part-specific rules.
+- Compare electrical table interpretation across models and sources, including
+  op-amp qualifier retention, using independent expectations for global conditions,
+  min/max endpoints, paired load ratings and reference-circuit values. Keep
+  qualifier completeness, extraction coverage and repeatability separate; use
+  source review, latency and measured usage when selecting a model. Extend beyond
+  short repeat trials and include the supplied-source
+  [acceptance cases](evaluation/enrichment/acceptance.json), clarification and photo
+  identification before selecting a production model.
+- Evaluate raster OCR on representative scanned datasheets, including page
+  selection and table association, before deciding whether to add production OCR.
+  Keep recognition measurements separate from electrical correctness.
+- Measure automatic source discovery separately from supplied-source extraction
+  before choosing integrations. Remove source paths that do not justify their
+  maintenance burden; distinguish retrieval failure from no matching part.
+
+## Requirements and inventory scale
 
 - Define further operating ranges and derating from concrete source-backed
   requests; extend fields and condition comparison only where those cases need it.
@@ -17,31 +38,6 @@ electrical lookup are improved.
   any migration on copies while preserving IDs, quantities, and provenance.
 - Measure candidate-read costs and result sizes before adding indexed
   specification queries; use the existing local repository first.
-
-## Source discovery and extraction evaluation
-
-- Recheck the supplied-source [acceptance cases](evaluation/enrichment/acceptance.json),
-  clarification and photo identification when changing prompts or models, using
-  small, explicitly bounded live experiments. Preserve unknown fields until supported.
-- Extend the independently reviewed
-  [source expectations](evaluation/enrichment/electrical_expectations.json) to
-  resistors and switches. Add source cases for gaps exposed by evaluation,
-  rather than duplicating existing variant and ambiguity cases.
-- Evaluate retention of governing headings, vertically merged cells, and distant
-  measurement-method sections in bounded source selection across supplier layouts.
-  Fix measured omissions without part-specific rules.
-- Compare electrical table interpretation across models and sources, including
-  op-amp qualifier retention, using independent expectations for global conditions,
-  min/max endpoints, paired load ratings and reference-circuit values. Keep
-  qualifier completeness, extraction coverage and repeatability separate; use
-  source review, latency and measured usage when selecting a model. Extend beyond
-  short repeat trials before selecting a production model.
-- Evaluate raster OCR on representative scanned datasheets, including page
-  selection and table association, before deciding whether to add production OCR.
-  Keep recognition measurements separate from electrical correctness.
-- Measure automatic source discovery separately from supplied-source extraction
-  before choosing integrations. Remove source paths that do not justify their
-  maintenance burden; distinguish retrieval failure from no matching part.
 
 ## Durable ingestion experiment
 
@@ -70,9 +66,9 @@ Before starting this experiment, resolve the cloud constraints listed below.
 - Use repository-injected scenarios plus adapter-specific atomicity, concurrency,
   and recovery checks to evaluate persistence candidates. Rehearse migration on
   a copy, preserving identities, evidence, ordering, and retry protection.
-- Use the durable ingestion experiment to select persistence, orchestration, and
-  ingress. Compare idle and realistic usage costs, including paid AI/retrieval
-  stages and retries; justify each service against the smallest suitable stack.
+- Compare total idle and realistic usage costs for the candidate stacks from the
+  durable ingestion experiment, including paid AI/retrieval stages and retries;
+  justify each service against the smallest suitable stack.
 - Implement selected cloud storage adapters against the inventory/approval
   unit-of-work and conversation repository contracts. Exercise the same domain,
   atomicity, retry, and recovery scenarios on local and cloud storage; migrate a

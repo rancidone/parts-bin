@@ -193,6 +193,24 @@ def test_specification_sections_survive_ordering_repetitions_without_neighboring
     assert all(item['text'] in document.pages[item['page'] - 1] for item in passages)
 
 
+def test_contact_form_survives_ordering_repetitions_and_is_citable():
+    document = source.Document('https://omronfs.omron.com/test.pdf', 'hash', 'now', (
+        'Switch family\n' + 'Background\n' * 2000,
+        'List of Models\n' + 'SWITCH-01F\tLow force\n' * 1000 +
+        'Contact Form\tContact Specifications\nSPDT\tGold alloy\n'
+        'Ratings\n30 VDC\t0.1 A\n',
+        'Dimensions\n' + 'SWITCH-01F\t10 mm\n' * 1000,
+    ))
+    excerpts, omitted = source.select_excerpts(document, 'SWITCH-01F')
+    passages, _ = source.electrical_passages(excerpts)
+    assert omitted
+    assert any(item['page'] == 2 and 'Contact Form' in item['text'] and
+               'SPDT' in item['text'] for item in passages)
+    assert any('SWITCH-01F' in item['text'] for item in passages)
+    assert sum(len(item['text'].encode()) for item in passages) <= source.MAX_EXCERPT_BYTES
+    assert all(item['text'] in document.pages[item['page'] - 1] for item in passages)
+
+
 def test_selected_specification_rows_retain_governing_merged_temperature_geometry():
     from ingestion.pdf_tables import relevant_tables
     table = {'page': 2, 'cells': [
