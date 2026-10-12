@@ -425,7 +425,7 @@
       },
       "conversation": [
         {
-          "user": "Do I have 0.1 µF capacitors in 0603?"
+          "user": "Do I have 0.1 µF capacitors in 0603? Also check any pending value changes."
         }
       ],
       "allowed_approvals": {},
