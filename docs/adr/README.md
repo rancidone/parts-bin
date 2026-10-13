@@ -44,3 +44,4 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0023: Cover requested conditions within documented operating intervals](0023-operating-condition-coverage.md)
 
 - [0024: Return explained partial inventory matches](0024-explained-partial-inventory-matches.md)
+- [0025: Drain requests during deployment and preserve recoverable status](0025-graceful-deployment-and-recovery-status.md)

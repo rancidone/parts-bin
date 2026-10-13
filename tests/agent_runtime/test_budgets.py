@@ -148,3 +148,42 @@ def test_larger_bom_result_budget_remains_bounded_and_other_tools_unchanged():
     omitted = model_tool_result(oversized, tool='check_inventory')
     assert omitted['result_omitted'] and 'smaller list' in omitted['message']
     assert oversized['result']['items']  # Authoritative result is preserved.
+
+
+async def test_multi_round_bom_keeps_reasoning_and_all_results_with_real_contract(tmp_path):
+    from agent_runtime.runtime import SYSTEM_INSTRUCTIONS
+    from agent_runtime.telemetry import AgentTelemetry
+    from db.repository import SQLitePartsBinRepository
+    from domain import PartsBinService
+    from tools import PartsBinToolRegistry
+
+    registry = PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db')))
+    tools = tuple({'type': 'function', 'name': tool['name'], 'description': tool['description'],
+                   'parameters': tool['inputSchema'], 'strict': False} for tool in registry.list_tools())
+    arguments = {'items': [{'filters': {'part_category': 'capacitor', 'value': f'{i} nF',
+                                      'package': '0603'}, 'quantity': 10} for i in range(30)]}
+    result = await registry.execute('check_inventory', arguments)
+    exchanges = []
+    for i in range(4):
+        exchanges.extend([
+            {'type': 'model_output', 'items': [
+                {'type': 'reasoning', 'id': f'rs_{i}', 'summary': [], 'encrypted_content': 'x' * 50_000},
+                {'type': 'function_call', 'call_id': str(i), 'name': 'check_inventory',
+                 'arguments': json.dumps(arguments)}]},
+            {'type': 'tool_result', 'call_id': str(i), 'name': 'check_inventory', 'result': result},
+        ])
+    captured, metrics = [], []
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request:
+            captured.append(json.loads(request.content)) or httpx.Response(200, json={'output': []}))) as client:
+        await OpenAIResponsesTransport(api_key='fake', model='test', client=client,
+            telemetry=AgentTelemetry(lambda event, **fields: metrics.append((event, fields)))).complete(
+                ModelRequest(SYSTEM_INSTRUCTIONS, 'private BOM', None, tools, tuple(exchanges), thread_id='private-thread'))
+    outputs = [json.loads(item['output']) for item in captured[0]['input']
+               if item.get('type') == 'function_call_output']
+    assert len(outputs) == 4 and all(output == result for output in outputs)
+    assert sum(item.get('type') == 'reasoning' for item in captured[0]['input']) == 4
+    assert metrics[0][0] == 'agent_model_request'
+    assert metrics[0][1]['input_bytes'] < MAX_INPUT_BYTES
+    assert metrics[0][1]['reasoning_bytes'] == 200_000
+    assert metrics[0][1]['omitted_results'] == 0
+    assert 'private' not in repr(metrics)

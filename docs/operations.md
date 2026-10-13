@@ -93,10 +93,23 @@ requires no model or supplier requests.
 
 ## Interrupted requests
 
+Compose upgrades give active requests time to finish: Uvicorn waits up to fourteen
+minutes, inside Docker's fifteen-minute stop window. New connections can fail
+during this single-container replacement. Do not shorten deployment stop timeouts.
+When upgrading an older container with the default ten-second stop window, pass
+`--timeout 900` to the deployment's existing `docker compose up` command for that
+first replacement; subsequent containers retain the Compose setting. Preserve the
+existing production override files and infrastructure deployment procedure.
+
 **Refresh history** reads saved events without repeating work. **Resume request**
 explicitly continues the original execution after refreshing history. An active
 worker can prevent resume; after abrupt process loss its lease can take five
 minutes to expire. Do not resend the original message to recover a mutation.
+An active lease produces a temporary busy notice with a retry bound, preserving
+the request's resume controls. Refresh history first: the original worker may have
+finished meanwhile. Graceful forced cancellation releases its lease immediately;
+hard process or host loss still needs lease expiry. Cancellation retains committed
+stock and checkpoints, rather than automatically resending work.
 
 Use the original approval controls and request ID for a waiting decision.
 Duplicate delivery returns the saved outcome. A changed target or an unknown
@@ -155,6 +168,13 @@ selected part's values, conditions, evidence, and accepted facts before approval
 automatic retry. Inspect saved outcomes and stock before starting a narrower
 request: completed mutations remain committed. Refresh history to recover a missed
 acknowledgement; resuming a terminal execution returns the saved outcome.
+Their stable codes are recorded as `agent_runtime_error`. `agent_model_request`
+records text-input bytes separately from opaque reasoning bytes, tool/exchange
+counts and omitted-result counts. Inspect the correlated thread fingerprint and
+saved error before diagnosing a BOM failure: the text budget includes instructions
+and tool schemas. `agent_execution_deferred` identifies temporary lease conflicts,
+which are not failed executions. Diagnostics do not record prompts, tool values,
+photo bytes or reasoning content.
 
 Supplied-PDF extraction uses selected source excerpts. If these cannot establish
 identity or evidence, provide a shorter datasheet for the exact ordering variant.

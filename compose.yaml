@@ -2,6 +2,7 @@ services:
   parts-bin:
     build: .
     init: true
+    stop_grace_period: 15m
     ports:
       - "8000:8000"
     volumes:

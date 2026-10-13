@@ -128,3 +128,45 @@ async def test_opening_existing_database_preserves_history_and_provider_state(tm
         assert conn.execute("SELECT * FROM agent_codex_sessions").fetchall() == [("old", "saved-session")]
         assert conn.execute("SELECT runtime FROM agent_threads WHERE thread_id='old'").fetchone()[0] == provider
     assert store.runtime_for(gateway.create_thread()) == "openai"
+
+
+async def test_busy_resume_is_nonterminal_and_does_not_take_over_or_report_failure(tmp_path):
+    import asyncio
+    from agent_runtime import AgentTelemetry
+    from .test_runtime import build_runtime
+
+    runtime, _, store = build_runtime(tmp_path, [])
+    entered, release = asyncio.Event(), asyncio.Event()
+    calls = 0
+
+    class PausedTransport:
+        async def complete(self, request):
+            nonlocal calls
+            calls += 1
+            entered.set()
+            await release.wait()
+            return ModelTurn('Finished once')
+
+    runtime.transport = PausedTransport()
+    records = []
+    gateway = AgentGateway(store, lambda: runtime, telemetry=AgentTelemetry(
+        lambda event, **fields: records.append((event, fields))))
+    thread = gateway.create_thread()
+    active = asyncio.create_task(gateway.submit(thread, 'hello'))
+    await entered.wait()
+    execution = store.events(thread)[0].data['execution_id']
+    try:
+        busy = await gateway.resume(thread, execution)
+        assert len(busy) == 1 and busy[0].kind == 'completed'
+        assert busy[0].data['status'] == 'busy'
+        assert busy[0].data['execution_id'] == execution
+        assert 1 <= busy[0].data['retry_after_seconds'] <= 300
+        assert calls == 1
+        assert not any(name == 'agent_runtime_error' for name, _ in records)
+        assert records[-1][0] == 'agent_execution_deferred'
+    finally:
+        release.set()
+        await active
+    replay = await gateway.resume(thread, execution)
+    assert replay[-1].data['status'] == 'completed'
+    assert calls == 1
