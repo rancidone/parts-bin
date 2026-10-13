@@ -1,13 +1,14 @@
 """Extensible, category-specific facts and requirements over reviewed evidence."""
 
 from dataclasses import asdict, dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 import re
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 from .errors import DomainError, ErrorCode
 from .specification_conditions import same_conditions
+from .quantities import compare_intervals, interval
 from .search import search_category
 
 
@@ -118,8 +119,6 @@ SPECIFICATIONS = {
     },
 }
 
-# SI prefixes are case-sensitive. Ratio and percent have no prefixes.
-_PREFIXES = {'': 0, 'p': -12, 'n': -9, 'u': -6, 'µ': -6, 'μ': -6, 'm': -3, 'k': 3, 'M': 6, 'G': 9}
 MAX_CONDITIONS = 12
 # Minimum qualification for confirming sourced electrical facts. More conditions
 # may govern a particular document; these checks cannot certify source completeness.
@@ -222,41 +221,9 @@ def contract(category: str) -> dict:
                if search_category(category) in {'linear regulator', 'buck converter'} else {}),
             **({'value_policy': 'Preserve exact color and intensity bin identity. Maximum forward voltage requires its test current and temperature. Continuous and pulsed stress currents are distinct; retain duty cycle and pulse duration. Dominant wavelength is distinct from peak wavelength. Minimum luminous intensity is distinct from typical intensity and luminous flux; retain test current, temperature and measurement geometry. Unmarked LEDs require identity clarification.'}
                if search_category(category) == 'led' else {}),
+            'numeric_value_policy': 'Values accept nonnegative scalars, ordered ranges and center ± tolerance with units. Equality requires equal endpoints; At least compares the stored lower bound to the requested upper bound; at most compares the stored upper bound to the requested lower bound. Overlapping but unconfirmed comparisons remain incomplete. Nominal passive identity facts remain scalar. For operating-range coverage, require the operating minimum at most the requested range and operating maximum at least the requested range under identical complete conditions. Never substitute stress limits or infer derating.',
             'conditions_policy': 'Match complete condition mappings. Named electrical, Celsius and percentage conditions compare scalars, explicit ranges and center ± tolerance by equal unit-aware endpoints. Omitted conditions are incomplete. Range containment does not establish a match. Unknown conditions and additional qualifiers remain literal. Preserve original conditions and evidence.',
             'evidence_policy': 'Only accepted source evidence confirms requirements. User assertions remain incomplete.'}
-
-
-def numeric_value(raw: str, unit: str) -> Decimal:
-    if not isinstance(raw, str) or len(raw) > 100:
-        invalid('Numeric specifications require a bounded decimal string with units')
-    match = re.fullmatch(r'\s*([0-9]+(?:\.[0-9]+)?|\.[0-9]+)\s*([^\s]+)\s*', raw)
-    if match is None:
-        invalid(f'Use an explicit decimal value and {unit} unit')
-    number, symbol = match.groups()
-    aliases = {'ohm': 'Ω', 'ohms': 'Ω', 'Ω': 'Ω'}
-    symbol = aliases.get(symbol, symbol)
-    for label in ('ohms', 'ohm'):
-        if symbol.endswith(label):
-            symbol = symbol[:-len(label)] + 'Ω'
-            break
-    if unit == 'V/s':
-        rate = re.fullmatch(r'([pnuµμmkMG]?)V/([pnuµμmkMG]?)s', symbol)
-        if rate is None:
-            invalid('Expected V/s with supported SI prefixes on voltage and time')
-        exponent = _PREFIXES[rate[1]] - _PREFIXES[rate[2]]
-    elif unit in {'%', 'ratio'}:
-        if symbol != unit:
-            invalid(f'Expected {unit} unit')
-        exponent = 0
-    else:
-        if not symbol.endswith(unit) or symbol[:-len(unit)] not in _PREFIXES:
-            invalid(f'Expected {unit} with a supported SI prefix')
-        exponent = _PREFIXES[symbol[:-len(unit)]]
-    try:
-        value = Decimal(number).as_tuple()
-        return Decimal((value.sign, value.digits, value.exponent + exponent))
-    except InvalidOperation:
-        invalid('Invalid numeric specification')
 
 
 def conditions(raw: Any) -> dict[str, str]:
@@ -269,14 +236,17 @@ def conditions(raw: Any) -> dict[str, str]:
     return dict(raw)
 
 
-def _value(category: str, name: str, raw: Any, basis: str) -> str:
+def _value(category: str, name: str, raw: Any, basis: str) -> str | tuple[str, str]:
     item = definition(category, name)
     if basis != item.basis:
         invalid(f'{name} requires basis {item.basis}; qualifiers cannot be substituted')
     if not isinstance(raw, str) or not raw.strip() or len(raw) > 100:
         invalid('Specification values must be nonempty bounded strings')
     if item.unit:
-        return format(numeric_value(raw, item.unit), 'f')
+        endpoints = interval(raw, item.unit)
+        if endpoints is None or endpoints[0] < 0:
+            invalid('Use a nonnegative scalar or ordered interval with compatible explicit units')
+        return tuple(format(endpoint, 'f') for endpoint in endpoints)
     if item.choices and raw not in item.choices:
         invalid(f'{name} must be one of {item.choices}')
     return raw
@@ -311,7 +281,9 @@ def validate_facts(category: str, raw: list[dict], *, part_number: str | None) -
         if not isinstance(name, str) or name in names:
             invalid('Specification names must be distinct strings')
         names.add(name)
-        _value(category, name, record['value'], record['basis'])
+        value = _value(category, name, record['value'], record['basis'])
+        if name in {'resistance', 'capacitance', 'inductance'} and value[0] != value[1]:
+            invalid('Nominal passive identity requires a scalar; preserve tolerance separately')
         qualified = conditions(record['conditions'])
         evidence = record['evidence']
         if not isinstance(evidence, dict) or evidence.get('kind') not in {'source', 'user_assertion'}:
@@ -389,9 +361,14 @@ def evaluate(category: str, facts: list[dict], requirements: list[dict]) -> tupl
         left = _value(category, name, fact['value'], fact['basis'])
         right = requirement['normalized_value']
         if item.unit:
-            left, right = Decimal(left), Decimal(right)
-        op = requirement['comparison']
-        if not {'eq': left == right, 'gte': left >= right, 'lte': left <= right}[op]:
+            left, right = tuple(map(Decimal, left)), tuple(map(Decimal, right))
+            outcome = compare_intervals(left, right, requirement['comparison'])
+        else:
+            outcome = left == right
+        if outcome is False:
             return False, [], []  # A known failing constraint excludes the candidate.
+        if outcome is None:
+            missing.append(name)  # Overlap alone cannot confirm a whole-interval comparison.
+            continue
         supporting.append(fact)
     return True, missing, supporting

@@ -16,6 +16,7 @@ from .normalization import normalize_part_payload, part_identity, validate_field
 
 from .search import values_match, nominal_value, search_category
 from . import specifications
+from .quantities import interval
 from .pagination import validate_page, next_offset
 
 SpecFetcher = Callable[[str], Awaitable[dict[str, Any]]]
@@ -243,8 +244,8 @@ class PartsBinService:
         for fact in checked:
             if fact['name'] == nominal_field and original.value is not None:
                 stored = nominal_value(original.value, original.part_category)
-                proposed = specifications.numeric_value(fact['value'], specifications.definition(original.part_category, fact['name']).unit)
-                if stored is not None and stored != proposed:
+                proposed = interval(fact['value'], specifications.definition(original.part_category, fact['name']).unit)
+                if stored is not None and proposed != (stored, stored):
                     raise DomainError(ErrorCode.CONFLICT, 'Proposed nominal specification conflicts with committed value')
         existing = self.repository.inventory.specifications(original.id)
         if not self.repository.inventory.stage_specifications(original, checked, existing):

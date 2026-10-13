@@ -6,8 +6,9 @@ import pytest
 from agent_runtime.approval import ApprovalEngine
 from db.repository import SQLitePartsBinRepository
 from domain import AddPartRequest, AddStockRequest, DomainError, GetPartRequest, PartFields, PartsBinService, SearchPartsRequest, UpdatePartRequest
-from domain.specifications import SPECIFICATIONS, SpecificationDefinition, contract, numeric_value, validate_facts
+from domain.specifications import SPECIFICATIONS, SpecificationDefinition, contract, validate_facts
 from domain.repositories import RepositoryConflict
+from domain.quantities import numeric_value
 from tools import PartsBinToolRegistry
 
 

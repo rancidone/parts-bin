@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from domain.specification_conditions import interval
+from domain.quantities import interval
 from domain.specifications import definition
 
 EXPECTATIONS = Path(__file__).parent / 'enrichment' / 'electrical_expectations.json'

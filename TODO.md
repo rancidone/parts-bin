@@ -29,9 +29,9 @@ extraction and keep unsupported fields unknown.
 
 ## Requirements and inventory scale
 
-- Define application operating-range coverage and derating only from concrete
-  source-backed requests; equal test-condition endpoints alone do not establish
-  operation across a requested range.
+- Add derating or coverage across differing test conditions only from concrete
+  source-backed requests. Operating endpoint comparisons under equal conditions
+  do not establish behavior at other temperatures, loads or application conditions.
 - Add typed category attributes for connectors, modules and kits only when
   concrete ingestion failures require structured variant descriptions. Preserve
   separate unnumbered physical groups and rehearse any migration on copies.

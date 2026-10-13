@@ -130,7 +130,7 @@ def test_general_intervals_compare_split_tolerance_and_resistance_units():
 
 def test_reusable_interval_parser_preserves_decimal_precision_without_caller_context():
     from decimal import Decimal
-    from domain.specification_conditions import interval
+    from domain.quantities import interval
     center = '1' * 70
     parsed = interval(center + ' V ± 1 V', 'V')
     assert parsed == (Decimal('1' * 69 + '0'), Decimal('1' * 69 + '2'))
