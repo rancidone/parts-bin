@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import (AddPartRequest, AddStockRequest, DomainError, GetPartRequest,
                     IngestDatasheetRequest, PartFields, PartsBinService, UpdatePartRequest)
 from tools import PartsBinToolRegistry
@@ -19,7 +19,7 @@ def fact(value='0.25 W'):
 @pytest.fixture
 def setup(tmp_path):
     fetcher = AsyncMock(return_value={'outcome': 'proposal', 'facts': [fact()]})
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'), datasheet_fetcher=fetcher)
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'), datasheet_fetcher=fetcher)
     part = service.add_part(AddPartRequest(PartFields('resistor', 'passive', 4, value='10k', part_number='EXACT-10K-F')))
     return service, part, fetcher
 

@@ -11,6 +11,10 @@ class RepositoryConflict(Exception):
     """A write violates a storage uniqueness or integrity constraint."""
 
 
+class RepositoryBusy(RuntimeError):
+    """A concurrent transaction won; retry the whole database-only operation."""
+
+
 class ExecutionUnavailable(ValueError):
     """Work is unknown, already leased, or no longer owned by this worker."""
 
@@ -98,23 +102,21 @@ class ApprovalRepository(Protocol):
     def save_result(self, request_id: str, result: dict[str, Any]) -> None: ...
 
 
-class Savepoint(Protocol):
-    def rollback(self) -> None: ...
-
-
 class PartsBinRepository(Protocol):
     """One transaction boundary for inventory, evidence, and agent mutation outcomes.
 
-    Transactions serialize competing writes and bind the repositories to the same
-    unit of work. Exceptions roll back the unit; savepoints allow a rejected domain
-    operation to roll back while its failure outcome is retained.
+    Transactions protect read-dependent writes and bind repositories to one unit
+    of work. Exceptions roll back the entire unit. Concurrent conflicts may ask
+    the caller to retry; only successful single-part effects need atomic receipts.
     """
 
     storage_id: str
+    @property
+    def in_transaction(self) -> bool: ...
+
     inventory: InventoryRepository
     approvals: ApprovalRepository
     operations: OperationRepository
     executions: ExecutionRepository
 
     def transaction(self) -> AbstractContextManager["PartsBinRepository"]: ...
-    def savepoint(self) -> AbstractContextManager[Savepoint]: ...

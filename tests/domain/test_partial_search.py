@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import (AddPartRequest, CheckInventoryRequest, InventoryCheckItem, PartFields,
                     PartsBinService, SearchPartsRequest)
 from tests.domain.test_specifications import fact, requirement
@@ -31,7 +31,7 @@ def accept(service, part, power, tolerance=None):
     ('inductor', '10 µH', '8.2u', '22u'),
 ])
 async def test_nearby_nominal_values_are_explicit_bounded_and_do_not_fill_a_bom(tmp_path, category, requested, close, far):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     farther = add(service, far, category=category)
     nearer = add(service, close, category=category)
     add(service, close, package='0805', category=category)
@@ -61,7 +61,7 @@ async def test_nearby_nominal_values_are_explicit_bounded_and_do_not_fill_a_bom(
 
 
 async def test_electrical_and_nominal_partial_matches_rank_and_report_all_misses_after_restart(tmp_path):
-    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
+    repository = TestRepository(tmp_path / 'parts.db')
     service = PartsBinService(repository)
     perfect = add(service)
     perfect_facts = accept(service, perfect, '0.5 W', '1 %')
@@ -77,7 +77,7 @@ async def test_electrical_and_nominal_partial_matches_rank_and_report_all_misses
     mixed = add(service)
     accept(service, mixed, '450 mW')
     before = deepcopy(service.list())
-    restarted = PartsBinService(SQLitePartsBinRepository(repository.database))
+    restarted = PartsBinService(TestRepository(repository.isolation_key))
     queries = [requirement(perfect_facts[0], '0.5 W', 'gte'), requirement(perfect_facts[1], '1 %', 'lte')]
     args = {'filters': {'part_category': 'resistor', 'value': '10k', 'package': '0603'},
             'requirements': queries, 'minimum_quantity': 1, 'limit': 2}
@@ -108,7 +108,7 @@ async def test_electrical_and_nominal_partial_matches_rank_and_report_all_misses
 
 
 def test_unqualified_and_asserted_facts_do_not_become_known_failures(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     part = add(service)
     proposed = fact('rated_power', '0.1 W', 'rated', number=part.part_number,
                     conditions={'ambient_temperature': '25 °C'})
@@ -125,7 +125,7 @@ def test_unqualified_and_asserted_facts_do_not_become_known_failures(tmp_path):
 
 
 def test_nearby_search_requires_a_dimension_and_preserves_exact_si_units(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     exact = add(service, '10k')
     nearer = add(service, '9.9k')
     tiny = add(service, '0.01r')
@@ -148,7 +148,7 @@ def test_nominal_ranking_preserves_case_sensitive_units_and_decimal_precision():
 
 
 def test_categorical_difference_is_explicit_and_retains_actual_source_fact(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     part = add(service, '100n', category='capacitor')
     actual = fact('dielectric', 'X5R', 'nominal', number=part.part_number)
     service.stage_specifications(part, [actual])

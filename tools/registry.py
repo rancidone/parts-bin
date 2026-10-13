@@ -221,10 +221,10 @@ class PartsBinToolRegistry:
         if name == "add_stock":
             return _compact_part(self.service.add_stock(AddStockRequest(args["part_id"], args["quantity"])))
         if name == "update_part":
-            return _compact_part(self.service.update_part(UpdatePartRequest(args["part_id"], args["fields"])))
+            return vars(self.service.update_part(UpdatePartRequest(args["part_id"], args["fields"])))
         if name == "bulk_update_parts":
-            rows = self.service.bulk_update(BulkUpdateRequest(tuple(args["part_ids"]), args["fields"]))
-            return {"parts": [_compact_part(row) for row in rows]}
+            result = self.service.bulk_update(BulkUpdateRequest(tuple(args["part_ids"]), args["fields"]))
+            return {**result, "parts": [_compact_part(row) for row in result["parts"]]}
         if name == "delete_part":
             self.service.delete_part(DeletePartRequest(args["part_id"]))
             return {"part_id": args["part_id"], "deleted": True}
@@ -370,7 +370,7 @@ _TOOL_DEFINITIONS = [
     _tool("add_part", "Add one distinct part. Unnumbered stock outside resistor/capacitor/inductor categories always creates a separate record; shared descriptions and packages do not establish identity. Use an explicit add_stock part_id for more of an existing physical group; never invent an ordering code to force merging. Set enrich=false for assortment/kit contents, generic stock, or when the user requests no manufacturer lookup. Omitted or true uses automatic enrichment for eligible discrete/IC parts; passive parts skip automatic lookup. Skipping preserves supplied fields and allows an explicit lookup_part_specs request later.", {**_FIELDS, "enrich": {"type": "boolean"}}, required=["part_category", "profile", "quantity"]),
     _tool("add_stock", "Add positive stock to one part.", {"part_id": {"type": "integer", "minimum": 1}, "quantity": {"type": "integer", "minimum": 1}}, required=["part_id", "quantity"]),
     _tool("update_part", "Update explicit fields on one part.", {"part_id": {"type": "integer", "minimum": 1}, "fields": _fields_schema(min_properties=1)}, required=["part_id", "fields"]),
-    _tool("bulk_update_parts", "Update explicit fields on an explicit part selection.", {"part_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}}, "fields": _fields_schema(min_properties=1)}, required=["part_ids", "fields"]),
+    _tool("bulk_update_parts", "Edit selected parts independently. Returns successful parts and per-part errors; a batch can partially succeed.", {"part_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}}, "fields": _fields_schema(min_properties=1)}, required=["part_ids", "fields"]),
     _tool("delete_part", "Delete one identified part.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
     _tool("lookup_part_specs", "Fetch and stage supplier specifications for review.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
     _tool("list_pending_reviews", "List pending base-metadata proposals, not committed fields or electrical-rating reviews. Each fields entry contains the proposed value and an accepted flag used to select review fields; accepted does not mean the proposal has been applied. Use get_part for committed identity and quantity, and get_specifications for pending electrical facts. Filter by value (equivalent nominal units), exact part_number, or part_id; filters match proposed or committed fields. Pages are ordered by part_id; follow next_offset with unchanged arguments until null. Discovery omits provenance; include_provenance requires a single part_id.", {"part_id": {"type": "integer", "minimum": 1}, "value": {"type": "string", "minLength": 1}, "part_number": {"type": "string", "minLength": 1}, "include_provenance": {"type": "boolean"}, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}),

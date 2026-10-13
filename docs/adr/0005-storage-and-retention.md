@@ -26,5 +26,5 @@ cannot invalidate accepted facts or retry protection. Use existing storage for
 cache records; freshness, cleanup, spending allowances, and backup retention are
 separate concerns. Provider retention is outside application storage policy.
 
-[Cache contract](../../ingestion/cache.py), [local cache](../../db/enrichment_cache.py),
+[Cache contract](../../ingestion/cache.py), [local cache](../../db/postgres/cache.py),
 and [backup procedures](../operations.md#backup-and-recovery).

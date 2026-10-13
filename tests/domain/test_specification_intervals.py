@@ -2,7 +2,7 @@
 
 import pytest
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import DomainError, PartsBinService
 from domain.specifications import contract, validate_facts, validate_requirements
 from tests.domain.test_specifications import fact, requirement, search, setup
@@ -22,7 +22,7 @@ def test_requested_operating_interval_checks_both_endpoints_after_review_restart
              requirement(facts[1], '4.5 to 5.5 V', 'gte')]
     service.stage_specifications(part, facts)
     assert search(service, category, query)['incomplete_count'] == 1
-    restarted = PartsBinService(SQLitePartsBinRepository(repository.database))
+    restarted = PartsBinService(TestRepository(repository.isolation_key))
     restarted.apply_specification_review(part.id)
     result = search(restarted, category, query)
     assert result['match_count'] == 1

@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from db.enrichment_cache import SQLiteEnrichmentCache
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestCache
+from tests.storage import TestRepository
 from domain import AddPartRequest, GetPartRequest, PartFields, PartsBinService
 from ingestion import supplied_source as source
 from ingestion.datasheet import DatasheetFetcher
@@ -52,8 +52,8 @@ async def extract(raw, category='resistor', document=DOCUMENT):
 
 
 async def test_four_resistors_confirm_only_after_source_review_and_approval(tmp_path):
-    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
-    adapter = DatasheetFetcher(api_key='fake', model='test', cache=SQLiteEnrichmentCache(tmp_path / 'cache.db'))
+    repository = TestRepository(tmp_path / 'parts.db')
+    adapter = DatasheetFetcher(api_key='fake', model='test', cache=TestCache(tmp_path / 'cache.db'))
     service = PartsBinService(repository, datasheet_fetcher=adapter)
     part = service.add_part(AddPartRequest(PartFields('resistor', 'passive', 4, value='10k',
                                                   part_number=NUMBER, manufacturer='Vishay')))
@@ -77,7 +77,7 @@ async def test_four_resistors_confirm_only_after_source_review_and_approval(tmp_
     args = {'part_id': part.id}
     assert (await registry.execute('apply_specification_review', args))['error']['code'] == 'approval_required'
     # Staged evidence survives restart and disposable-cache loss.
-    restarted = PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db')),
+    restarted = PartsBinToolRegistry(PartsBinService(TestRepository(tmp_path / 'parts.db')),
                                     approval_checker=lambda *_: True)
     accepted = await restarted.execute('apply_specification_review', args,
         context=ToolExecutionContext(ApprovalReceipt.issue('apply_specification_review', args)))
@@ -276,7 +276,7 @@ async def test_saved_datasheet_extracts_common_ratings_without_requiring_invento
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         result = await source.extract(document, 'MMBT2907', 'onsemi', category='bjt', linked_part=True,
                                       api_key='fake', model='test', client=client)
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     part = service.add_part(AddPartRequest(PartFields('bjt', 'discrete_ic', 4, part_number='MMBT2907',
                                                     datasheet_url=document.url)))
     service.stage_specifications(part, result['facts'])
@@ -340,7 +340,7 @@ async def test_saved_link_does_not_convert_evidenced_mismatch_into_facts():
 
 
 async def test_saved_association_does_not_reuse_independent_identity_cache(tmp_path):
-    cache = SQLiteEnrichmentCache(tmp_path / 'cache.db')
+    cache = TestCache(tmp_path / 'cache.db')
     result = {'outcome': 'needs_clarification', 'clarification': 'Which variant?', 'fields': {}, 'facts': [],
               'source': {'url': URL, 'sha256': DOCUMENT.sha256, 'retrieved_at': DOCUMENT.retrieved_at}}
     with patch.object(source, 'retrieve_pdf', AsyncMock(return_value=DOCUMENT)), \
@@ -387,7 +387,7 @@ async def test_standalone_device_title_keeps_bjt_facts_for_review(tmp_path):
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         result = await source.extract(document, 'BC517', None, category='bjt',
                                       api_key='fake', model='test', client=client)
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     part = service.add_part(AddPartRequest(PartFields('bjt', 'discrete_ic', 4, part_number='BC517')))
     service.stage_specifications(part, result['facts'])
     review = service.get_specifications(part.id)
@@ -397,7 +397,7 @@ async def test_standalone_device_title_keeps_bjt_facts_for_review(tmp_path):
 
 
 async def test_cache_separates_metadata_and_category_contracts(tmp_path):
-    cache = SQLiteEnrichmentCache(tmp_path / 'cache.db')
+    cache = TestCache(tmp_path / 'cache.db')
     with patch.object(source, 'retrieve_pdf', AsyncMock(return_value=DOCUMENT)) as retrieve, \
             patch.object(source, 'extract', AsyncMock(return_value=await extract(candidate()))) as model:
         await source.enrich(NUMBER, 'Vishay', URL, api_key='fake', model='test', cache=cache, category='resistor')
@@ -412,7 +412,7 @@ async def test_unsupported_category_is_rejected_before_retrieval(tmp_path):
     with patch.object(source, 'retrieve_pdf', AsyncMock()) as retrieve:
         with pytest.raises(source.EnrichmentError, match='category'):
             await source.enrich(NUMBER, 'Vishay', URL, api_key='fake', model='test',
-                cache=SQLiteEnrichmentCache(tmp_path / 'cache.db'), category='audio amplifier')
+                cache=TestCache(tmp_path / 'cache.db'), category='audio amplifier')
     retrieve.assert_not_awaited()
 
 
@@ -438,10 +438,10 @@ async def test_opamp_extraction_review_keeps_operating_stress_and_typical_facts_
     assert set(result['extraction_assessment']['missing_fields']) == {
         'input_offset_voltage', 'input_bias_current', 'gain_bandwidth_product', 'quiescent_current'}
     assert result['extraction_assessment']['incomplete_fields'] == {}
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     part = service.add_part(AddPartRequest(PartFields('op_amp', 'discrete_ic', 4, part_number=NUMBER)))
     service.stage_specifications(part, result['facts'])
-    restarted = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    restarted = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     restarted.apply_specification_review(part.id)
     assert restarted.get_specifications(part.id)['facts'] == result['facts']
     stored = restarted.get(GetPartRequest(part.id))
@@ -474,7 +474,7 @@ async def test_multiple_source_passages_survive_validation_and_review(tmp_path):
     evidence = result['facts'][0]['evidence']
     assert evidence['excerpt'] == PASSAGE
     assert evidence['supporting_passages'] == [{'page': 2, 'excerpt': document.pages[1]}]
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     part = service.add_part(AddPartRequest(PartFields('resistor', 'passive', 4, value='10k', part_number=NUMBER)))
     service.stage_specifications(part, result['facts'])
     service.apply_specification_review(part.id)

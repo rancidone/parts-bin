@@ -24,3 +24,20 @@ class ConversationRepository(Protocol):
     def append(self, event: ConversationEvent) -> ConversationEvent: ...
     def append_once(self, event: ConversationEvent, event_id: str) -> ConversationEvent: ...
     def events(self, thread_id: str) -> list[ConversationEvent]: ...
+
+
+import json
+
+def conversation_title(rows) -> str:
+    fallback = "Empty conversation"
+    for preferred_kind in ("user_message", "assistant_text"):
+        for row in rows:
+            if row["kind"] != preferred_kind:
+                continue
+            data = json.loads(row["data_json"])
+            text = " ".join(str(data.get("text", "")).split())
+            if text:
+                return text[:61] + "…" if len(text) > 62 else text
+            if preferred_kind == "user_message" and data.get("image"):
+                fallback = "Photo request"
+    return fallback

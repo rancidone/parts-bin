@@ -15,7 +15,7 @@ from uuid import uuid4
 import httpx
 
 from agent_runtime import ApprovalEngine
-from db.repository import SQLitePartsBinRepository
+from db.postgres.disposable import isolated_repository
 from domain import AddPartRequest, DomainError, GetPartRequest, PartFields, PartsBinService, SearchPartsRequest
 from ingestion import supplied_source as source
 from tools import PartsBinToolRegistry
@@ -40,7 +40,7 @@ def load_cases(case_ids: list[str] | None = None) -> list[dict]:
 
 async def exercise_review(database: Path, case: dict, candidate: dict) -> dict:
     """Exercise approval mechanics in isolated seeded stock, not certify semantics."""
-    service = PartsBinService(SQLitePartsBinRepository(database))
+    service = PartsBinService(isolated_repository(database))
     part = service.list()[0]
     facts = candidate['facts']
     before = service.get_specifications(part.id)
@@ -52,7 +52,7 @@ async def exercise_review(database: Path, case: dict, candidate: dict) -> dict:
     request = engine.request('electrical-evaluation', 'apply_specification_review',
                              {'part_id': part.id}, service=service)
     # Reconstruct repositories while awaiting approval, as a worker replacement would.
-    restarted = PartsBinService(SQLitePartsBinRepository(database))
+    restarted = PartsBinService(isolated_repository(database))
     engine = ApprovalEngine(restarted.repository)
     approved = engine.decide(request.thread_id, request.request_id, True)
     accepted = await engine.execute(approved, PartsBinToolRegistry(restarted))
@@ -114,7 +114,7 @@ async def run_electrical(workspace: Path, *, api_key: str, model: str,
     save()
     for case in cases:
         database = run_dir / f"{case['id']}.db"
-        service = PartsBinService(SQLitePartsBinRepository(database))
+        service = PartsBinService(isolated_repository(database))
         part = service.add_part(AddPartRequest(PartFields(case['category'],
             'passive' if case['category'] in {'resistor', 'capacitor', 'inductor'} else 'discrete_ic',
             case['quantity'], value=case['value'], part_number=case['part_number'], manufacturer=case['manufacturer'],
@@ -215,4 +215,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    from db.postgres.disposable import cleanup
+    try:
+        main()
+    finally:
+        cleanup()

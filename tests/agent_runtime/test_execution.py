@@ -134,7 +134,7 @@ async def test_interrupted_explicit_lookup_is_not_automatically_repeated(tmp_pat
 
 
 async def test_operation_ledger_failure_rolls_back_stock(tmp_path, monkeypatch):
-    from db.execution import SQLiteOperationRepository
+    from db.postgres.execution import PostgresOperationRepository
 
     runtime, _, _ = build_runtime(tmp_path, [])
     await runtime.registry.execute("add_part", {"part_category": "resistor", "profile": "passive", "quantity": 1, "value": "10k"})
@@ -142,7 +142,7 @@ async def test_operation_ledger_failure_rolls_back_stock(tmp_path, monkeypatch):
     def fail(_repository, _operation):
         raise RuntimeError("ledger unavailable")
 
-    monkeypatch.setattr(SQLiteOperationRepository, "insert", fail)
+    monkeypatch.setattr(PostgresOperationRepository, "insert", fail)
     with pytest.raises(RuntimeError, match="ledger unavailable"):
         await runtime.registry.execute("add_stock", {"part_id": 1, "quantity": 2},
                                        context=ToolExecutionContext(operation_id="stock"))
@@ -151,7 +151,7 @@ async def test_operation_ledger_failure_rolls_back_stock(tmp_path, monkeypatch):
 
 
 async def test_expired_worker_is_fenced_and_replacement_can_claim(tmp_path, monkeypatch):
-    from db import execution
+    from db.postgres import execution
 
     runtime, _, _ = build_runtime(tmp_path, [])
     repo = runtime.registry.service.repository

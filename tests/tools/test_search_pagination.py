@@ -1,14 +1,14 @@
 """Evaluate complete, bounded lookup through the canonical agent tool contract."""
 import pytest
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import AddPartRequest, DomainError, PartFields, PartsBinService, SearchPartsRequest
 from tools import PartsBinToolRegistry
 
 
 @pytest.fixture
 def service(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     # Reverse ordering codes ensure pages follow IDs rather than lexical fields;
     # nominal identity and quantities remain separate for distinct records.
     for i in range(7):
@@ -117,7 +117,7 @@ def test_domain_page_limit_validation(service, limit):
 
 async def test_agent_can_follow_pages_without_inventory_in_initial_prompt(service, tmp_path):
     from agent_runtime import ApprovalEngine, ModelTurn, OpenAIResponsesRuntime, ToolCall
-    from db.conversations import SQLiteConversationRepository
+    from tests.storage import TestConversations
 
     class Transport:
         def __init__(self):
@@ -138,7 +138,7 @@ async def test_agent_can_follow_pages_without_inventory_in_initial_prompt(servic
 
     transport = Transport()
     runtime = OpenAIResponsesRuntime(transport, registry=PartsBinToolRegistry(service),
-        store=SQLiteConversationRepository(tmp_path / 'conversations.db'), approvals=ApprovalEngine(service.repository))
+        store=TestConversations(tmp_path / 'conversations.db'), approvals=ApprovalEngine(service.repository))
     result = await runtime.run('pages', 'List all resistors')
     assert result.status == 'completed'
     pages = [event.data['result']['result'] for event in result.events if event.kind == 'tool_result']

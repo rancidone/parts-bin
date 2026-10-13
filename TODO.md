@@ -77,21 +77,20 @@ Before starting this experiment, resolve the cloud constraints listed below.
 
 - Resolve budget, intended access, region, acceptable downtime, maximum data loss,
   and recovery time before dependent infrastructure choices.
-- Use repository-injected scenarios plus adapter-specific atomicity, concurrency,
-  and recovery checks to evaluate persistence candidates. Rehearse migration on
-  a copy, preserving identities, evidence, ordering, and retry protection.
+- Provision the operator-owned DSQL cluster and run the shared search, mutation,
+  approval, lease and replay scenarios live. Verify IAM login, TLS, DDL, conflicts,
+  transaction limits and cleanup; PostgreSQL tests cannot establish DSQL behavior.
+- Design a limit-aware PostgreSQL-to-DSQL copy and recovery procedure preserving
+  IDs, evidence, history, receipts and checkpoints. Rehearse on a copy and account
+  for concurrent writes and DSQL transaction limits.
 - Compare total idle and realistic usage costs for the candidate stacks from the
   durable ingestion experiment, including paid AI/retrieval stages and retries;
   justify each service against the smallest suitable stack.
-- Implement selected cloud storage adapters against the inventory/approval
-  unit-of-work and conversation repository contracts. Exercise the same domain,
-  atomicity, retry, and recovery scenarios on local and cloud storage; migrate a
-  copy and verify inventory, evidence, and history.
 - Build reproducible AWS serverless infrastructure with Terraform, preserving
   local operation. Provide HTTPS, authentication, secure configuration, release
   automation, monitoring, and tested backup/restore.
 - Demonstrate fresh-account deployment, upgrade/rollback, recovery, performance,
   and teardown. Record reusable procedures, not permanent pass/fail claims.
 
-See [cloud hosting decisions](docs/adr/0008-deferred-aws-direction.md). These tasks do not
-select a database, model, or AWS service by implication.
+See [persistence decisions](docs/adr/0029-postgresql-and-dsql.md) and
+[cloud hosting constraints](docs/adr/0008-deferred-aws-direction.md).

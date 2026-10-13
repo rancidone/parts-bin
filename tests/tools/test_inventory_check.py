@@ -1,13 +1,13 @@
 import pytest
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import AddPartRequest, PartFields, PartsBinService
 from tools import PartsBinToolRegistry
 
 
 @pytest.fixture
 def registry(tmp_path):
-    return PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db')))
+    return PartsBinToolRegistry(PartsBinService(TestRepository(tmp_path / 'parts.db')))
 
 
 def add(registry, number, quantity, *, package=None, value=None, category='IC'):

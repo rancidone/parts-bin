@@ -13,8 +13,8 @@ import httpx
 import pytest
 
 from agent_runtime import ModelTurn
-from db.conversations import SQLiteConversationRepository
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestConversations
+from tests.storage import TestRepository
 from domain import PartsBinService
 from application import create_services
 
@@ -27,8 +27,8 @@ import asyncio
 import os
 from agent_runtime import ModelTurn, ToolCall
 from application import create_services
-from db.conversations import SQLiteConversationRepository
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestConversations
+from tests.storage import TestRepository
 from server import create_app
 
 class Transport:
@@ -42,8 +42,8 @@ class Transport:
 
 def factory():
     database = os.environ['SHUTDOWN_TEST_DATABASE']
-    return create_app(create_services(SQLitePartsBinRepository(database),
-        SQLiteConversationRepository(database), transport_factory=Transport))
+    return create_app(create_services(TestRepository(database),
+        TestConversations(database), transport_factory=Transport))
 ''')
     # Reserve a port briefly; all data and requests are disposable test fixtures.
     with socket.socket() as reservation:
@@ -87,9 +87,9 @@ def factory():
                 await asyncio.to_thread(process.wait, timeout=5)
             # Uvicorn restores and re-raises the signal after completing shutdown.
             assert process.returncode in (0, -signal.SIGTERM)
-            store = SQLiteConversationRepository(database)
+            store = TestConversations(database)
             execution = store.events(thread)[0].data['execution_id']
-            repository = SQLitePartsBinRepository(database)
+            repository = TestRepository(database)
             assert PartsBinService(repository).list()[0].quantity == 3
             if forced:
                 # Cancellation must free ownership immediately, before the 5-minute lease expires.

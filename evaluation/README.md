@@ -1,3 +1,7 @@
+> PostgreSQL exercises require `PARTS_BIN_TEST_POSTGRES_DSN` pointing at a dedicated
+> disposable database and a unique `PARTS_BIN_TEST_NAMESPACE` per run. Use a test
+> login with schema creation privileges. Never use production credentials or data.
+
 # Parts Bin agent evaluations
 
 Use recorded scenarios to check orchestration reproducibly. Inspect
@@ -21,7 +25,7 @@ Custom runtime factories receive the inventory repository, conversation reposito
 and recorded turns; use those injected stores for all state. The runner seeds and
 checks through the same repository contracts. Python callers can supply a
 `storage_factory` to `run_scenario` or `run_recorded` for isolated adapter testing.
-The default factory allocates a fresh SQLite pair per scenario. Custom storage
+The default factory allocates a fresh isolated PostgreSQL schema per scenario. Custom storage
 factories must supply isolated disposable stores; seeding writes fixture inventory.
 Consult the callable contracts in [runner.py](runner.py) before updating a live
 factory. Do not reconstruct a store from a local filename inside a runtime factory.
@@ -75,7 +79,8 @@ configuration or production inventory. It runs all lookup cases by default;
 `--scenario SCENARIO_ID` selects cases. Each case makes at most eight model
 requests. Provider failures stop the run without retry; rerunning is an explicit
 paid action. Each run gets a new directory, with the report updated after each
-case and disposable inventory/conversation databases retained for inspection.
+case. Disposable PostgreSQL schemas are removed when the CLI exits; JSON reports
+remain available for inspection.
 
 The report contains returned model snapshots, per-call usage and latency, visible
 events, recorded-contract failures, and whether stock, metadata/electrical reviews,
@@ -324,7 +329,7 @@ search behavior separately from live manufacturer extraction quality.
 
 ## Offline inventory scale measurements
 
-Measure the SQLite read path without provider requests or production data:
+Measure the PostgreSQL read path without provider requests or production data:
 
 ```sh
 uv run python -m evaluation.inventory_scale \
@@ -332,7 +337,7 @@ uv run python -m evaluation.inventory_scale \
   --output /private/tmp/parts-bin-inventory-scale.json
 ```
 
-The command creates and removes disposable databases. It never loads application
+The command creates and removes isolated PostgreSQL schemas. It never loads application
 configuration. The synthetic one-category stress case includes accepted source
 fixtures, pending reviews, absent facts, and partial matches with known failing constraints; its
 passages are not manufacturer evidence. Workloads cover exact and nominal

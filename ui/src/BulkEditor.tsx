@@ -29,6 +29,7 @@ export function BulkEditor({ parts, onSaved, onClose }: { parts: Part[]; onSaved
   const [review, setReview] = useState<Review | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [outcome, setOutcome] = useState<{ saved: number; errors: { part_id: number; message: string }[] } | null>(null)
   useEffect(() => { dialog.current?.showModal() }, [])
 
   async function preview() {
@@ -46,7 +47,11 @@ export function BulkEditor({ parts, onSaved, onClose }: { parts: Part[]; onSaved
     setError('')
     try {
       const result = await post('/inventory/bulk/decide', { request_id: review.request_id, approved })
-      if (approved) onSaved(result.parts)
+      if (approved) {
+        onSaved(result.parts)
+        if (result.errors.length) setOutcome({ saved: result.parts.length, errors: result.errors })
+        else onClose()
+      }
       else if (close) onClose()
       else setReview(null)
     } catch (e) {
@@ -55,11 +60,16 @@ export function BulkEditor({ parts, onSaved, onClose }: { parts: Part[]; onSaved
     } finally { setBusy(false) }
   }
 
-  return <dialog ref={dialog} className={styles.dialog} aria-labelledby="bulk-title" onCancel={event => { event.preventDefault(); if (!busy) void decide(false, true) }}>
+  return <dialog ref={dialog} className={styles.dialog} aria-labelledby="bulk-title" onCancel={event => { event.preventDefault(); if (!busy) { if (outcome) onClose(); else void decide(false, true) } }}>
     <h2 id="bulk-title">Edit {parts.length} selected parts</h2>
     {error && <p role="alert">{error}</p>}
-    {review ? <>
-      <p>Review all changes before approving. Blank values clear a field. Quantity is the new count for each part.</p>
+    {outcome ? <>
+      <p>{outcome.saved} parts saved. Other parts were left unchanged:</p>
+      <ul>{outcome.errors.map(item => <li key={item.part_id}>#{item.part_id}: {item.message}</li>)}</ul>
+      <p>Review the remaining selected parts again before editing them.</p>
+      <button onClick={onClose}>Done</button>
+    </> : review ? <>
+      <p>Review all changes before approving. Each part saves independently; some edits may succeed while others fail. Blank values clear a field. Quantity is the new count for each part.</p>
       {review.cleared_reviews.length > 0 && <p>Saving will dismiss pending metadata reviews for {review.cleared_reviews.length} selected parts.</p>}
       <div className={styles.review}>{review.changes.map(({ before, after }) => <section key={before.id}>
         <h3>#{before.id} · {before.part_number ?? before.value ?? before.part_category}</h3>

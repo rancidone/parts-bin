@@ -19,7 +19,7 @@ test('bulk selection includes hidden rows and applies only checked fields after 
     if (path === '/inventory/bulk/decide') {
       writes.push(route.request().postDataJSON())
       current = current.map(part => ({ ...part, package: '0603', description: null }))
-      return route.fulfill({ json: { approved: true, parts: current } })
+      return route.fulfill({ json: { approved: true, parts: current, errors: [] } })
     }
     return route.fulfill({ json: path === '/inventory/pending' ? { reviews: {} } : current })
   })
@@ -82,4 +82,36 @@ test('bulk cancel never writes and stale approval returns to editing for a fresh
   await expect(dialog.getByRole('button', { name: 'Approve changes' })).toBeVisible()
   expect(previews).toBe(2)
   await expect(page.getByText('Qty: 3', { exact: true })).toBeVisible()
+})
+
+
+test('partial bulk save reports failures and retains failed selection', async ({ context, page }) => {
+  let current = parts.map(part => ({ ...part }))
+  await context.route('**/inventory**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (path === '/inventory/bulk/preview') return route.fulfill({ json: {
+      request_id: 'partial', changes: current.map(before => ({ before, after: { ...before, package: '0603' } })), cleared_reviews: [],
+    } })
+    if (path === '/inventory/bulk/decide') {
+      current = [{ ...current[0], package: '0603' }, current[1]]
+      return route.fulfill({ json: { approved: true, parts: [current[0]], errors: [
+        { part_id: 2, code: 'conflict', message: 'Target changed; request a fresh approval', details: {} },
+      ] } })
+    }
+    return route.fulfill({ json: path === '/inventory/pending' ? { reviews: {} } : current })
+  })
+  await page.goto('/#/inventory')
+  await page.getByRole('checkbox', { name: 'Select visible parts' }).check()
+  await page.getByRole('button', { name: 'Edit selected' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Change Package', { exact: true }).check()
+  await dialog.getByLabel('Package', { exact: true }).fill('0603')
+  await dialog.getByRole('button', { name: 'Review changes' }).click()
+  await expect(dialog.getByText(/Each part saves independently/)).toBeVisible()
+  await dialog.getByRole('button', { name: 'Approve changes' }).click()
+  await expect(dialog.getByText('1 parts saved. Other parts were left unchanged:')).toBeVisible()
+  await expect(dialog.getByText('#2: Target changed; request a fresh approval')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByRole('checkbox', { name: 'Select part #1', exact: true })).not.toBeChecked()
+  await expect(page.getByRole('checkbox', { name: 'Select part #2', exact: true })).toBeChecked()
 })

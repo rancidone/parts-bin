@@ -2,8 +2,8 @@
 
 import pytest
 from agent_runtime import ConversationEvent
-from db.repository import SQLitePartsBinRepository
-from db.conversations import SQLiteConversationRepository
+from tests.storage import TestRepository
+from tests.storage import TestConversations
 from starlette.testclient import TestClient
 from starlette.requests import Request
 from application import ApplicationServices, create_services
@@ -13,8 +13,8 @@ import server
 @pytest.fixture
 def client(tmp_path):
     db_path = tmp_path / "parts.db"
-    store = SQLiteConversationRepository(db_path)
-    repository = SQLitePartsBinRepository(db_path)
+    store = TestConversations(db_path)
+    repository = TestRepository(db_path)
 
     def unavailable():
         raise RuntimeError("OpenAI is not configured")
@@ -38,15 +38,15 @@ def test_agent_thread_uses_openai_without_a_picker(client):
 
 
 def test_agent_threads_lists_stored_conversations_without_starting_a_provider(client):
-    import sqlite3
+    from tests.storage import connection, historical_thread
     http, path = client
     thread_id = http.post("/agent/threads").json()["thread_id"]
     store = http.app.state.services.gateway.store
     store.append(ConversationEvent("user_message", thread_id, "openai", {"text": "Find my op amps"}))
-    with sqlite3.connect(path) as conn:
-        conn.execute("INSERT INTO agent_threads(thread_id, runtime) VALUES (?, ?)", ("old-thread", "local"))
+    with connection(path) as conn:
+        historical_thread(path, "old-thread", "local")
         conn.execute("""INSERT INTO agent_events(thread_id, sequence, kind, runtime, data_json)
-                        VALUES (?, ?, ?, ?, ?)""",
+                        VALUES (%s, %s, %s, %s, %s)""",
                      ("old-thread", 1, "assistant_text", "local", '{"text":"Preserved local history"}'))
 
     response = http.get("/agent/threads")
@@ -70,10 +70,10 @@ def test_catalog_endpoints_are_removed(client):
 
 @pytest.mark.parametrize("runtime", ["codex", "local"])
 def test_historical_conversations_are_readable_but_cannot_continue(client, runtime):
-    import sqlite3
-    with sqlite3.connect(client[1]) as conn:
-        conn.execute("INSERT INTO agent_threads VALUES (?, ?)", ("old-thread", runtime))
-        conn.execute("INSERT INTO agent_events VALUES (?, ?, ?, ?, ?)",
+    from tests.storage import connection, historical_thread
+    with connection(client[1]) as conn:
+        historical_thread(client[1], "old-thread", runtime)
+        conn.execute("INSERT INTO agent_events VALUES (%s, %s, %s, %s, %s)",
                      ("old-thread", 1, "assistant_text", runtime, '{"text":"preserved history"}'))
     assert "preserved history" in client[0].get("/agent/threads/old-thread/events").text
     assert client[0].post("/agent/threads/old-thread/messages", data={"message": "continue"}).status_code == 409
@@ -163,8 +163,8 @@ async def test_message_endpoint_returns_sse_before_turn_finishes(tmp_path):
             finally:
                 stopped.set()
 
-    store = SQLiteConversationRepository(tmp_path / "conversation.db")
-    repository = SQLitePartsBinRepository(tmp_path / "parts.db")
+    store = TestConversations(tmp_path / "conversation.db")
+    repository = TestRepository(tmp_path / "parts.db")
     services = create_services(repository, store, transport_factory=PausedTransport)
     gateway = services.gateway
     app = server.create_app(services)
@@ -457,8 +457,8 @@ def test_bulk_review_is_read_only_then_applies_once(client):
     assert service.list() == saved
 
 
-def test_bulk_decline_and_changed_stock_never_apply(client):
-    from domain import AdjustStockRequest
+def test_bulk_decline_is_final_and_changed_stock_only_blocks_its_part(client):
+    from domain import AdjustStockRequest, GetPartRequest
     http, _ = client
     parts = bulk_parts(http)
     service = http.app.state.services.domain
@@ -472,11 +472,13 @@ def test_bulk_decline_and_changed_stock_never_apply(client):
     service.adjust_stock(AdjustStockRequest(parts[1].id, 1))
     changed = service.list()
     response = http.post('/inventory/bulk/decide', json={'request_id': review['request_id'], 'approved': True})
-    assert response.status_code == 409
-    assert service.list() == changed
+    assert response.status_code == 200
+    assert response.json()['errors'][0]['part_id'] == parts[1].id
+    assert service.get(GetPartRequest(parts[0].id)).quantity == 12
+    assert service.get(GetPartRequest(parts[1].id)).quantity == changed[1].quantity
 
 
-@pytest.mark.parametrize('fields', [{'quantity': -1}, {'id': 9}, {'value': '47k'}, {}])
+@pytest.mark.parametrize('fields', [{'quantity': -1}, {'id': 9}, {}])
 def test_bulk_invalid_batch_has_no_partial_writes(client, fields):
     http, _ = client
     parts = bulk_parts(http)

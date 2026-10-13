@@ -1,7 +1,7 @@
 """Candidate discovery preserves committed identity and is read-only."""
 import pytest
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import (
     AddPartRequest, DomainError, PartFields, PartsBinService,
     SearchCandidatesRequest, SearchPartsRequest,
@@ -11,7 +11,7 @@ from tools import PartsBinToolRegistry
 
 @pytest.fixture
 def stock(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     def add(number, **fields):
         return service.add_part(AddPartRequest(PartFields(
             part_category='transistor', profile='discrete_ic', quantity=fields.pop('quantity', 4),

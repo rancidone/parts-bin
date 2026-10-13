@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from agent_runtime.approval import ApprovalEngine
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import AddPartRequest, AddStockRequest, DomainError, GetPartRequest, PartFields, PartsBinService, SearchPartsRequest, UpdatePartRequest
 from domain.specifications import SPECIFICATIONS, SpecificationDefinition, contract, validate_facts
 from domain.repositories import RepositoryConflict
@@ -40,7 +40,7 @@ def requirement(proposed, value=None, comparison='gte'):
 
 
 def setup(tmp_path, category='resistor', number='TEST-EXACT', quantity=4):
-    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
+    repository = TestRepository(tmp_path / 'parts.db')
     service = PartsBinService(repository)
     part = service.add_part(AddPartRequest(PartFields(category, 'discrete_ic', quantity,
                                                      part_number=number, package='TEST-PACKAGE')))
@@ -70,7 +70,7 @@ def test_each_initial_category_review_and_inclusive_search(tmp_path, category, n
     assert pending['incomplete'][0]['missing_or_unqualified'] == [name]
     assert service.get(GetPartRequest(part.id)) == part
     # Pending review and source passages survive adapter reconstruction.
-    restarted = PartsBinService(SQLitePartsBinRepository(repository.database))
+    restarted = PartsBinService(TestRepository(repository.isolation_key))
     restarted.apply_specification_review(part.id)
     found = search(restarted, category, query)
     assert found['match_count'] == 1 and found['incomplete_count'] == 0
@@ -133,7 +133,7 @@ def test_opamp_operating_range_review_restart_and_missing_facts(tmp_path):
     query = [requirement(proposed[0], '5 V', 'lte'), requirement(proposed[1], '5 V', 'gte')]
     service.stage_specifications(part, proposed)
     assert search(service, 'opamps', query)['incomplete_count'] == 1
-    restarted = PartsBinService(SQLitePartsBinRepository(repository.database))
+    restarted = PartsBinService(TestRepository(repository.isolation_key))
     restarted.apply_specification_review(part.id)
     assert search(restarted, 'operational amplifier', query)['match_count'] == 1
     assert search(restarted, 'op amp', [requirement(proposed[1], '38 V')])['match_count'] == 0
@@ -284,14 +284,15 @@ async def test_approval_restart_duplicate_and_transaction_failure(tmp_path):
     service.stage_specifications(part, [fact()])
     engine = ApprovalEngine(repository)
     request = engine.request('chat', 'apply_specification_review', {'part_id': part.id}, service=service)
-    restarted = ApprovalEngine(SQLitePartsBinRepository(repository.database))
+    restarted = ApprovalEngine(TestRepository(repository.isolation_key))
     approved = restarted.decide('chat', request.request_id, True)
     registry = PartsBinToolRegistry(service)
-    from db.specifications import apply
-    def failed(database, part_id):
-        apply(database, part_id)
+    from db.postgres.inventory import PostgresInventoryRepository
+    apply = PostgresInventoryRepository.apply_specification_review
+    def failed(self, part_id):
+        apply(self, part_id)
         raise RepositoryConflict('Simulated failure after write')
-    with patch('db.specifications.apply', failed):
+    with patch.object(PostgresInventoryRepository, 'apply_specification_review', failed):
         assert not (await restarted.execute(approved, registry))['ok']
     assert repository.inventory.specifications(part.id) == []
     assert part.id in repository.inventory.specification_reviews()
@@ -320,7 +321,7 @@ def test_new_tables_preserve_existing_data_and_cascade_on_delete(tmp_path):
     repository, service, part = setup(tmp_path)
     service.stage_specifications(part, [fact()])
     service.apply_specification_review(part.id)
-    assert PartsBinService(SQLitePartsBinRepository(repository.database)).get_specifications(part.id)['facts'] == [fact()]
+    assert PartsBinService(TestRepository(repository.isolation_key)).get_specifications(part.id)['facts'] == [fact()]
     assert service.get(GetPartRequest(part.id)).created_at == part.created_at
     from domain import DeletePartRequest
     service.delete_part(DeletePartRequest(part.id))
@@ -339,14 +340,13 @@ def test_combined_resistor_requirements_and_evidence_survive_cache_loss(tmp_path
     query = SearchPartsRequest({'part_category': 'resistor', 'value': '10 kΩ', 'package': 'through-hole'}, 4)
     assert service.search_specifications(query, requirements)['matches'] == []
     service.apply_specification_review(part.id)
-    from db.enrichment_cache import SQLiteEnrichmentCache
-    SQLiteEnrichmentCache(repository.database)  # Disposable cache is independently initialized.
-    from db import persistence
-    conn = persistence._connect(repository.database)
+    from tests.storage import TestCache
+    TestCache(repository.isolation_key)  # Disposable cache is independently initialized.
+    conn = repository.connect()
     with conn:
         conn.execute('DROP TABLE supplied_enrichment_cache')
     conn.close()
-    restored = PartsBinService(SQLitePartsBinRepository(repository.database))
+    restored = PartsBinService(TestRepository(repository.isolation_key))
     result = restored.search_specifications(query, requirements)
     assert result['match_count'] == 1
     assert result['matches'][0]['supporting_facts'] == facts
@@ -373,7 +373,7 @@ def test_accepted_opamp_supply_range_matches_equivalent_units_after_restart(tmp_
     query['conditions']['supply_voltage'] = '5000 mV to 0.036 kV'
     assert search(service, 'operational amplifier', [query])['incomplete_count'] == 1
     service.apply_specification_review(part.id)
-    restarted = PartsBinService(SQLitePartsBinRepository(repository.database))
+    restarted = PartsBinService(TestRepository(repository.isolation_key))
     before = restarted.list()
     result = search(restarted, 'opamp', [query])
     assert result['match_count'] == 1 and result['incomplete_count'] == 0

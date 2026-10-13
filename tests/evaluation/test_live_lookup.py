@@ -61,7 +61,7 @@ async def test_real_runtime_measures_http_usage_and_isolated_stock_without_recor
     assert result['estimated_cost_usd'] is None
     assert 'private-test-key' not in text and 'never capture this' not in text
     assert all(body['store'] is False for body in requests)
-    assert len(list(path.parent.glob('*.db'))) == 2
+    assert not list(path.parent.glob('*.db'))
 
 
 async def test_failed_contract_preserves_answer_and_continues_other_scenarios(tmp_path):

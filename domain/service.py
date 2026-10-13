@@ -1,9 +1,11 @@
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import contextmanager
+from functools import wraps
+import time
 from decimal import Decimal, localcontext
 from typing import Any
 
-from .repositories import PartsBinRepository, RepositoryConflict
+from .repositories import PartsBinRepository, RepositoryConflict, RepositoryBusy
 
 from .errors import DomainError, ErrorCode
 from .models import (
@@ -23,6 +25,23 @@ from .pagination import validate_page, next_offset
 SpecFetcher = Callable[[str], Awaitable[dict[str, Any]]]
 DatasheetFetcher = Callable[[Part, str], Awaitable[dict[str, Any]]]
 _EDITABLE = EDITABLE_PART_FIELDS
+
+
+def _mutation(method):
+    """Run a database-only single-part operation in one retriable unit."""
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        if self.repository.in_transaction:
+            return method(self, *args, **kwargs)
+        for attempt in range(6):
+            try:
+                with self.transaction() as (service, _):
+                    return method(service, *args, **kwargs)
+            except RepositoryBusy:
+                if attempt == 5:
+                    raise
+                time.sleep(0.01 * 2 ** attempt)
+    return wrapped
 
 
 class PartsBinService:
@@ -269,6 +288,7 @@ class PartsBinService:
         return {'reviews': rows[offset:offset + limit], 'count': len(rows),
                 'truncated': following is not None, 'next_offset': following}
 
+    @_mutation
     def stage_specifications(self, original: Part, facts: list[dict]) -> None:
         checked = specifications.validate_facts(original.part_category, facts, part_number=original.part_number)
         nominal_field = {'resistor': 'resistance', 'capacitor': 'capacitance', 'inductor': 'inductance'}.get(original.part_category.lower())
@@ -317,6 +337,7 @@ class PartsBinService:
                 'extraction_assessment': candidate.get('extraction_assessment'),
                 **self.get_specifications(original.id)}
 
+    @_mutation
     def apply_specification_review(self, part_id: int) -> dict:
         part = self.get(GetPartRequest(part_id))
         review = self.repository.inventory.specification_reviews().get(part_id)
@@ -329,6 +350,7 @@ class PartsBinService:
             raise DomainError(ErrorCode.CONFLICT, 'Specification review target changed') from exc
         return self.get_specifications(part_id)
 
+    @_mutation
     def reject_specification_review(self, part_id: int) -> None:
         self.get(GetPartRequest(part_id))
         self.repository.inventory.reject_specification_review(part_id)
@@ -342,6 +364,7 @@ class PartsBinService:
             raise DomainError(ErrorCode.PART_NOT_FOUND, "Part not found", details={"part_id": request.part_id})
         return row
 
+    @_mutation
     def add_part(self, request: AddPartRequest) -> Part:
         fields = validate_fields(vars(request.fields))
         duplicate = self.duplicate_for_add(fields)
@@ -353,6 +376,7 @@ class PartsBinService:
             raise DomainError(ErrorCode.DUPLICATE_PART, "An identical part already exists") from exc
         return self.get(GetPartRequest(part_id))
 
+    @_mutation
     def add_or_increment(self, request: AddPartRequest) -> Part:
         fields = validate_fields(vars(request.fields))
         duplicate = self.duplicate_for_add(fields)
@@ -400,6 +424,7 @@ class PartsBinService:
             raise DomainError(ErrorCode.INVALID_INPUT, "quantity must be a positive integer")
         self.repository.inventory.increment_stock(duplicate.id, quantity)
 
+    @_mutation
     def add_stock(self, request: AddStockRequest) -> Part:
         if not isinstance(request.quantity, int) or isinstance(request.quantity, bool) or request.quantity <= 0:
             raise DomainError(ErrorCode.INVALID_INPUT, "quantity must be a positive integer")
@@ -407,6 +432,7 @@ class PartsBinService:
         self.repository.inventory.increment_stock(request.part_id, request.quantity)
         return self.get(GetPartRequest(request.part_id))
 
+    @_mutation
     def adjust_stock(self, request: AdjustStockRequest) -> Part:
         if not isinstance(request.delta, int) or isinstance(request.delta, bool) or request.delta not in {-1, 1}:
             raise DomainError(ErrorCode.INVALID_INPUT, "stock adjustment must be -1 or 1")
@@ -417,7 +443,12 @@ class PartsBinService:
             repository.inventory.increment_stock(request.part_id, request.delta)
             return service.get(GetPartRequest(request.part_id))
 
+    @_mutation
     def update_part(self, request: UpdatePartRequest) -> Part:
+        with self.transaction() as (service, _):
+            return service._update_part(request)
+
+    def _update_part(self, request: UpdatePartRequest) -> Part:
         current = self.get(GetPartRequest(request.part_id))
         unknown = set(request.fields) - _EDITABLE
         if unknown:
@@ -446,22 +477,23 @@ class PartsBinService:
             merged = {name: getattr(row, name) for name in _EDITABLE}
             merged.update(request.fields)
             updates.append((row.id, validate_fields(merged)))
-        self._check_replacement_identities(updates)
         return [{"before": vars(row), "after": {**vars(row), **fields}}
                 for row, (_, fields) in zip(rows, updates, strict=True)]
 
-    def bulk_update(self, request: BulkUpdateRequest) -> list[Part]:
-        preview = self.preview_bulk_update(request)
-        updates = [(row["before"]["id"], {name: row["after"][name] for name in _EDITABLE})
-                   for row in preview]
-        try:
-            self.repository.inventory.replace_parts(updates)
-        except RepositoryConflict as exc:
-            raise DomainError(ErrorCode.CONFLICT, "Bulk update conflicts with an existing inventory record") from exc
-        for part_id, _ in updates:
-            self.repository.inventory.clear_pending_review(part_id)
-        return [self.get(GetPartRequest(part_id)) for part_id in request.part_ids]
+    def bulk_update(self, request: BulkUpdateRequest) -> dict:
+        """Validate the request, then commit each selected part independently."""
+        self.preview_bulk_update(request)
+        parts, errors = [], []
+        for part_id in request.part_ids:
+            try:
+                with self.transaction() as (service, _):
+                    parts.append(service.update_part(UpdatePartRequest(part_id, request.fields)))
+            except DomainError as exc:
+                errors.append({"part_id": part_id, "code": str(exc.code),
+                               "message": exc.message, "details": exc.details})
+        return {"parts": parts, "errors": errors}
 
+    @_mutation
     def delete_part(self, request: DeletePartRequest) -> None:
         self.get(GetPartRequest(request.part_id))
         self.repository.inventory.delete(request.part_id)
@@ -545,6 +577,7 @@ class PartsBinService:
         return {'reviews': rows[offset:offset + limit], 'count': len(rows),
                 'truncated': following is not None, 'next_offset': following}
 
+    @_mutation
     def stage_enrichment(self, original: Part, updates: Mapping[str, Any], provenance: list[dict]) -> None:
         """Stage evidenced metadata only if identity and existing review are unchanged."""
         allowed = {"part_number", "manufacturer", "package", "description"}
@@ -561,6 +594,7 @@ class PartsBinService:
         if not self.repository.inventory.stage_enrichment_if_unchanged(original, dict(updates), provenance):
             raise DomainError(ErrorCode.CONFLICT, "Part metadata or pending review changed during enrichment")
 
+    @_mutation
     def apply_review(self, request: ApplyReviewRequest) -> Part:
         self.get(GetPartRequest(request.part_id))
         review = self.list_pending_reviews().get(request.part_id)
@@ -573,6 +607,7 @@ class PartsBinService:
         self.repository.inventory.clear_pending_review(request.part_id, list(updates))
         return result
 
+    @_mutation
     def reject_review(self, request: RejectReviewRequest) -> None:
         self.get(GetPartRequest(request.part_id))
         if request.fields:

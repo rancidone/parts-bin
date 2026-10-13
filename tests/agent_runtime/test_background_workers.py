@@ -9,8 +9,8 @@ import pytest
 
 from agent_runtime import ApprovalEngine, ApprovalResponse, ImageInput, OpenAIResponsesRuntime, OpenAIResponsesTransport
 from application import create_services
-from db.conversations import SQLiteConversationRepository
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestConversations
+from tests.storage import TestRepository
 from domain import GetPartRequest, PartsBinService
 from domain.repositories import ExecutionBusy, ExecutionUnavailable
 from tools import PartsBinToolRegistry
@@ -39,8 +39,8 @@ class Provider:
 
 
 def worker_at(tmp_path, provider):
-    repository = SQLitePartsBinRepository(tmp_path / "inventory.db")
-    store = SQLiteConversationRepository(tmp_path / "events.db")
+    repository = TestRepository(tmp_path / "inventory.db")
+    store = TestConversations(tmp_path / "events.db")
     transport = OpenAIResponsesTransport(api_key="test-only", model="test-model",
         client=httpx.AsyncClient(transport=httpx.MockTransport(provider.handle)))
     runtime = OpenAIResponsesRuntime(transport, registry=PartsBinToolRegistry(PartsBinService(repository)),
@@ -232,8 +232,8 @@ async def test_approval_between_background_rounds_is_applied_once(tmp_path):
 async def test_gateway_prepares_and_advances_without_http(tmp_path):
     provider = Provider([{"status": "completed", "output": []}])
     _, transport, _ = worker_at(tmp_path, provider)
-    services = create_services(SQLitePartsBinRepository(tmp_path / "inventory.db"),
-        SQLiteConversationRepository(tmp_path / "events.db"), transport_factory=lambda: transport)
+    services = create_services(TestRepository(tmp_path / "inventory.db"),
+        TestConversations(tmp_path / "events.db"), transport_factory=lambda: transport)
     thread = services.gateway.create_thread()
     assert await services.gateway.prepare(thread, "request", "hello") == "request"
     assert (await services.gateway.advance_background(thread, "request")).status == "waiting_model"

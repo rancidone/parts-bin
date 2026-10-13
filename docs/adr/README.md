@@ -47,3 +47,6 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0025: Drain requests during deployment and preserve recoverable status](0025-graceful-deployment-and-recovery-status.md)
 - [0026: Advance agent executions at durable stage boundaries](0026-bounded-agent-worker-steps.md)
 - [0027: Persist intake and separate model submission from collection](0027-durable-intake-and-background-responses.md)
+
+- [0028: Commit mutations and bulk outcomes per part](0028-per-part-mutation-transactions.md)
+- [0029: Use existing PostgreSQL and share SQL with the DSQL experiment](0029-postgresql-and-dsql.md)

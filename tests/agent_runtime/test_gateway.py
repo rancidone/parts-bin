@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 
 from agent_runtime import AgentGateway, ApprovalEngine, ModelTurn, OpenAIResponsesRuntime
-from db.conversations import SQLiteConversationRepository
+from tests.storage import TestConversations
 from agent_runtime.runtime import ModelRequest
 from domain import PartsBinService
 from tools import PartsBinToolRegistry
@@ -17,10 +17,10 @@ class TextTransport:
 
 @pytest.mark.asyncio
 async def test_gateway_persists_and_resumes_one_normalized_stream(tmp_path):
-    store = SQLiteConversationRepository(tmp_path / "conversations.db")
+    store = TestConversations(tmp_path / "conversations.db")
 
     def make_runtime():
-        repository = SQLitePartsBinRepository(tmp_path / "parts.db")
+        repository = TestRepository(tmp_path / "parts.db")
         return OpenAIResponsesRuntime(
             TextTransport(), registry=PartsBinToolRegistry(PartsBinService(repository)),
             store=store, approvals=ApprovalEngine(repository),
@@ -35,7 +35,7 @@ async def test_gateway_persists_and_resumes_one_normalized_stream(tmp_path):
 
 @pytest.mark.asyncio
 async def test_gateway_turns_runtime_startup_failure_into_events(tmp_path):
-    store = SQLiteConversationRepository(tmp_path / "conversations.db")
+    store = TestConversations(tmp_path / "conversations.db")
     gateway = AgentGateway(store, lambda: (_ for _ in ()).throw(RuntimeError("not configured")))
     thread_id = gateway.create_thread()
     emitted = await gateway.submit(thread_id, "hello")
@@ -60,8 +60,8 @@ async def test_gateway_streams_tool_activity_before_model_finishes(tmp_path):
             await release.wait()
             return ModelTurn("Finished")
 
-    store = SQLiteConversationRepository(tmp_path / "conversation.db")
-    repository = SQLitePartsBinRepository(tmp_path / "parts.db")
+    store = TestConversations(tmp_path / "conversation.db")
+    repository = TestRepository(tmp_path / "parts.db")
     gateway = AgentGateway(store, lambda: OpenAIResponsesRuntime(PausedTransport(),
         registry=PartsBinToolRegistry(PartsBinService(repository)), store=store, approvals=ApprovalEngine(repository)))
     thread = gateway.create_thread()
@@ -82,8 +82,8 @@ async def test_gateway_preserves_partial_events_on_stream_failure(tmp_path):
     class BrokenTransport:
         async def complete(self, request):
             raise RuntimeError("provider stopped")
-    store = SQLiteConversationRepository(tmp_path / "conversation.db")
-    repository = SQLitePartsBinRepository(tmp_path / "parts.db")
+    store = TestConversations(tmp_path / "conversation.db")
+    repository = TestRepository(tmp_path / "parts.db")
     gateway = AgentGateway(store, lambda: OpenAIResponsesRuntime(BrokenTransport(),
         registry=PartsBinToolRegistry(PartsBinService(repository)), store=store, approvals=ApprovalEngine(repository)))
     thread = gateway.create_thread()
@@ -94,24 +94,19 @@ async def test_gateway_preserves_partial_events_on_stream_failure(tmp_path):
 
 @pytest.mark.parametrize("provider", ["codex", "local"])
 async def test_opening_existing_database_preserves_history_and_provider_state(tmp_path, provider):
-    import sqlite3
+    from tests.storage import connection, historical_thread
     from agent_runtime import UnsupportedRuntimeError
     from domain import AddPartRequest, PartFields
 
     database = tmp_path / "existing.db"
-    service = PartsBinService(SQLitePartsBinRepository(database))
+    service = PartsBinService(TestRepository(database))
     service.add_part(AddPartRequest(PartFields(part_category="resistor", profile="passive", quantity=17, value="10k")))
-    with sqlite3.connect(database) as conn:
-        conn.executescript("""
-            CREATE TABLE agent_threads (thread_id TEXT PRIMARY KEY, runtime TEXT NOT NULL);
-            CREATE TABLE agent_events (thread_id TEXT, sequence INTEGER, kind TEXT, runtime TEXT, data_json TEXT, PRIMARY KEY(thread_id, sequence));
-            CREATE TABLE agent_codex_sessions (thread_id TEXT PRIMARY KEY, codex_session_id TEXT NOT NULL);
-        """)
-        conn.execute("INSERT INTO agent_threads VALUES ('old', ?)", (provider,))
-        conn.execute("INSERT INTO agent_events VALUES ('old', 1, 'assistant_text', ?, ?)", (provider, '{"text":"keep me"}'))
-        conn.execute("INSERT INTO agent_codex_sessions VALUES ('old', 'saved-session')")
+    with connection(database) as conn:
+        historical_thread(database, 'old', provider)
+        conn.execute("INSERT INTO agent_events VALUES ('old', 1, 'assistant_text', %s, %s)", (provider, '{"text":"keep me"}'))
+        conn.execute("INSERT INTO pb_legacy_sessions VALUES ('old', %s)", ('{"codex_session_id":"saved-session"}',))
 
-    store = SQLiteConversationRepository(database)
+    store = TestConversations(database)
     def must_not_start():
         pytest.fail("Historical conversation must not start a provider")
     gateway = AgentGateway(store, must_not_start)
@@ -124,9 +119,9 @@ async def test_opening_existing_database_preserves_history_and_provider_state(tm
     with pytest.raises(UnsupportedRuntimeError):
         store.create_thread("new-retired", provider)
     assert service.list()[0].quantity == 17
-    with sqlite3.connect(database) as conn:
-        assert conn.execute("SELECT * FROM agent_codex_sessions").fetchall() == [("old", "saved-session")]
-        assert conn.execute("SELECT runtime FROM agent_threads WHERE thread_id='old'").fetchone()[0] == provider
+    with connection(database) as conn:
+        assert 'saved-session' in conn.execute("SELECT data_json FROM pb_legacy_sessions").fetchone()['data_json']
+        assert conn.execute("SELECT runtime FROM agent_threads WHERE thread_id='old'").fetchone()['runtime'] == provider
     assert store.runtime_for(gateway.create_thread()) == "openai"
 
 

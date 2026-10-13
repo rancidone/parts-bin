@@ -1,6 +1,6 @@
 """Application host for the normalized agent event protocol.
 
-The gateway deliberately knows nothing about Parts Bin records or SQLite.  It
+The gateway deliberately knows nothing about Parts Bin records or database implementations.  It
 hosts an OpenAI runtime, owns its lifecycle, and translates its
 durable ``ConversationEvent`` objects to the one stream consumed by the UI.
 """
