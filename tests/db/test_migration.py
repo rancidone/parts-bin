@@ -90,3 +90,19 @@ def test_import_refuses_nonempty_target_and_rolls_back_bad_source(tmp_path):
         import_snapshots(empty, inventory, conversations)
     assert empty.inventory.search({}) == []
     assert empty.operations.get('stock') is None
+
+
+def test_wal_mode_snapshot_never_creates_sidecars_and_rejects_live_wal(tmp_path):
+    inventory, conversations = legacy_snapshot(tmp_path)
+    with sqlite3.connect(inventory) as connection:
+        connection.execute('PRAGMA journal_mode=WAL')
+    from db.postgres.migrate import snapshot
+    original = inventory.read_bytes()
+    assert snapshot(inventory)['parts'][0]['id'] == 42
+    assert inventory.read_bytes() == original
+    assert not (tmp_path / 'inventory.db-shm').exists()
+    with sqlite3.connect(inventory) as connection:
+        connection.execute("UPDATE parts SET quantity=10")
+        connection.commit()
+        with pytest.raises(ValueError, match='standalone SQLite backup'):
+            snapshot(inventory)
