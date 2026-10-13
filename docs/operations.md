@@ -285,6 +285,16 @@ and `5000 mV to 0.036 kV` match. A range with units only after the upper endpoin
 uses those units for both endpoints. Different endpoints, a scalar within a
 range, trailing qualifiers and dual-rail annotations remain distinct. This
 also applies to named current, frequency, duration and resistance conditions.
+Specification values and requirements also accept nonnegative intervals, such as
+`1 to 2 V` or `1.5 V ± 0.5 V`. Equality checks both endpoints. At least / at most
+checks every possible stored value against the requested bound; uncertain overlap
+is incomplete. A requested interval uses its upper bound for at least and lower
+bound for at most. To check a `4.5 to 5.5 V` supply, require the operating minimum
+at most that interval and the operating maximum at least that interval, with
+identical complete conditions. Stress limits cannot replace operating endpoints.
+Nominal resistor, capacitor and inductor identity facts remain scalar; keep their
+tolerance separate. Original values, source passages and review history remain stored.
+
 Condition names remain distinct. Unknown names and values compare literally; no derating or
 room-temperature inference is performed. Reject proposals that omit a source's
 applicable temperature, test environment,

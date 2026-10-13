@@ -38,3 +38,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0020: Keep unnumbered non-passive stock as distinct physical groups](0020-distinct-unnumbered-stock.md)
 
 - [0021: Compare explicit condition intervals with shared unit-aware parsing](0021-unit-aware-condition-intervals.md)
+
+- [0022: Compare whole specification value intervals](0022-specification-value-intervals.md)

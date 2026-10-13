@@ -4,7 +4,7 @@ import type { SpecificationState } from './SpecificationFacts'
 import styles from './SpecificationSearch.module.css'
 
 type Field = { unit: string | null; basis: string; choices: string[] }
-type Contract = { category: string; fields: Record<string, Field>; minimum_source_conditions: Record<string, string[][]>; value_policy?: string; conditions_policy: string; evidence_policy: string }
+type Contract = { category: string; fields: Record<string, Field>; minimum_source_conditions: Record<string, string[][]>; value_policy?: string; numeric_value_policy: string; conditions_policy: string; evidence_policy: string }
 type Requirement = { name: string; comparison: string; value: string; conditionsText: string }
 const label = (value: string) => value.replaceAll('_', ' ')
 const blank = (contract: Contract): Requirement => ({ name: Object.keys(contract.fields)[0], comparison: 'eq', value: '', conditionsText: '' })
@@ -93,6 +93,7 @@ export function SpecificationSearch() {
       {contract && <>
         <p>{contract.evidence_policy} {contract.conditions_policy}</p>
         {contract.value_policy && <p>{contract.value_policy}</p>}
+        <p>{contract.numeric_value_policy}</p>
         {requirements.map((item, index) => {
           const field = contract.fields[item.name]
           const qualifiers = contract.minimum_source_conditions[item.name] ?? []
