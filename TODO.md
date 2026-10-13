@@ -31,10 +31,9 @@ extraction and keep unsupported fields unknown.
 
 - Define further operating ranges and derating from concrete source-backed
   requests; extend fields and condition comparison only where those cases need it.
-- Define identity for connectors, modules, kits, and unmarked stock from concrete
-  ingestion failures. Consider typed category attributes and explicit variant
-  identity without inventing ordering codes or merging uncertain stock. Rehearse
-  any migration on copies while preserving IDs, quantities, and provenance.
+- Add typed category attributes for connectors, modules and kits only when
+  concrete ingestion failures require structured variant descriptions. Preserve
+  separate unnumbered physical groups and rehearse any migration on copies.
 
 ## Durable ingestion experiment
 

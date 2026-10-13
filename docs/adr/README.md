@@ -34,3 +34,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0017: Check a bounded BOM in one domain operation](0017-whole-bom-availability-check.md)
 - [0018: Require field decisions and source-bound identity citations](0018-explicit-extraction-decisions-and-identity-passages.md)
 - [0019: Batch accepted specification reads for candidate searches](0019-batched-accepted-specification-reads.md)
+
+- [0020: Keep unnumbered non-passive stock as distinct physical groups](0020-distinct-unnumbered-stock.md)

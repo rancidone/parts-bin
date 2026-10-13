@@ -55,6 +55,24 @@ a fresh approval; replay of already committed mutation outcomes remains intact.
 For rollback, the previous application can leave the extra nullable column in
 place. Restore a backup only when explicitly recovering data.
 
+## Unnumbered stock identity
+
+Unnumbered connectors, modules, kits and other stock outside resistor, capacitor
+and inductor categories remain separate physical groups. Adding another group
+creates a new record even when its category, value, package and description
+agree. To increase an existing group, select its record explicitly and adjust
+its quantity; in chat, identify the part ID for `add_stock`. Descriptions are
+labels, not verified ordering codes. Numbered stock retains exact-code identity.
+
+Startup replaces the legacy unnumbered-stock uniqueness index with one limited
+to resistor, capacitor and inductor categories. Rehearse startup on an online
+SQLite backup first; the migration changes no rows or historical records. Keep
+the pre-upgrade backup. After distinct unnumbered groups share category/value/
+package, an older application can refuse startup or merge their stock incorrectly.
+Use the current version to preserve those groups. If recovery requires an older
+version, restore the pre-upgrade backup deliberately, accounting for subsequent
+writes that restoration would lose.
+
 ## Bulk inventory edits
 
 In Inventory, select up to 100 rows individually or use **Select visible parts**
