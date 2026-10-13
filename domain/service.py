@@ -185,9 +185,11 @@ class PartsBinService:
         validate_page(limit, offset)
         checked = specifications.validate_requirements(category, requirements)
         matches, incomplete = [], []
-        for part in sorted(self.search(request), key=lambda part: part.id):
+        candidates = sorted(self.search(request), key=lambda part: part.id)
+        accepted = self.repository.inventory.specifications_for_parts([part.id for part in candidates])
+        for part in candidates:
             eligible, missing, supporting = specifications.evaluate(
-                category, self.repository.inventory.specifications(part.id), checked)
+                category, accepted.get(part.id, []), checked)
             if not eligible:
                 continue
             if missing:

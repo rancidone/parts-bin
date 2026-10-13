@@ -34,8 +34,6 @@ extraction and keep unsupported fields unknown.
   ingestion failures. Consider typed category attributes and explicit variant
   identity without inventing ordering codes or merging uncertain stock. Rehearse
   any migration on copies while preserving IDs, quantities, and provenance.
-- Measure candidate-read costs and result sizes before adding indexed
-  specification queries; use the existing local repository first.
 
 ## Durable ingestion experiment
 

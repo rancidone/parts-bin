@@ -76,6 +76,9 @@ class SQLiteInventoryRepository:
     def specifications(self, part_id: int) -> list[dict]:
         return specifications.facts(self.database, part_id)
 
+    def specifications_for_parts(self, part_ids: list[int]) -> dict[int, list[dict]]:
+        return specifications.facts_for_parts(self.database, part_ids)
+
     def specification_reviews(self) -> dict[int, dict]:
         return specifications.reviews(self.database)
 

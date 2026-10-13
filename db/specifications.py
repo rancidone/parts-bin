@@ -26,6 +26,30 @@ def facts(database, part_id):
         conn.close()
 
 
+def facts_for_parts(database, part_ids: list[int]) -> dict[int, list[dict]]:
+    identifiers = list(dict.fromkeys(part_ids))
+    if not identifiers:
+        return {}
+    conn = persistence._connect(database)
+    try:
+        found = {}
+        with conn:
+            if not isinstance(conn, persistence.TransactionConnection):
+                conn.execute('BEGIN')
+            # Bound parameter counts across SQLite builds. All chunks share one
+            # read snapshot, or the caller's existing unit of work.
+            for offset in range(0, len(identifiers), 500):
+                chunk = identifiers[offset:offset + 500]
+                placeholders = ','.join('?' for _ in chunk)
+                rows = conn.execute(
+                    f'SELECT part_id, facts_json FROM part_specifications WHERE part_id IN ({placeholders})',
+                    chunk).fetchall()
+                found.update({row['part_id']: json.loads(row['facts_json']) for row in rows})
+        return found
+    finally:
+        conn.close()
+
+
 def reviews(database):
     conn = persistence._connect(database)
     try:
