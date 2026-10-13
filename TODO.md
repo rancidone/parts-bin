@@ -16,8 +16,9 @@ extraction and keep unsupported fields unknown.
 - Extend independently reviewed source cases from actual stock and ingestion
   failures, including marked LED intensity grades, regulator voltage variants,
   incomplete transformer packaging codes, and ambiguous stock.
-- Review production tool sequences as real conversations accumulate, including
-  whole-BOM result sizes, overlapping requirements, and specification searches.
+- Review production overlapping-stock and specification-search conversations
+  when those cases accumulate; distinguish unresolved row identity from missing
+  stock and inspect condition qualifiers in the resulting answers.
 - When evaluation is justified, distinguish retrieval and source-selection
   failures, missing facts, server rejections, and qualifier mismatches. Compare
   model interpretation against independent source expectations rather than

@@ -287,6 +287,11 @@ combines identical requirements and retains original row indices. Unknown
 quantities and overlapping stock need clarification before claiming coverage.
 The check does not reserve stock. Lists over the input bound need separate
 submissions; do not assume those checks allocate stock across submissions.
+When a submitted row lacks both a part number and a category/value identity,
+the check rejects the whole request and returns every affected zero-based
+`input_indices`. These rows need clarification, not a missing-stock claim.
+Supply the missing identities before checking the whole list again, or check
+only its identifiable rows while explicitly accounting for unresolved rows.
 
 Use the category specification contract to discover available regulator and LED
 fields before searching accepted facts. Specify the test conditions when asking

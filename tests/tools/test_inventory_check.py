@@ -128,3 +128,21 @@ async def test_shared_stock_groups_are_not_repeated_for_each_variant(registry):
         {'filters': {'part_category': 'resistor', 'value': '10k'}, 'quantity': 2},
         {'filters': {'part_category': 'resistor', 'value': '10000r'}, 'quantity': 2}]})
     assert result['result']['overlapping_requirements'] == [[0, 1]]
+
+
+async def test_ambiguous_bom_reports_all_original_indices_before_reading_stock(registry, monkeypatch):
+    from unittest.mock import Mock
+
+    search = Mock(side_effect=AssertionError('Rejected BOM must not read candidates'))
+    monkeypatch.setattr(registry.service, 'search', search)
+    result = await registry.execute('check_inventory', {'items': [
+        {'filters': {'part_number': 'KNOWN'}, 'quantity': 2},
+        {'filters': {'part_category': 'connector'}, 'quantity': 1},
+        {'filters': {'part_category': 'resistor', 'value': '10k'}},
+        {'filters': {'package': 'SOIC-8'}},
+        {'filters': {'part_category': 'connector'}},
+    ]})
+    assert not result['ok']
+    assert result['error']['code'] == 'invalid_input'
+    assert result['error']['details'] == {'input_indices': [1, 3, 4]}
+    search.assert_not_called()
