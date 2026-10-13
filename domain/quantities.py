@@ -121,3 +121,8 @@ def compare_intervals(left: tuple[Decimal, Decimal], right: tuple[Decimal, Decim
             return True
         return False if left[0] > right[0] else None
     invalid('Unsupported interval comparison')
+
+
+def contains_interval(available: tuple[Decimal, Decimal], requested: tuple[Decimal, Decimal]) -> bool:
+    """Whether every requested point lies within an explicit available interval."""
+    return available[0] <= requested[0] and requested[1] <= available[1]

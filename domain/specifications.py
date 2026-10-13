@@ -7,7 +7,7 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 from .errors import DomainError, ErrorCode
-from .specification_conditions import same_conditions
+from .specification_conditions import conditions_cover, same_conditions
 from .quantities import compare_intervals, interval
 from .search import search_category
 
@@ -120,6 +120,7 @@ SPECIFICATIONS = {
 }
 
 MAX_CONDITIONS = 12
+OPERATING_CONDITION_BASES = frozenset({'operating_minimum', 'operating_maximum'})
 # Minimum qualification for confirming sourced electrical facts. More conditions
 # may govern a particular document; these checks cannot certify source completeness.
 MINIMUM_SOURCE_CONDITIONS = {
@@ -214,6 +215,7 @@ def contract(category: str) -> dict:
     return {'category': category, 'supported': bool(fields),
             'fields': {name: asdict(item) for name, item in fields.items()},
             'comparisons': ['eq', 'gte', 'lte'],
+            'operating_condition_coverage_bases': sorted(OPERATING_CONDITION_BASES),
             'minimum_source_conditions': MINIMUM_SOURCE_CONDITIONS.get(search_category(category), {}),
             **({'value_policy': 'Supply values are total positive-to-negative rail voltages. Check both operating endpoints to establish supply suitability; an absolute maximum is a stress rating. Offset voltage and bias current are worst-case magnitudes, retaining current direction where sourced. Typical bandwidth, slew rate and quiescent current are not guarantees. Preserve per-amplifier versus whole-device current scope and all applicable table conditions.'}
                if search_category(category) == 'operational amplifier' else {}),
@@ -221,8 +223,8 @@ def contract(category: str) -> dict:
                if search_category(category) in {'linear regulator', 'buck converter'} else {}),
             **({'value_policy': 'Preserve exact color and intensity bin identity. Maximum forward voltage requires its test current and temperature. Continuous and pulsed stress currents are distinct; retain duty cycle and pulse duration. Dominant wavelength is distinct from peak wavelength. Minimum luminous intensity is distinct from typical intensity and luminous flux; retain test current, temperature and measurement geometry. Unmarked LEDs require identity clarification.'}
                if search_category(category) == 'led' else {}),
-            'numeric_value_policy': 'Values accept nonnegative scalars, ordered ranges and center ± tolerance with units. Equality requires equal endpoints; At least compares the stored lower bound to the requested upper bound; at most compares the stored upper bound to the requested lower bound. Overlapping but unconfirmed comparisons remain incomplete. Nominal passive identity facts remain scalar. For operating-range coverage, require the operating minimum at most the requested range and operating maximum at least the requested range under identical complete conditions. Never substitute stress limits or infer derating.',
-            'conditions_policy': 'Match complete condition mappings. Named electrical, Celsius and percentage conditions compare scalars, explicit ranges and center ± tolerance by equal unit-aware endpoints. Omitted conditions are incomplete. Range containment does not establish a match. Unknown conditions and additional qualifiers remain literal. Preserve original conditions and evidence.',
+            'numeric_value_policy': 'Values accept nonnegative scalars, ordered ranges and center ± tolerance with units. Equality requires equal endpoints. At least compares the stored lower bound to the requested upper bound; at most compares the stored upper bound to the requested lower bound. Overlapping but unconfirmed comparisons remain incomplete. Nominal passive identity facts remain scalar. For operating-range coverage, require the operating minimum at most the requested range and operating maximum at least the requested range under complete source-covered operating conditions. Never substitute stress limits or infer derating.',
+            'conditions_policy': 'Match complete condition mappings. Named electrical, Celsius and percentage conditions compare scalars, explicit ranges and center ± tolerance by equal unit-aware endpoints. Operating minimum/maximum facts also cover contained requested condition intervals. Other bases require equal conditions. Omitted or extra conditions are incomplete; numeric containment cannot turn a test point, typical value or stress rating into an operating guarantee. Unknown conditions and additional qualifiers remain literal. Preserve original conditions and evidence.',
             'evidence_policy': 'Only accepted source evidence confirms requirements. User assertions remain incomplete.'}
 
 
@@ -351,10 +353,11 @@ def evaluate(category: str, facts: list[dict], requirements: list[dict]) -> tupl
     missing, supporting = [], []
     for requirement in requirements:
         name = requirement['name']
+        match_conditions = conditions_cover if requirement['basis'] in OPERATING_CONDITION_BASES else same_conditions
         fact = by_name.get(name)
         if (fact is None or fact['evidence']['kind'] != 'source' or
                 fact['basis'] != requirement['basis'] or missing_qualifiers(category, fact) or
-                not same_conditions(fact['conditions'], requirement['conditions'])):
+                not match_conditions(fact['conditions'], requirement['conditions'])):
             missing.append(name)
             continue
         item = definition(category, name)

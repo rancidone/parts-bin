@@ -32,7 +32,7 @@ def test_requested_operating_interval_checks_both_endpoints_after_review_restart
         assert search(restarted, category, [requirement(facts[0], requested, 'lte'),
                                           requirement(facts[1], requested, 'gte')])['match_count'] == 0
     different = [{**item, 'conditions': {**item['conditions'], 'ambient_temperature': '-20 to 70 °C'}} for item in query]
-    assert search(restarted, category, different)['incomplete_count'] == 1
+    assert search(restarted, category, different)['match_count'] == 1
 
 
 @pytest.mark.parametrize('stored,requested,comparison,matches,incomplete', [

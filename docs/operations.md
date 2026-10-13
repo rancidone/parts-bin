@@ -282,8 +282,9 @@ stored. Resistive and resistive-load spellings of load type compare alike.
 Named electrical conditions compare scalars, ranges and center ± tolerance by
 equal SI endpoints. For example, `supply_voltage` values `5 to 36 V`
 and `5000 mV to 0.036 kV` match. A range with units only after the upper endpoint
-uses those units for both endpoints. Different endpoints, a scalar within a
-range, trailing qualifiers and dual-rail annotations remain distinct. This
+uses those units for both endpoints. For test-point, typical, rated and stress
+facts, different endpoints and a scalar within a range remain distinct. Trailing
+qualifiers and dual-rail annotations also remain distinct. This
 also applies to named current, frequency, duration and resistance conditions.
 Specification values and requirements also accept nonnegative intervals, such as
 `1 to 2 V` or `1.5 V ± 0.5 V`. Equality checks both endpoints. At least / at most
@@ -291,7 +292,12 @@ checks every possible stored value against the requested bound; uncertain overla
 is incomplete. A requested interval uses its upper bound for at least and lower
 bound for at most. To check a `4.5 to 5.5 V` supply, require the operating minimum
 at most that interval and the operating maximum at least that interval, with
-identical complete conditions. Stress limits cannot replace operating endpoints.
+complete source-covered conditions. Accepted operating minimum/maximum facts
+can cover a scalar or narrower interval inside each documented condition range;
+for example, ambient `25 °C` is covered by `-40 to 85 °C`. All condition names
+and nonnumeric qualifiers remain required on both sides. Outside-range queries
+stay incomplete. Other fact bases require equal conditions. Stress limits cannot
+replace operating endpoints.
 Nominal resistor, capacitor and inductor identity facts remain scalar; keep their
 tolerance separate. Original values, source passages and review history remain stored.
 

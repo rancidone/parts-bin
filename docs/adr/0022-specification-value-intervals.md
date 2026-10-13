@@ -1,6 +1,7 @@
 # 0022: Compare whole specification value intervals
 
-Status: Accepted
+Status: Accepted; condition-containment policy extended by
+[0023](0023-operating-condition-coverage.md) for operating minimum/maximum facts.
 
 ## Context
 
