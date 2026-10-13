@@ -1,0 +1,37 @@
+name: parts-bin-dev
+services:
+  postgres:
+    image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+    environment:
+      POSTGRES_USER: parts_bin
+      POSTGRES_DB: parts_bin
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    ports: ["127.0.0.1:54329:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U parts_bin -d parts_bin"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+  postgres-test:
+    profiles: [test]
+    image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+    environment:
+      POSTGRES_USER: parts_bin_test
+      POSTGRES_DB: parts_bin_test
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    ports: ["127.0.0.1:54330:5432"]
+    tmpfs: ["/var/lib/postgresql/data"]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U parts_bin_test -d parts_bin_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+secrets:
+  postgres_password:
+    file: ./data/dev-postgres-password
+volumes:
+  postgres-data:

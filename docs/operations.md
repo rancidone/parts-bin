@@ -227,6 +227,25 @@ Choose retention against acceptable data loss. Before upgrading, retain a backup
 and the previous image. Code rollback and data restoration are separate: restoring
 a snapshot loses subsequent writes, and an older image may require an older schema.
 
+## Local database containers
+
+[Local setup](../README.md#local-setup) uses `compose.postgres.yaml`. Start or
+stop the persistent development server with:
+
+```sh
+docker compose -f compose.postgres.yaml up -d --wait postgres
+docker compose -f compose.postgres.yaml stop postgres
+```
+
+The development volume survives container removal. Do not use `down --volumes`
+unless deliberately discarding local inventory. The optional `test` profile uses
+a different port/login and tmpfs instead of a persistent volume. Remove only its
+container after tests using the README command. Both ports bind to loopback.
+Password files in ignored `data/` must remain private. Initialization passwords
+apply only to empty databases; changing a file does not rotate an existing login.
+The [official image documentation](https://hub.docker.com/_/postgres) describes
+initialization and file-based secrets.
+
 ## SQLite migration
 
 SQLite is a read-only migration source, not a runtime option. Rehearse on snapshots
