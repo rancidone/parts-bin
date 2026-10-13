@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from domain.repositories import ExecutionBusy
 
-from .models import ApprovalResponse, ConversationEvent, ConversationSummary, ImageInput, RuntimeName
+from .models import ApprovalResponse, ConversationEvent, ConversationSummary, ImageInput, RuntimeName, RuntimeResult
 from .runtime import OpenAIResponsesRuntime
 from .store import ConversationRepository, UnsupportedRuntimeError
 from .telemetry import AgentTelemetry
@@ -43,6 +43,18 @@ class AgentGateway:
 
     def threads(self) -> tuple[ConversationSummary, ...]:
         return tuple(self.store.threads())
+
+    async def advance(self, thread_id: str, text: str = "", *, execution_id: str | None = None,
+                      image: ImageInput | None = None,
+                      approval_response: ApprovalResponse | None = None) -> RuntimeResult:
+        """Worker entry point; propagate lease and provider failures to the host.
+
+        Ready work must be continued using the returned execution ID. Read saved
+        events separately; intermediate steps do not publish a completed event.
+        """
+        runtime = await self._runtime_for(thread_id)
+        return await runtime.advance(thread_id, text, execution_id=execution_id,
+                                     image=image, approval_response=approval_response)
 
     async def submit(self, thread_id: str, text: str, *, image: ImageInput | None = None,
                      on_event: Callable[[ConversationEvent], None] | None = None) -> tuple[ConversationEvent, ...]:

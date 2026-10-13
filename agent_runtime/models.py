@@ -73,5 +73,5 @@ class ApprovalResponse:
 @dataclass(frozen=True)
 class RuntimeResult:
     events: tuple[ConversationEvent, ...]
-    status: Literal["completed", "awaiting_approval", "failed"]
+    status: Literal["ready", "completed", "awaiting_approval", "failed"]
     execution_id: str | None = None

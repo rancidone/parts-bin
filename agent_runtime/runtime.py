@@ -101,6 +101,27 @@ class OpenAIResponsesRuntime:
                   approval_response: ApprovalResponse | None = None,
                   execution_id: str | None = None,
                   on_event: Callable[[ConversationEvent], None] | None = None) -> RuntimeResult:
+        return await self._run(thread_id, user_text, image=image,
+                               approval_response=approval_response, execution_id=execution_id,
+                               on_event=on_event, single_step=False)
+
+    async def advance(self, thread_id: str, user_text: str = "", *, image: ImageInput | None = None,
+                      approval_response: ApprovalResponse | None = None,
+                      execution_id: str | None = None) -> RuntimeResult:
+        """Checkpoint one model response or tool call, then release worker ownership.
+
+        Continue a ready result with its execution ID. This bounds the number of
+        stages, not the duration of a provider call. It does not schedule work.
+        """
+        return await self._run(thread_id, user_text, image=image,
+                               approval_response=approval_response, execution_id=execution_id,
+                               on_event=None, single_step=True)
+
+    async def _run(self, thread_id: str, user_text: str, *, image: ImageInput | None,
+                   approval_response: ApprovalResponse | None,
+                   execution_id: str | None,
+                   on_event: Callable[[ConversationEvent], None] | None,
+                   single_step: bool) -> RuntimeResult:
         self.store.create_thread(thread_id, self.runtime)
         executions = self.registry.service.repository.executions
         if approval_response is not None:
@@ -126,6 +147,7 @@ class OpenAIResponsesRuntime:
         emitted: list[ConversationEvent] = []
         started = perf_counter()
         domain_outcome: str | None = None
+        advanced = False
 
         def emit(key: str, kind: str, data: dict[str, Any]) -> None:
             event = self.store.append_once(ConversationEvent(kind, thread_id, self.runtime,
@@ -173,6 +195,8 @@ class OpenAIResponsesRuntime:
                 return terminal("failed")
             while True:
                 if state.pending is None:
+                    if single_step and advanced:
+                        return finish("ready")
                     if state.round >= self.max_tool_turns:
                         state.error = {"code": "tool_loop_limit", "message": f"Tool loop exceeded {self.max_tool_turns} turns"}
                         save("failed")
@@ -188,6 +212,7 @@ class OpenAIResponsesRuntime:
                     state.call_index = 0
                     # Persist model output, including provider reasoning, before any effect.
                     save()
+                    advanced = True
                 if state.pending["text"]:
                     emit(f"text:{state.round}", "assistant_text", {"text": state.pending["text"]})
                 calls = state.pending["calls"]
@@ -195,6 +220,8 @@ class OpenAIResponsesRuntime:
                     save("completed")
                     return terminal("completed")
                 while state.call_index < len(calls):
+                    if single_step and advanced:
+                        return finish("ready")
                     call = calls[state.call_index]
                     step = f"{state.round}:{state.call_index}"
                     name, args = call["name"], call["arguments"]
@@ -251,6 +278,7 @@ class OpenAIResponsesRuntime:
                     state.call_index += 1
                     state.approval_id = None
                     save()
+                    advanced = True
                 state.pending = None
                 save()
         except ModelBudgetError as exc:

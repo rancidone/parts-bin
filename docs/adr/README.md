@@ -45,3 +45,4 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 
 - [0024: Return explained partial inventory matches](0024-explained-partial-inventory-matches.md)
 - [0025: Drain requests during deployment and preserve recoverable status](0025-graceful-deployment-and-recovery-status.md)
+- [0026: Advance agent executions at durable stage boundaries](0026-bounded-agent-worker-steps.md)
