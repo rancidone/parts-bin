@@ -11,8 +11,7 @@ import httpx
 
 from domain import GetPartRequest, PartsBinService, IngestDatasheetRequest
 from ingestion.datasheet import DatasheetFetcher
-from db.enrichment_cache import SQLiteEnrichmentCache
-from db.repository import SQLitePartsBinRepository
+from db.postgres import from_config
 from domain.errors import DomainError
 from ingestion.supplied_source import EnrichmentError, enrich, review_result
 
@@ -20,15 +19,12 @@ from ingestion.supplied_source import EnrichmentError, enrich, review_result
 async def run(args: argparse.Namespace) -> dict:
     with args.config.open("rb") as file:
         config = tomllib.load(file)
-    db_path = Path(config.get("db", {}).get("path", "data/parts.db"))
-    if not db_path.is_file():
-        raise EnrichmentError("Inventory database must already exist")
-    service = PartsBinService(SQLitePartsBinRepository(db_path))
+    service = PartsBinService(from_config(config))
     openai = config.get("agent", {}).get("openai", {})
     if getattr(args, 'electrical', False):
         service = PartsBinService(service.repository, datasheet_fetcher=DatasheetFetcher(
             api_key=openai.get('api_key', ''), model=args.model,
-            cache=SQLiteEnrichmentCache(db_path), refresh=args.refresh))
+            cache=service.repository.cache, refresh=args.refresh))
         return await service.ingest_datasheet(IngestDatasheetRequest(args.part_id, args.source_url))
     part = service.get(GetPartRequest(args.part_id))
     if not part.part_number:
@@ -38,7 +34,7 @@ async def run(args: argparse.Namespace) -> dict:
     openai = config.get("agent", {}).get("openai", {})
     candidate = await enrich(part.part_number, part.manufacturer, args.source_url,
         api_key=openai.get("api_key", ""), model=args.model,
-        cache=SQLiteEnrichmentCache(db_path), refresh=args.refresh)
+        cache=service.repository.cache, refresh=args.refresh)
     result = review_result(candidate)
     if result["chosen_updates"]:
         service.stage_enrichment(part, result["chosen_updates"], result["durable_provenance"])

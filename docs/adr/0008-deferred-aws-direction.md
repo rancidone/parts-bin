@@ -1,6 +1,6 @@
 # 0008: Target AWS and Terraform without selecting a cloud stack yet
 
-Status: Accepted
+Status: Accepted; persistence selection superseded by [0029](0029-postgresql-and-dsql.md)
 
 Recorded: 2026-10-10 (existing project decision)
 

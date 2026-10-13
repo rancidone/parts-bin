@@ -2,7 +2,7 @@ from decimal import Decimal, localcontext
 
 import pytest
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import AddPartRequest, ApplyReviewRequest, DomainError, PartFields, PartsBinService, SearchPartsRequest
 from domain.search import nominal_value, values_match
 
@@ -58,7 +58,7 @@ def add(service, **overrides):
 
 
 def test_combined_lookup_preserves_distinct_stock_and_ignores_pending_values(tmp_path):
-    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
+    repository = TestRepository(tmp_path / 'parts.db')
     service = PartsBinService(repository)
     first = add(service)
     equivalent = add(service, value='0.1uF')
@@ -84,13 +84,13 @@ def test_combined_lookup_preserves_distinct_stock_and_ignores_pending_values(tmp
 
 @pytest.mark.parametrize('quantity', [-1, True, 1.5, '4', None])
 def test_stock_requirement_is_domain_validated(tmp_path, quantity):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     with pytest.raises(DomainError, match='minimum_quantity'):
         service.search(SearchPartsRequest(minimum_quantity=quantity))
 
 
 def test_exact_ordering_suffix_and_zero_stock(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     full = add(service, part_category='transistor', profile='discrete_ic', value=None,
                part_number='PBSS5350T,215', quantity=0)
     add(service, part_category='transistor', profile='discrete_ic', value=None,
@@ -105,7 +105,7 @@ def test_exact_ordering_suffix_and_zero_stock(tmp_path):
     'operational amplifier', 'operational amplifiers',
 ])
 def test_opamp_category_aliases_preserve_inventory_and_other_filters(tmp_path, category):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     first = add(service, part_category='operational amplifier', profile='discrete_ic',
                 value=None, part_number='UA741CN', package='DIP', quantity=6)
     second = add(service, part_category='op_amp', profile='discrete_ic',

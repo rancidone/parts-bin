@@ -25,6 +25,6 @@ outside inventory transactions. Changed targets require fresh approval. An
 uncheckpointed provider response remains uncertain; explicit resume may repeat a
 paid call. Leases provide ownership, not scheduling or exactly-once billing.
 
-[Execution](../../db/execution.py), [approval](../../agent_runtime/approval.py),
-[conversation adapter](../../db/conversations.py), and
+[Execution](../../db/postgres/execution.py), [approval](../../agent_runtime/approval.py),
+[conversation adapter](../../db/postgres/conversations.py), and
 [recovery procedures](../operations.md#interrupted-requests).

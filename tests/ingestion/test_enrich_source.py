@@ -1,15 +1,15 @@
 import argparse
 from unittest.mock import AsyncMock, patch
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import AddPartRequest, GetPartRequest, PartFields, PartsBinService
 from ingestion import enrich_source
 from ingestion.supplied_source import POLICY_VERSION
 
 
-async def test_operator_composes_sqlite_cache_and_stages_review(tmp_path):
+async def test_operator_composes_postgres_cache_and_stages_review(tmp_path, monkeypatch):
     database = tmp_path / "parts.db"
-    service = PartsBinService(SQLitePartsBinRepository(database))
+    service = PartsBinService(TestRepository(database))
     part = service.add_part(AddPartRequest(PartFields(
         part_category="transistor", profile="discrete_ic", quantity=7, part_number="PBSS5350T")))
     config = tmp_path / "config.toml"
@@ -22,11 +22,12 @@ async def test_operator_composes_sqlite_cache_and_stages_review(tmp_path):
         "model": "explicit-model", "policy_version": POLICY_VERSION}
     args = argparse.Namespace(config=config, part_id=part.id, source_url=url,
                               model="explicit-model", refresh=True)
+    monkeypatch.setattr(enrich_source, "from_config", lambda config: service.repository)
     with patch.object(enrich_source, "enrich", AsyncMock(return_value=candidate)) as enrich:
         result = await enrich_source.run(args)
     cache = enrich.call_args.kwargs["cache"]
-    assert isinstance(cache, enrich_source.SQLiteEnrichmentCache)
-    assert cache.path == database
+    assert cache is service.repository.cache
+    assert cache.isolation_key == database
     assert enrich.call_args.args == ("PBSS5350T", None, url)
     assert enrich.call_args.kwargs["refresh"] is True
     assert result["review_staged"] is True
@@ -35,16 +36,17 @@ async def test_operator_composes_sqlite_cache_and_stages_review(tmp_path):
     assert part.id in service.list_pending_reviews()
 
 
-async def test_operator_electrical_mode_uses_same_review_path(tmp_path):
+async def test_operator_electrical_mode_uses_same_review_path(tmp_path, monkeypatch):
     from tests.domain.test_datasheet import fact
 
     database = tmp_path / 'parts.db'
-    service = PartsBinService(SQLitePartsBinRepository(database))
+    service = PartsBinService(TestRepository(database))
     part = service.add_part(AddPartRequest(PartFields('resistor', 'passive', 4, value='10k', part_number='EXACT-10K-F')))
     config = tmp_path / 'config.toml'
     config.write_text(f'[db]\npath = "{database}"\n')
     args = argparse.Namespace(config=config, part_id=part.id,
         source_url='https://www.vishay.com/docs/example.pdf', model='test', refresh=True, electrical=True)
+    monkeypatch.setattr(enrich_source, 'from_config', lambda config: service.repository)
     with patch('ingestion.datasheet.enrich', AsyncMock(return_value={'outcome': 'proposal', 'facts': [fact()]})) as enrich:
         result = await enrich_source.run(args)
     assert result['review_staged'] and result['facts'] == []

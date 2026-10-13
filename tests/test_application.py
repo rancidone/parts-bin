@@ -9,8 +9,8 @@ from starlette.testclient import TestClient
 
 from agent_runtime import ModelTurn, ToolCall
 from application import create_services
-from db.conversations import SQLiteConversationRepository
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestConversations
+from tests.storage import TestRepository
 from domain import AddPartRequest, PartFields
 from server import create_app
 
@@ -33,8 +33,8 @@ class Transport:
 
 def services_at(directory, transport):
     directory.mkdir()
-    repository = SQLitePartsBinRepository(directory / "inventory.db")
-    conversations = SQLiteConversationRepository(directory / "events.db")
+    repository = TestRepository(directory / "inventory.db")
+    conversations = TestConversations(directory / "events.db")
     return create_services(repository, conversations, transport_factory=lambda: transport)
 
 
@@ -81,15 +81,17 @@ def test_http_apps_keep_installations_isolated_and_close_used_transports(tmp_pat
 def test_local_factory_loads_explicit_configuration_at_construction(tmp_path, monkeypatch):
     import local_app
 
-    inventory = tmp_path / "inventory.db"
-    conversations = tmp_path / "conversations.db"
+    repository = TestRepository(tmp_path / 'installation')
     config = tmp_path / "local.toml"
-    config.write_text(f'[db]\npath = "{inventory}"\n[agent]\nconversation_db_path = "{conversations}"\n')
+    config.write_text('[db]\nhost = "localhost"\ndatabase = "parts_bin"\nuser = "parts_bin"\n')
     monkeypatch.setenv("PARTS_BIN_CONFIG", str(config))
     monkeypatch.setattr(local_app.log, "init", lambda: None)
-    assert not inventory.exists()
+    def build(supplied):
+        assert supplied.database == 'parts_bin'
+        assert supplied.user == 'parts_bin'
+        return repository
+    monkeypatch.setattr(local_app, 'PostgresPartsBinRepository', build)
     app = local_app.create_app()
-    assert inventory.is_file() and conversations.is_file()
     with TestClient(app) as client:
         assert client.get("/health").json()["agent_configured"] is False
         thread = client.post("/agent/threads").json()["thread_id"]
@@ -102,8 +104,8 @@ async def test_worker_steps_reassemble_services_without_http(tmp_path):
     first_transport = Transport()
 
     def assemble(transport):
-        return create_services(SQLitePartsBinRepository(inventory),
-                               SQLiteConversationRepository(events),
+        return create_services(TestRepository(inventory),
+                               TestConversations(events),
                                transport_factory=lambda: transport)
 
     first = assemble(first_transport)

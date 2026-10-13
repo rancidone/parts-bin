@@ -432,8 +432,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         remember(updated)
         setPending(prev => new Map([...prev].filter(([id]) => !changed.has(id))))
         setRowStatus(prev => { const next = new Map(prev); for (const part of updated) next.set(part.id!, 'Saved bulk edit.'); return next })
-        setBulkIds(new Set())
-        setBulkEditing(false)
+        setBulkIds(prev => new Set([...prev].filter(id => !changed.has(id))))
       }} />}
 
       {!loading && displayed.length === 0 && !error && (

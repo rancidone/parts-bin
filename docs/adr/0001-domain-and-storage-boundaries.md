@@ -1,6 +1,6 @@
 # 0001: Keep domain rules independent of hosting and storage
 
-Status: Accepted
+Status: Accepted; persistence selection superseded by [0029](0029-postgresql-and-dsql.md)
 
 Recorded: 2026-10-10 (existing project decision)
 

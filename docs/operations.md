@@ -47,14 +47,6 @@ without renaming the part. Ratings that depend on an unresolved electrical grade
 remain unknown, and clearly unrelated documents or manufacturer conflicts still
 fail. A supplier-proposed link requires identity evidence until saved.
 
-The optional `datasheet_url` column is added on application startup. Existing
-rows receive null; IDs, quantities, evidence, reviews and conversation history
-remain stored. Rehearse startup on a SQLite backup before deploying. After an
-upgrade, approvals bound to the previous complete inventory shape can require
-a fresh approval; replay of already committed mutation outcomes remains intact.
-For rollback, the previous application can leave the extra nullable column in
-place. Restore a backup only when explicitly recovering data.
-
 ## Unnumbered stock identity
 
 Unnumbered connectors, modules, kits and other stock outside resistor, capacitor
@@ -63,15 +55,6 @@ creates a new record even when its category, value, package and description
 agree. To increase an existing group, select its record explicitly and adjust
 its quantity; in chat, identify the part ID for `add_stock`. Descriptions are
 labels, not verified ordering codes. Numbered stock retains exact-code identity.
-
-Startup replaces the legacy unnumbered-stock uniqueness index with one limited
-to resistor, capacitor and inductor categories. Rehearse startup on an online
-SQLite backup first; the migration changes no rows or historical records. Keep
-the pre-upgrade backup. After distinct unnumbered groups share category/value/
-package, an older application can refuse startup or merge their stock incorrectly.
-Use the current version to preserve those groups. If recovery requires an older
-version, restore the pre-upgrade backup deliberately, accounting for subsequent
-writes that restoration would lose.
 
 ## Bulk inventory edits
 
@@ -85,11 +68,12 @@ count on every selected row. **Review changes** shows normalized before/after
 values for every selected part, including any changes caused by inventory
 normalization. Saving dismisses pending metadata reviews on the selected rows.
 
-**Approve changes** applies the whole batch through the shared approval engine.
-An invalid identity, duplicate, or changed record prevents the entire batch.
-If stock or pending evidence changes during review, prepare a fresh review before
-approving. Retrying the same approval replays its saved result. Bulk editing
-requires no model or supplier requests.
+**Approve changes** applies each part independently through the shared approval
+engine. Successful parts remain saved when another part is stale or conflicts;
+the outcome lists saved parts and per-part failures. Failed parts remain selected
+so you can prepare a fresh review. Retrying the original approval replays saved
+per-part receipts without reapplying successful changes. Single-part effects and
+their receipts still commit together. Bulk editing requires no provider requests.
 
 ## Interrupted requests
 
@@ -214,35 +198,90 @@ reported as no matching part. No automatic retry substitutes a different source.
 
 ## Backup and recovery
 
-Find the inventory and conversation database paths in your private configuration.
-Back up both if separate; quiesce writes for a coordinated snapshot. Inventory
-backups must include provenance, pending reviews, approvals, execution checkpoints,
-and mutation outcomes. These records protect against repeated effects.
+Inventory, evidence, reviews, approvals, operation receipts, execution checkpoints,
+and conversations share one PostgreSQL database. Back up the whole database;
+receipts and checkpoints protect against repeated effects. Keep protected
+configuration separately and an off-host copy of both. Supplier caches are
+disposable; photos are ephemeral.
 
-Use SQLite's online backup facility to include WAL contents. Substitute your
-configured paths and a new destination for each snapshot:
+Use PostgreSQL client tools matching the server. Supply authentication through a
+protected `PGPASSFILE`, not a command-line password:
 
 ```sh
 umask 077
-mkdir -p backups
-sqlite3 data/parts.db ".backup 'backups/parts-recovery.db'"
-sqlite3 backups/parts-recovery.db 'PRAGMA integrity_check;'
+pg_dump --host POSTGRES_HOST --username parts_bin --dbname parts_bin \
+  --format custom --file /protected/backups/parts-bin.dump
 ```
 
-Protect configuration separately. Keep an off-host recovery copy and choose
-retention for your acceptable data loss. Photos are ephemeral and must not enter
-backups. Supplier caches are not an inventory backup.
+Rehearse restoration into a separate empty database owned by the app login:
 
-Rehearse restoration in an isolated installation. Stop the target app, preserve
-its existing database and WAL/SHM files together, and install the snapshot at the
-configured path with the correct ownership. Never combine a restored database
-with stale WAL/SHM files. Check integrity, stock quantities, conversation history,
-and a read/write workflow before using it. Keep the original installation intact
-until recovery is verified.
+```sh
+pg_restore --host POSTGRES_HOST --username parts_bin --dbname parts_bin_restore \
+  --exit-on-error /protected/backups/parts-bin.dump
+```
 
-Before upgrading, retain the previous code/image and take a backup. Code rollback
-and data restoration are separate: an older image may not understand a newer
-schema, and restoring a snapshot loses subsequent writes.
+Point an isolated app at the restored database. Check inventory counts and stock,
+accepted evidence, pending reviews, conversation ordering, saved receipts and a
+read/write workflow before recovery. Keep the original installation intact.
+Choose retention against acceptable data loss. Before upgrading, retain a backup
+and the previous image. Code rollback and data restoration are separate: restoring
+a snapshot loses subsequent writes, and an older image may require an older schema.
+
+## SQLite migration
+
+SQLite is a read-only migration source, not a runtime option. Rehearse on snapshots
+before cutover. Use SQLite's online backup facility to capture WAL contents; if
+inventory and conversations are separate files, stop writers before taking the
+coordinated snapshots. Preserve originals and protected configuration:
+
+```sh
+umask 077
+sqlite3 /old/data/parts.db ".backup '/protected/parts-snapshot.db'"
+sqlite3 /protected/parts-snapshot.db 'PRAGMA integrity_check;'
+uv run python -m db.postgres.migrate --config /protected/postgres-config.toml \
+  --inventory /protected/parts-snapshot.db
+```
+
+Add `--conversations /protected/conversations-snapshot.db` only for a separate
+history database. The importer initializes the schema and requires an empty
+authoritative target. It verifies every imported row before commit, retaining
+identities, deleted-ID allocation history, evidence, event ordering, retired-provider
+history, approvals, receipts and checkpoints. Disposable supplier caches are not
+copied. Repeating the same import returns its manifest without overwriting newer
+writes. Verify a restored copy against the original snapshots explicitly:
+
+```sh
+uv run python -m db.postgres.migrate --config /protected/restored-config.toml \
+  --inventory /protected/parts-snapshot.db --verify
+```
+
+For cutover, drain and stop the old app, capture final snapshots, import into an
+empty dedicated database, switch the protected app configuration to PostgreSQL,
+and start the new image. Check search and history before accepting writes. Retain
+the SQLite originals as recovery artifacts. After PostgreSQL receives new writes,
+returning to the old SQLite files loses those writes; use PostgreSQL recovery or a
+compatible application rollback instead. This importer targets PostgreSQL. A live
+DSQL data copy needs a separate limit-aware procedure and rehearsal.
+
+## DSQL operator experiment
+
+The operator provisions the AWS cluster. The DSQL adapter shares domain rules and
+SQL with PostgreSQL, but IAM authentication, concurrency, service limits and
+DDL need live verification before cloud deployment. Initialize using an authorized
+AWS identity (no static database password):
+
+```sh
+uv run python -m db.dsql.setup --endpoint CLUSTER_ENDPOINT --region AWS_REGION --user admin
+```
+
+Compose injected services with `DSQLPartsBinRepository(DSQLConfig(...))`; the local
+factory intentionally selects PostgreSQL. Use the cluster's normal app login for
+runtime access. Tokens are generated per connection and TLS verifies the endpoint.
+Run the optional adapter scenarios against an isolated schema using the environment
+settings documented in [the test fixture](../tests/db/dsql/conftest.py). They create
+and remove test tables; use a dedicated test cluster/login, never production stock.
+Do not infer live DSQL compatibility from PostgreSQL test results. Cloud auth,
+Terraform, orchestration and recovery remain in [TODO](../TODO.md).
 
 ## Electrical fact review
 
@@ -274,7 +313,7 @@ Stage an inspected JSON array on an isolated inventory copy first:
 
 ```sh
 uv run python -m ingestion.review_specifications PART_ID /path/to/candidate.json \
-  --database /path/to/isolated-parts.db
+  --config /path/to/isolated-postgres-config.toml
 ```
 
 This stages a review; it does not retrieve or authenticate evidence. Inspect with

@@ -1,5 +1,5 @@
 import pytest
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 
 from domain import (
     AddPartRequest, AddStockRequest, BulkUpdateRequest, DomainError,
@@ -19,7 +19,7 @@ def fields(**overrides):
 
 
 def test_add_part_normalizes_and_rejects_duplicate(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"))
+    service = PartsBinService(TestRepository(tmp_path / "parts.db"))
     part = service.add_part(AddPartRequest(fields()))
     assert part.value == "10k"
     with pytest.raises(DomainError) as error:
@@ -27,18 +27,18 @@ def test_add_part_normalizes_and_rejects_duplicate(tmp_path):
     assert error.value.code == ErrorCode.DUPLICATE_PART
 
 
-def test_add_stock_and_atomic_bulk_update(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"))
+def test_add_stock_and_independent_bulk_update(tmp_path):
+    service = PartsBinService(TestRepository(tmp_path / "parts.db"))
     first = service.add_part(AddPartRequest(fields()))
     second = service.add_part(AddPartRequest(fields(value="22k")))
     updated = service.add_stock(AddStockRequest(first.id, 3))
     assert updated.quantity == 8
     result = service.bulk_update(BulkUpdateRequest((first.id, second.id), {"package": "0603"}))
-    assert [part.package for part in result] == ["0603", "0603"]
+    assert [part.package for part in result["parts"]] == ["0603", "0603"]
 
 
 def test_bulk_update_validates_every_selected_part_before_writing(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"))
+    service = PartsBinService(TestRepository(tmp_path / "parts.db"))
     first = service.add_part(AddPartRequest(fields()))
     second = service.add_part(AddPartRequest(fields(value="22k")))
     with pytest.raises(DomainError) as error:
@@ -49,7 +49,7 @@ def test_bulk_update_validates_every_selected_part_before_writing(tmp_path):
 
 
 def test_update_repairs_historical_passive_slot_mixup(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / "parts.db"))
+    service = PartsBinService(TestRepository(tmp_path / "parts.db"))
     part = service.add_part(AddPartRequest(fields(value="100n", package="0402")))
     updated = service.update_part(UpdatePartRequest(part.id, {
         "profile": "discrete_ic", "value": "0603", "package": "0603", "part_number": "1uF",
@@ -93,7 +93,7 @@ def test_storage_conflicts_are_mapped_to_domain_errors_without_backend_details()
 ])
 def test_edited_passives_are_searchable_and_duplicate_checked(tmp_path, category, raw, edited, canonical):
     from domain import SearchPartsRequest
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     part = service.add_part(AddPartRequest(fields(part_category=category, value=raw)))
     result = service.update_part(UpdatePartRequest(part.id, {'value': edited}))
     assert result.value == canonical
@@ -129,22 +129,24 @@ def test_normalization_is_applied_before_injected_storage_calls():
     assert repository.inventory.insert.call_count == 1
 
 
-def test_bulk_value_edit_rejects_normalized_collision_without_partial_writes(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+def test_bulk_value_edit_retains_successful_part_on_later_collision(tmp_path):
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     first = service.add_part(AddPartRequest(fields(value='10K')))
     second = service.add_part(AddPartRequest(fields(value='22K')))
-    with pytest.raises(DomainError) as error:
-        service.bulk_update(BulkUpdateRequest((first.id, second.id), {'value': '2R2'}))
-    assert error.value.code == ErrorCode.CONFLICT
-    assert service.list() == [first, second]
+    result = service.bulk_update(BulkUpdateRequest((first.id, second.id), {'value': '2R2'}))
+    assert [part.id for part in result['parts']] == [first.id]
+    assert result['errors'][0]['part_id'] == second.id
+    assert result['errors'][0]['code'] == 'conflict'
+    assert service.get(GetPartRequest(first.id)).value == '2.2r'
+    assert service.get(GetPartRequest(second.id)).value == second.value
     # Different packages remain distinct identities, even with the same value.
     service.update_part(UpdatePartRequest(second.id, {'package': '0603'}))
     result = service.bulk_update(BulkUpdateRequest((first.id, second.id), {'value': '2R2'}))
-    assert [part.value for part in result] == ['2.2r', '2.2r']
+    assert [part.value for part in result["parts"]] == ['2.2r', '2.2r']
 
 
 def test_unknown_package_is_not_a_duplicate_wildcard(tmp_path):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     known = service.add_part(AddPartRequest(fields(package='0402')))
     unknown = service.add_part(AddPartRequest(fields(package=None)))
     incremented = service.add_or_increment(AddPartRequest(fields(package=None, quantity=2)))
@@ -154,7 +156,7 @@ def test_unknown_package_is_not_a_duplicate_wildcard(tmp_path):
 
 def test_historical_spelling_can_be_searched_without_rewriting_data(tmp_path):
     from domain import SearchPartsRequest
-    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
+    repository = TestRepository(tmp_path / 'parts.db')
     # Simulate a value written by the old edit path.
     part_id = repository.inventory.insert(vars(fields(value='22K')))
     before = repository.inventory.get(part_id)
@@ -168,7 +170,7 @@ def test_historical_spelling_can_be_searched_without_rewriting_data(tmp_path):
 
 
 def test_historical_equivalent_records_require_resolution_before_increment(tmp_path):
-    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
+    repository = TestRepository(tmp_path / 'parts.db')
     first_id = repository.inventory.insert(vars(fields(value='22K')))
     second_id = repository.inventory.insert(vars(fields(value='22k')))
     service = PartsBinService(repository)
@@ -181,7 +183,7 @@ def test_historical_equivalent_records_require_resolution_before_increment(tmp_p
 
 
 def test_edit_cannot_collide_with_historical_noncanonical_identity(tmp_path):
-    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
+    repository = TestRepository(tmp_path / 'parts.db')
     historical = repository.inventory.insert(vars(fields(value='22K')))
     service = PartsBinService(repository)
     current = service.add_part(AddPartRequest(fields()))
@@ -195,7 +197,7 @@ def test_edit_cannot_collide_with_historical_noncanonical_identity(tmp_path):
 
 def test_batch_add_combines_normalized_values_and_retains_exact_part_suffixes(tmp_path):
     from domain import AddPartsRequest
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     result = service.add_parts(AddPartsRequest((fields(value='2R2'), fields(value='2.2r', quantity=3))))
     assert len(result) == 1 and result[0].quantity == 8
     first = service.add_or_increment(AddPartRequest(fields(
@@ -210,7 +212,7 @@ def test_batch_add_combines_normalized_values_and_retains_exact_part_suffixes(tm
 
 def test_review_normalizes_value_but_preserves_original_evidence(tmp_path):
     from domain import ApplyReviewRequest, ProvenanceRequest, SearchPartsRequest
-    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
+    repository = TestRepository(tmp_path / 'parts.db')
     service = PartsBinService(repository)
     original = service.add_part(AddPartRequest(fields()))
     evidence = {'field_name': 'value', 'field_value': '22K', 'source_tier': 'user',
@@ -227,7 +229,7 @@ def test_review_normalizes_value_but_preserves_original_evidence(tmp_path):
 
 def test_conflicting_review_keeps_inventory_evidence_and_pending_proposal(tmp_path):
     from domain import ApplyReviewRequest, ProvenanceRequest
-    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
+    repository = TestRepository(tmp_path / 'parts.db')
     service = PartsBinService(repository)
     original = service.add_part(AddPartRequest(fields()))
     service.add_part(AddPartRequest(fields(value='22K')))
@@ -245,7 +247,7 @@ def test_conflicting_review_keeps_inventory_evidence_and_pending_proposal(tmp_pa
 
 @pytest.mark.parametrize('value', [22, True, ['22k']])
 def test_invalid_value_types_are_rejected_before_storage(tmp_path, value):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     with pytest.raises(DomainError) as error:
         service.add_part(AddPartRequest(fields(value=value)))
     assert error.value.code == ErrorCode.INVALID_INPUT
@@ -256,7 +258,7 @@ def test_adjust_stock_serializes_competing_changes_and_preserves_review(tmp_path
     from concurrent.futures import ThreadPoolExecutor
     from domain import AdjustStockRequest
 
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     part = service.add_part(AddPartRequest(fields(quantity=1)))
     service.repository.inventory.save_pending_review(part.id, {'description': 'pending'}, [])
     reviews = service.list_pending_reviews()
@@ -281,7 +283,7 @@ def test_adjust_stock_serializes_competing_changes_and_preserves_review(tmp_path
 @pytest.mark.parametrize('category', ['connector', 'module', 'kit', 'unmarked stock'])
 def test_unnumbered_nonpassives_never_auto_merge_and_allow_explicit_stock(tmp_path, category):
     from domain import AddPartsRequest
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     first_fields = fields(part_category=category, profile='discrete_ic', value='2-pin', package='through-hole', description='First physical group')
     second_fields = fields(part_category=category, profile='discrete_ic', value='2-pin', package='through-hole', description='Second physical group')
     first = service.add_or_increment(AddPartRequest(first_fields))

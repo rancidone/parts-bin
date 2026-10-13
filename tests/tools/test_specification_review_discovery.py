@@ -2,14 +2,14 @@
 
 import pytest
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import AddPartRequest, DomainError, PartFields, PartsBinService
 from tools import PartsBinToolRegistry
 
 
 async def test_discovery_pages_filters_and_preserves_review_evidence(tmp_path):
     database = tmp_path / 'parts.db'
-    service = PartsBinService(SQLitePartsBinRepository(database))
+    service = PartsBinService(TestRepository(database))
     identifiers = []
     proposed = {'name': 'tolerance', 'value': '1 %', 'basis': 'maximum', 'conditions': {},
                 'evidence': {'kind': 'user_assertion', 'excerpt': 'Marked 1%.'}}
@@ -21,7 +21,7 @@ async def test_discovery_pages_filters_and_preserves_review_evidence(tmp_path):
     # A metadata-only review must not appear in electrical discovery.
     other = service.add_part(AddPartRequest(PartFields('capacitor', 'passive', 2, value='1uF')))
     service.repository.inventory.save_pending_review(other.id, {'description': 'Proposal'}, [])
-    restarted = PartsBinService(SQLitePartsBinRepository(database))
+    restarted = PartsBinService(TestRepository(database))
     registry = PartsBinToolRegistry(restarted)
     before = restarted.repository.inventory.specification_reviews()
     first = (await registry.execute('list_pending_specification_reviews', {'limit': 2}))['result']
@@ -65,7 +65,7 @@ async def test_discovery_pages_filters_and_preserves_review_evidence(tmp_path):
     {'part_number': ''}, {'part_number': 1},
 ])
 async def test_discovery_validates_tool_and_domain_inputs(tmp_path, arguments):
-    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    service = PartsBinService(TestRepository(tmp_path / 'parts.db'))
     result = await PartsBinToolRegistry(service).execute('list_pending_specification_reviews', arguments)
     assert result['error']['code'] == 'invalid_input'
     with pytest.raises(DomainError):

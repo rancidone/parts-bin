@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import deque
 
 import pytest
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 
 from domain import PartsBinService
 from tools import PartsBinToolRegistry
@@ -13,7 +13,7 @@ from agent_runtime import (ApprovalEngine, ApprovalResponse,
                            RuntimeSelectionError, ToolCall)
 
 from agent_runtime.runtime import ModelRequest
-from db.conversations import SQLiteConversationRepository
+from tests.storage import TestConversations
 
 
 class ScriptedTransport:
@@ -27,9 +27,9 @@ class ScriptedTransport:
 
 
 def build_runtime(tmp_path, turns, *, limit=8):
-    repository = SQLitePartsBinRepository(tmp_path / "parts.db")
+    repository = TestRepository(tmp_path / "parts.db")
     registry = PartsBinToolRegistry(PartsBinService(repository))
-    store = SQLiteConversationRepository(tmp_path / "conversations.db")
+    store = TestConversations(tmp_path / "conversations.db")
     common = {"registry": registry, "store": store, "approvals": ApprovalEngine(repository), "max_tool_turns": limit}
     transport = ScriptedTransport(turns)
     runtime = OpenAIResponsesRuntime(transport, **common)

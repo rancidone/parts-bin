@@ -7,9 +7,7 @@ from pathlib import Path
 import log
 from agent_runtime import OpenAIResponsesTransport
 from application import create_services
-from db.conversations import SQLiteConversationRepository
-from db.repository import SQLitePartsBinRepository
-from db.enrichment_cache import SQLiteEnrichmentCache
+from db.postgres import PostgresPartsBinRepository, PostgresConfig
 from ingestion.datasheet import DatasheetFetcher
 from ingestion.lookup import fetch_specs_detailed
 from server import create_app as create_http_app
@@ -22,10 +20,9 @@ def create_app():
     with config_path.open("rb") as config_file:
         config = tomllib.load(config_file)
     log.init()
-    database = Path(config["db"]["path"])
-    repository = SQLitePartsBinRepository(database)
+    repository = PostgresPartsBinRepository(PostgresConfig(**config["db"]))
     agent_config = config.get("agent", {})
-    conversations = SQLiteConversationRepository(agent_config.get("conversation_db_path", str(database)))
+    conversations = repository.conversations
     openai = agent_config.get("openai", {})
     digikey = config.get("digikey", {})
     supplier_credentials = (
@@ -46,6 +43,6 @@ def create_app():
     services = create_services(repository, conversations, transport_factory=transport_factory,
                                spec_fetcher=fetcher,
                                datasheet_fetcher=DatasheetFetcher(api_key=openai.get('api_key', ''),
-                                   model=openai.get('model', 'gpt-5.6'), cache=SQLiteEnrichmentCache(database)),
+                                   model=openai.get('model', 'gpt-5.6'), cache=repository.cache),
                                agent_configured=bool(openai.get("api_key")))
     return create_http_app(services, ui_dist_path=Path(__file__).parent / "ui" / "dist")

@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import PartsBinService
 from domain.specification_conditions import conditions_cover, same_conditions
 from tests.domain.test_specifications import fact, requirement, search, setup
@@ -65,7 +65,7 @@ async def test_tool_search_covers_operating_conditions_after_review_restart(tmp_
     service.stage_specifications(part, facts)
     registry = PartsBinToolRegistry(service)
     assert (await registry.execute('search_parts', args))['result']['incomplete_count'] == 1
-    restarted = PartsBinService(SQLitePartsBinRepository(repository.database))
+    restarted = PartsBinService(TestRepository(repository.isolation_key))
     restarted.apply_specification_review(part.id)
     registry = PartsBinToolRegistry(restarted)
     result = (await registry.execute('search_parts', args))['result']

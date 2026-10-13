@@ -1,7 +1,7 @@
 # Parts Bin agent guide
 
 Parts Bin is an electronics-inventory application with a Python/FastAPI backend,
-currently using SQLite persistence, and a React/Vite UI. Support local-first
+using PostgreSQL persistence, and a React/Vite UI. Support local-first
 operation and reproducible cloud deployment into an operator's own account.
 Preserve existing inventory, conversations, and provenance.
 
@@ -70,9 +70,10 @@ implementations over speculative abstractions.
 
 - `server.py`: current FastAPI entry point and API adapters.
 - `application.py`: shared service assembly from injected storage/runtime dependencies.
-- `local_app.py`: local configuration, SQLite composition, and ASGI factory.
+- `local_app.py`: local configuration, PostgreSQL composition, and ASGI factory.
 - `domain/`: typed inventory rules and domain errors.
-- `db/`: SQLite adapters for inventory, conversations, approvals, and executions.
+- `db/postgres/`: PostgreSQL adapters for inventory, conversations, approvals, and executions.
+- `db/dsql/`: IAM-authenticated DSQL connection and shared PostgreSQL adapters.
 - `agent_runtime/`: gateway, OpenAI transport, approvals, conversation contracts,
   and telemetry.
 - `tools/`: typed inventory tool registry.
@@ -87,7 +88,8 @@ implementations over speculative abstractions.
 
 - Python requires 3.14+ and uses `uv`; the UI uses Node.js and npm.
 - Copy `config.example.toml` to the untracked `config.toml` for local services.
-  Automated tests use isolated data and mocked providers. OpenAI credentials
+  Automated tests use isolated PostgreSQL schemas and mocked providers. Set
+  `PARTS_BIN_TEST_POSTGRES_DSN` to a dedicated disposable test database. OpenAI credentials
   are required for live agent use; supplier credentials are optional.
 - Follow `README.md` for local startup commands and `compose.yaml` for container
   configuration.

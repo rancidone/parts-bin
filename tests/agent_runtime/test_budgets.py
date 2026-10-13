@@ -111,11 +111,11 @@ async def test_opaque_reasoning_has_a_separate_bound_and_is_preserved():
 
 async def test_whole_bom_fits_budget_with_real_tools_and_preserves_all_outcomes(tmp_path):
     from agent_runtime.runtime import SYSTEM_INSTRUCTIONS
-    from db.repository import SQLitePartsBinRepository
+    from tests.storage import TestRepository
     from domain import PartsBinService
     from tools import PartsBinToolRegistry
 
-    registry = PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db')))
+    registry = PartsBinToolRegistry(PartsBinService(TestRepository(tmp_path / 'parts.db')))
     tools = tuple({'type': 'function', 'name': tool['name'], 'description': tool['description'],
                    'parameters': tool['inputSchema'], 'strict': False} for tool in registry.list_tools())
     items = [{'filters': {'part_category': 'capacitor', 'value': f'{i} nF', 'package': '0603'},
@@ -153,11 +153,11 @@ def test_larger_bom_result_budget_remains_bounded_and_other_tools_unchanged():
 async def test_multi_round_bom_keeps_reasoning_and_all_results_with_real_contract(tmp_path):
     from agent_runtime.runtime import SYSTEM_INSTRUCTIONS
     from agent_runtime.telemetry import AgentTelemetry
-    from db.repository import SQLitePartsBinRepository
+    from tests.storage import TestRepository
     from domain import PartsBinService
     from tools import PartsBinToolRegistry
 
-    registry = PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db')))
+    registry = PartsBinToolRegistry(PartsBinService(TestRepository(tmp_path / 'parts.db')))
     tools = tuple({'type': 'function', 'name': tool['name'], 'description': tool['description'],
                    'parameters': tool['inputSchema'], 'strict': False} for tool in registry.list_tools())
     arguments = {'items': [{'filters': {'part_category': 'capacitor', 'value': f'{i} nF',

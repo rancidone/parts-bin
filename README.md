@@ -20,6 +20,7 @@ uv sync
 npm ci --prefix ui
 cp config.example.toml config.toml
 mkdir -p data
+chmod 600 config.toml
 ```
 
 Skip the copy if you already have local configuration. Edit `config.toml` to
@@ -27,13 +28,24 @@ configure the OpenAI API agent; use
 [config.example.toml](config.example.toml) for configuration keys. Keep credentials
 out of version control. See [operations](docs/operations.md) for recovery and diagnostics.
 
+Use an existing PostgreSQL server with a dedicated `parts_bin` database and login.
+Set `[db]` to that installation; use a protected configuration or `PGPASSFILE` for
+the password. Initialize its schema explicitly before startup:
+
+```sh
+uv run python -m db.postgres.setup --host localhost --database parts_bin --user parts_bin
+```
+
+SQLite installations require the explicit [migration procedure](docs/operations.md#sqlite-migration).
+The app does not create databases, migrate data, or fall back to SQLite on startup.
+
 Run the API and UI in separate terminals:
 
 ```sh
 uv run uvicorn local_app:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-The local factory loads configuration and constructs SQLite-backed services.
+The local factory loads configuration and constructs PostgreSQL-backed services.
 The HTTP adapter can also be constructed with injected services; see
 [application assembly](application.py) and [hosting boundaries](docs/adr/0001-domain-and-storage-boundaries.md).
 
@@ -106,7 +118,12 @@ read committed inventory without model or supplier calls.
 Python tests live in `tests/`, mirroring the source directories. Pytest discovers
 the suite there; run a focused subset with, for example, `uv run pytest tests/domain`.
 
+Use a separate disposable PostgreSQL database whose login can create schemas.
+Tests create isolated schemas and remove them after the session. Never point the
+following setting at a production database. `PGPASSFILE` can supply its password:
+
 ```sh
+export PARTS_BIN_TEST_POSTGRES_DSN='host=localhost dbname=parts_bin_test user=parts_bin_test'
 uv run pytest
 npm run lint --prefix ui
 npm run test --prefix ui

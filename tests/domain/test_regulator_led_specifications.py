@@ -2,7 +2,7 @@
 
 import pytest
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import PartsBinService
 from domain.specifications import contract
 from ingestion.electrical_source import facts_schema
@@ -33,7 +33,7 @@ async def test_bot_contract_review_restart_and_qualified_search(tmp_path, stored
     args = {'filters': {'part_category': alias}, 'requirements': [requirement(proposed, query_value)], 'minimum_quantity': 4}
     service.stage_specifications(part, [proposed])
     assert (await registry.execute('search_parts', args))['result']['incomplete_count'] == 1
-    restarted = PartsBinService(SQLitePartsBinRepository(repository.database))
+    restarted = PartsBinService(TestRepository(repository.isolation_key))
     restarted.apply_specification_review(part.id)
     registry = PartsBinToolRegistry(restarted)
     result = (await registry.execute('search_parts', args))['result']

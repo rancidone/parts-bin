@@ -49,14 +49,14 @@ async def test_lookup_scenario_requires_every_clarification_cue(tmp_path):
 
 async def test_scenarios_seed_execute_and_inspect_injected_repositories(tmp_path):
     from unittest.mock import Mock
-    from db.conversations import SQLiteConversationRepository
-    from db.repository import SQLitePartsBinRepository
+    from tests.storage import TestConversations
+    from tests.storage import TestRepository
     from evaluation.runner import EvaluationStorage
 
-    repository = SQLitePartsBinRepository(tmp_path / "injected-inventory.db")
+    repository = TestRepository(tmp_path / "injected-inventory.db")
     inventory = Mock(wraps=repository.inventory)
     repository.inventory = inventory
-    conversations = SQLiteConversationRepository(tmp_path / "injected-events.db")
+    conversations = TestConversations(tmp_path / "injected-events.db")
     storage = EvaluationStorage(repository, conversations)
     storage_factory = Mock(return_value=storage)
 
@@ -69,22 +69,22 @@ async def test_scenarios_seed_execute_and_inspect_injected_repositories(tmp_path
                                 factory=factory, storage_factory=storage_factory)
     assert result.status == "passed"
     storage_factory.assert_called_once_with(tmp_path, "pending_review_resolution-openai")
-    inventory.insert.assert_called_once()
+    assert len(repository.inventory.search({})) == 1
     inventory.save_pending_review.assert_called_once()
     # Both the agent's provenance tool and the final state check use this port.
     assert inventory.list_provenance.call_count >= 2
     inventory.list_provenance.assert_called_with(1)
     assert inventory.search.call_count >= 1
     assert any(event.kind == "approval_decision" for event in conversations.events("eval-pending_review_resolution"))
-    assert len(list(tmp_path.glob("*.db"))) == 2
+    assert repository.storage_id != conversations.owner.storage_id
 
 
 @pytest.mark.parametrize("runtime", ["openai"])
 async def test_initial_model_request_never_contains_a_full_inventory_snapshot(tmp_path, runtime):
     scenario = _scenario("large_inventory_search")
-    from evaluation.runner import _seed, _turn, sqlite_evaluation_storage
+    from evaluation.runner import _seed, _turn, postgres_evaluation_storage
 
-    storage = sqlite_evaluation_storage(tmp_path, runtime)
+    storage = postgres_evaluation_storage(tmp_path, runtime)
     _seed(storage.repository, scenario["starting_database"])
     instance, transport = default_runtime_factory(runtime, storage.repository, storage.conversations,
                                                    [_turn(turn) for turn in scenario["recorded_turns"]])
@@ -100,8 +100,8 @@ def test_canonical_contract_exposes_no_generic_or_direct_database_tool():
     from domain import PartsBinService
     from tools import PartsBinToolRegistry
 
-    from db.repository import SQLitePartsBinRepository
-    names = {tool["name"] for tool in PartsBinToolRegistry(PartsBinService(SQLitePartsBinRepository(":memory:"))).list_tools()}
+    from tests.storage import TestRepository
+    names = {tool["name"] for tool in PartsBinToolRegistry(PartsBinService(TestRepository(":memory:"))).list_tools()}
     forbidden = {"sql", "query_sql", "db" + "_action", "run_action", "patch", "shell", "web"}
     assert not names & forbidden
 
@@ -151,9 +151,9 @@ async def test_lookup_evaluation_rejects_staging_facts_even_without_changing_sto
 
 async def test_lookup_snapshot_detects_changes_to_electrical_reviews(tmp_path):
     from domain import PartsBinService
-    from evaluation.runner import _seed, _snapshot, sqlite_evaluation_storage
+    from evaluation.runner import _seed, _snapshot, postgres_evaluation_storage
     scenario = _scenario('inventory_lookup_electrical_evidence')
-    storage = sqlite_evaluation_storage(tmp_path, 'snapshot')
+    storage = postgres_evaluation_storage(tmp_path, 'snapshot')
     _seed(storage.repository, scenario['starting_database'])
     before = _snapshot(storage.repository)
     service = PartsBinService(storage.repository)

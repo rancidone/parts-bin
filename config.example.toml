@@ -1,6 +1,5 @@
 [agent]
-# Conversation events and threads share the inventory database by default.
-conversation_db_path = "data/parts.db"
+# Conversation events share the inventory PostgreSQL database.
 
 [agent.openai]
 api_key = ""
@@ -8,7 +7,13 @@ base_url = "https://api.openai.com/v1"
 model = "gpt-5.6"
 
 [db]
-path = "data/parts.db"
+host = "localhost"
+database = "parts_bin"
+user = "parts_bin"
+# Use a protected config file or libpq PGPASSFILE for the password.
+# password = ""
+port = 5432
+sslmode = "prefer"
 
 [digikey]
 client_id = ""

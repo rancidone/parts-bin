@@ -221,8 +221,7 @@ async def decide_inventory_bulk_update(request: Request, body: dict) -> dict:
         result = await engine.execute(approval, PartsBinToolRegistry(service))
         if not result['ok']:
             raise HTTPException(status_code=409, detail=result['error'])
-        return {'approved': True, 'parts': [vars(service.get(GetPartRequest(part['id'])))
-                                           for part in result['result']['parts']]}
+        return {'approved': True, **result['result']}
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

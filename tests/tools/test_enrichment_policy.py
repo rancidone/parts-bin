@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from db.repository import SQLitePartsBinRepository
+from tests.storage import TestRepository
 from domain import PartsBinService
 from tools import PartsBinToolRegistry, ToolExecutionContext
 
@@ -12,7 +12,7 @@ from tools import PartsBinToolRegistry, ToolExecutionContext
 @pytest.fixture
 def registry(tmp_path):
     service = PartsBinService(
-        SQLitePartsBinRepository(tmp_path / "parts.db"),
+        TestRepository(tmp_path / "parts.db"),
         spec_fetcher=AsyncMock(return_value={"status": "matched", "chosen_updates": {}}),
     )
     return PartsBinToolRegistry(service)

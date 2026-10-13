@@ -1,4 +1,4 @@
-"""Offline SQLite search measurements using disposable synthetic stock only."""
+"""Offline PostgreSQL search measurements using disposable synthetic stock only."""
 
 from __future__ import annotations
 
@@ -11,12 +11,14 @@ from statistics import median
 from tempfile import TemporaryDirectory
 from time import perf_counter
 
-from db.repository import SQLiteInventoryRepository, SQLitePartsBinRepository
+from db.postgres.inventory import PostgresInventoryRepository
+from db.postgres import PostgresPartsBinRepository
+from db.postgres.disposable import isolated_repository
 from domain import AddPartRequest, PartFields, PartsBinService
 from tools import PartsBinToolRegistry
 
 
-class MeasuredInventory(SQLiteInventoryRepository):
+class MeasuredInventory(PostgresInventoryRepository):
     """Count adapter reads and materialized candidates, not estimated SQL work."""
 
     def __init__(self, database):
@@ -39,7 +41,7 @@ class MeasuredInventory(SQLiteInventoryRepository):
         return super().specifications_for_parts(part_ids)
 
 
-def seed(repository: SQLitePartsBinRepository, size: int) -> None:
+def seed(repository: PostgresPartsBinRepository, size: int) -> None:
     """One-category stress case with confirmed, incomplete and failing evidence."""
     with repository.transaction() as unit:
         service = PartsBinService(unit)
@@ -87,9 +89,9 @@ async def measure(size: int, *, repeats: int = 3, limit: int = 20) -> dict:
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError('Page limit must be between 1 and 100')
     with TemporaryDirectory(prefix='parts-bin-scale-') as directory:
-        repository = SQLitePartsBinRepository(Path(directory) / 'inventory.db')
+        repository = isolated_repository(Path(directory) / 'inventory')
         seed(repository, size)
-        measured = MeasuredInventory(repository.database)
+        measured = MeasuredInventory(repository)
         repository.inventory = measured
         service = PartsBinService(repository)
         registry = PartsBinToolRegistry(service)
@@ -121,7 +123,7 @@ async def measure(size: int, *, repeats: int = 3, limit: int = 20) -> dict:
 
 
 async def run(sizes: list[int], repeats: int, limit: int) -> dict:
-    return {'dataset': 'Synthetic one-category SQLite stress case; no application configuration or production data.',
+    return {'dataset': 'Synthetic one-category PostgreSQL stress case; no application configuration or production data.',
             'interpretation': 'Adapter counts are logical calls and materialized rows, not disk reads or query plans. OS cache state is uncontrolled. BOM responses may be larger than paged searches. Timings include tool validation and serialization-size measurement is separate.',
             'runs': [await measure(size, repeats=repeats, limit=limit) for size in sizes]}
 
@@ -144,4 +146,8 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    main()
+    from db.postgres.disposable import cleanup
+    try:
+        main()
+    finally:
+        cleanup()

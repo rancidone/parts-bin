@@ -51,15 +51,11 @@ class StorageFactory(Protocol):
     def __call__(self, workspace: Path, prefix: str) -> EvaluationStorage: ...
 
 
-def sqlite_evaluation_storage(workspace: Path, prefix: str) -> EvaluationStorage:
-    """Local composition only; scenario execution consumes repository contracts."""
-    from db.conversations import SQLiteConversationRepository
-    from db.repository import SQLitePartsBinRepository
-
-    # Each run gets isolated files, preserving existing evaluation artifacts.
-    database = workspace / f"{prefix}-{uuid.uuid4().hex}.db"
-    return EvaluationStorage(SQLitePartsBinRepository(database),
-                             SQLiteConversationRepository(database.with_suffix(".events.db")))
+def postgres_evaluation_storage(workspace: Path, prefix: str) -> EvaluationStorage:
+    """Use a disposable PostgreSQL schema, isolated from application stock."""
+    from db.postgres.disposable import isolated_repository
+    repository = isolated_repository(workspace / f"{prefix}-{uuid.uuid4().hex}")
+    return EvaluationStorage(repository, repository.conversations)
 
 
 @dataclass(frozen=True)
@@ -278,7 +274,7 @@ def _assert_state(snapshot: dict[str, Any], expected: dict[str, Any]) -> None:
 
 async def run_scenario(scenario: dict[str, Any], runtime: str, workspace: Path, *,
                        factory: RuntimeFactory = default_runtime_factory,
-                       storage_factory: StorageFactory = sqlite_evaluation_storage) -> ScenarioResult:
+                       storage_factory: StorageFactory = postgres_evaluation_storage) -> ScenarioResult:
     workspace.mkdir(parents=True, exist_ok=True)
     storage = storage_factory(workspace, f"{scenario['id']}-{runtime}")
     _seed(storage.repository, scenario["starting_database"])
@@ -324,7 +320,7 @@ def _assert_answer(events: list[Any], assertion: dict[str, Any]) -> None:
 
 
 async def run_recorded(workspace: Path, *, factory: RuntimeFactory = default_runtime_factory,
-                       storage_factory: StorageFactory = sqlite_evaluation_storage,
+                       storage_factory: StorageFactory = postgres_evaluation_storage,
                        scenarios: list[dict[str, Any]] | None = None) -> EvaluationReport:
     results = []
     for scenario in scenarios if scenarios is not None else load_scenarios():
@@ -363,4 +359,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from db.postgres.disposable import cleanup
+    try:
+        main()
+    finally:
+        cleanup()
