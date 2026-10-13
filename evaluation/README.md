@@ -320,3 +320,30 @@ another read. Review actual call sequences alongside response usage and answers.
 The whole-BOM scenario checks a single submission rather than model-managed
 pagination. Category scenarios use synthetic accepted evidence to measure bot
 search behavior separately from live manufacturer extraction quality.
+
+## Offline inventory scale measurements
+
+Measure the SQLite read path without provider requests or production data:
+
+```sh
+uv run python -m evaluation.inventory_scale \
+  --sizes 100 1000 5000 --repeats 3 --limit 20 \
+  --output /private/tmp/parts-bin-inventory-scale.json
+```
+
+The command creates and removes disposable databases. It never loads application
+configuration. The synthetic one-category stress case includes accepted source
+fixtures, pending reviews, absent facts, and known failing constraints; its
+passages are not manufacturer evidence. Workloads cover exact and nominal
+lookups, broad and narrow candidate searches, electrical pagination, a whole
+exact-code BOM, and overlapping requirements.
+
+Reports preserve individual timings, response bytes, returned record counts,
+full result counts, and adapter calls. Materialized candidates and requested fact
+IDs describe logical read work, not disk reads or query plans. SQL batching can
+use several bounded statements within one connection. The first sample is not
+an OS cold-cache measurement; cache state is uncontrolled. Reuse identical sizes,
+page limits and repetitions for comparisons, retain both reports outside Git,
+and review latency and output size separately. A bounded result page can still
+read many candidates. These synthetic timings do not establish production
+latency or justify a new index by themselves.

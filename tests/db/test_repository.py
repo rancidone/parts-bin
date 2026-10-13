@@ -71,3 +71,50 @@ def test_storage_preserves_supplied_representation_without_normalizing(tmp_path)
     assert repository.inventory.get(part_id).value == '22K'
     assert repository.inventory.search({'part_category': 'resistor', 'value': '22k'}) == []
     assert repository.inventory.search({'part_category': 'resistor', 'value': '22K'})[0].id == part_id
+
+
+def test_batch_specifications_use_one_connection_and_bounded_queries(tmp_path, monkeypatch):
+    import sqlite3
+    from db import persistence
+    from evaluation.inventory_scale import seed
+
+    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
+    seed(repository, 503)
+    expected = {part_id: repository.inventory.specifications(part_id) for part_id in (1, 500, 501, 503)}
+    original_connect = persistence._connect
+    connections, statements = [], []
+
+    def traced_connect(database):
+        connection = original_connect(database)
+        connection.set_trace_callback(statements.append)
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(persistence, '_connect', traced_connect)
+    assert repository.inventory.specifications_for_parts([]) == {}
+    assert connections == []
+    found = repository.inventory.specifications_for_parts([*range(1, 504), 1, 99999])
+    assert len(connections) == 1
+    assert sum(statement.startswith('SELECT part_id, facts_json') for statement in statements) == 2
+    assert 'BEGIN' in statements and 'COMMIT' in statements
+    assert 99999 not in found
+    # Unaccepted proposals and absent facts never enter the accepted map.
+    assert 2 not in found and 3 not in found
+    assert {part_id: found.get(part_id, []) for part_id in expected} == expected
+    with pytest.raises(sqlite3.ProgrammingError, match='closed'):
+        connections[0].execute('SELECT 1')
+
+
+def test_batch_specifications_use_existing_transaction_and_preserve_rollback(tmp_path):
+    from evaluation.inventory_scale import seed
+
+    repository = SQLitePartsBinRepository(tmp_path / 'parts.db')
+    seed(repository, 4)
+    with pytest.raises(RuntimeError, match='roll back'):
+        with repository.transaction() as unit:
+            # Batch reads see the caller's in-progress writes without committing them.
+            unit.inventory.apply_specification_review(3)
+            assert set(unit.inventory.specifications_for_parts([1, 2, 3, 4])) == {1, 3, 4}
+            raise RuntimeError('roll back')
+    assert set(repository.inventory.specifications_for_parts([1, 2, 3, 4])) == {1, 4}
+    assert 3 in repository.inventory.specification_reviews()
