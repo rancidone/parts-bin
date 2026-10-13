@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from agent_runtime import AgentGateway, AgentTelemetry, ApprovalEngine, OpenAIResponsesRuntime
 from agent_runtime.runtime import ModelTransport
 from agent_runtime.store import ConversationRepository
+from agent_runtime.dispatch import DurableDispatch
 from domain import PartsBinService
 from domain.repositories import PartsBinRepository
 from domain.service import SpecFetcher, DatasheetFetcher
@@ -17,6 +18,10 @@ class ApplicationServices:
     domain: PartsBinService
     gateway: AgentGateway
     agent_configured: bool
+
+    @property
+    def dispatch(self):
+        return DurableDispatch(self.domain.repository, self.gateway)
 
     async def close(self) -> None:
         await self.gateway.close()

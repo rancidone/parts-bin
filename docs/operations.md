@@ -77,13 +77,68 @@ their receipts still commit together. Bulk editing requires no provider requests
 
 ## Interrupted requests
 
-Worker hosts can accept a stable request through `AgentGateway.prepare`, then
-call `advance_background` with that execution ID. A `waiting_model` result means
-the worker has released its lease; invoke it later to retrieve the saved provider
-response. A `ready` result needs another stage; `awaiting_approval` needs the
-original approval decision. Read progress from stored conversation events. This
-worker interface does not schedule continuation and is not enabled by the current
-HTTP routes.
+HTTP message intake requires an `execution_id` form field before paid work.
+Reuse that identity and identical input if the intake acknowledgement is lost;
+conflicting reuse returns 409. Refresh old browser tabs after this upgrade. Browser message
+streams only follow persisted progress; closing them does not cancel execution.
+The `parts-bin-worker` container claims due PostgreSQL deliveries, advances one
+submission, collection or tool stage, then releases ownership. It polls known
+response IDs every thirty seconds when notifications are missing and reconciles
+inbox entries and unscheduled checkpoints every fifteen seconds. No AWS resources
+or broker are required for this deployment.
+
+Before upgrading either service, take a PostgreSQL dump and protect the current
+configuration and image IDs using the backup procedure below. Run the explicit,
+additive schema upgrade using the candidate image and protected config mount:
+
+```sh
+python -m db.postgres.setup --config /app/config.toml
+```
+
+Then deploy both `parts-bin` and `parts-bin-worker`. The app never initializes the
+schema on startup. For non-container local use, run `uv run python -m
+agent_runtime.worker` alongside the API. `--once` reconciles and attempts one due
+stage; `--health` checks the database worker heartbeat. Inspect bounded worker logs
+and preserve the original execution ID when recovering failures:
+
+```sh
+docker compose logs --tail 100 parts-bin-worker
+docker compose exec parts-bin-worker python -m agent_runtime.worker --health
+```
+
+Public installations should register the exact HTTPS URL
+`https://YOUR_HOST/agent/webhooks/openai` with the installation's OpenAI project:
+
+```sh
+python -m scripts.openai_webhook --config /app/config.toml --url https://YOUR_HOST/agent/webhooks/openai
+```
+
+Run this on the host/candidate image with a writable protected configuration mount,
+then restart HTTP intake. The helper saves the one-time signing secret locally;
+never paste it into Git or command output. It refuses duplicate endpoints or
+implicit secret rotation. If registration succeeds but local writing is interrupted,
+recover the protected `config.toml.webhook.pending` file; if no secret was saved,
+rotate explicitly in the OpenAI dashboard instead of creating another endpoint.
+Webhook management needs project permission; if the API login lacks it, register
+in the dashboard and put the secret in `[agent.openai].webhook_secret` using the
+operator's protected secret procedure. Local development needs no public callback.
+
+The webhook route verifies the original body and timestamp with the official SDK,
+commits a minimal notification and wakeup before returning 204, and retrieves no
+provider response in the receiver. Invalid signatures return 400, oversized bodies
+413, and unavailable verification/storage 503. Callbacks do not need browser login;
+the rest of the deployment retains its existing access boundary. Inbox receipts
+expire after seven days; unknown project response IDs cannot start new executions.
+An early callback waits for the matching saved response ID. Old callbacks cannot
+advance a different model round.
+
+Safe retrieval/stage delivery failures back off up to sixty seconds. Eight consecutive
+failures park the delivery and publish `dispatch_blocked`; inspect the worker error
+type, restore connectivity/configuration, then use **Resume request**. Lease conflicts
+defer without consuming that budget. Historical executions are enrolled only on an
+explicit resume, never by reconciliation. Approvals remain parked until a validated
+decision and wakeup commit together. Graceful worker stop finishes the current
+bounded stage; abrupt loss is recovered after its five-minute lease expires.
 
 Background submission keeps `store=false`. OpenAI temporarily retains background
 results for roughly ten minutes; collect them promptly. `model_response_unavailable`
@@ -124,8 +179,8 @@ Duplicate delivery returns the saved outcome. A changed target or an unknown
 historical approval requires a fresh proposal; conversation prose cannot replace
 approval.
 
-Resume may repeat a model call interrupted before its response was saved. Check
-provider usage before retrying uncertain paid work. Interrupted supplier retrieval
+Resuming an uncertain background submission fails conservatively without repeating
+the POST. Inspect provider usage before sending a new request. Interrupted supplier retrieval
 is reported as incomplete and needs an explicit new lookup. Photos are not saved:
 attach a fresh photo before resuming interrupted initial image analysis. If resume
 has already failed with `image_resubmission_required`, send a new photo message.

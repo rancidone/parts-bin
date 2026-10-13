@@ -50,11 +50,19 @@ uv run python -m db.postgres.setup --host localhost --database parts_bin --user 
 Follow [migration operations](docs/operations.md#sqlite-migration) for other
 SQLite installations. Startup never initializes data or falls back to SQLite.
 
-Run the API and UI in separate terminals:
+Run the API, durable worker and UI in separate terminals:
 
 ```sh
 uv run uvicorn local_app:create_app --factory --host 127.0.0.1 --port 8000
 ```
+
+```sh
+uv run python -m agent_runtime.worker
+```
+
+After upgrades, run `uv run python -m db.postgres.setup --config config.toml`
+before starting either process. Local development can reconcile by polling; public
+installations can also receive signed OpenAI webhooks.
 
 The local factory loads configuration and constructs PostgreSQL-backed services.
 The HTTP adapter can also be constructed with injected services; see

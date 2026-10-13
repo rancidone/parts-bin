@@ -50,3 +50,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 
 - [0028: Commit mutations and bulk outcomes per part](0028-per-part-mutation-transactions.md)
 - [0029: Use existing PostgreSQL and share SQL with the DSQL experiment](0029-postgresql-and-dsql.md)
+
+- [0030: Dispatch durable stages through PostgreSQL and signed OpenAI notifications](0030-durable-dispatch-and-openai-webhooks.md)

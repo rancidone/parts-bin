@@ -10,18 +10,14 @@ constraints and measured tradeoffs.
 
 ## Serverless preparation
 
-- Define dispatch and continuation around the bounded worker entry point,
-  including duplicate delivery, lost scheduling acknowledgement, approval waits,
-  cancellation and interrupted paid stages. Avoid relying on in-process tasks
-  after an HTTP response; test worker replacement with injected repositories.
 - Evaluate background Responses submission and collection with the intended
-  model and workloads before enabling it in HTTP workflows. Measure submission
+  model and workloads on real inventory/photo workloads. Measure submission
   latency, collection cadence, costs and result-expiry behavior within the
   provider's temporary polling window. Keep uncertain submissions distinct from
   safe retrieval retries; do not silently extend provider retention.
-- Separate progress delivery from execution. Reconnect using stored event cursors,
-  preserving ordering and terminal/approval state without restarting work. Validate
-  the chosen authenticated delivery adapter during the cloud experiment.
+- Validate authenticated progress delivery and automatic browser reconnect using
+  stored event cursors during the cloud experiment. Add explicit application
+  cancellation with stage-boundary semantics before offering a cancel control.
 
 ## Deferred enrichment measurements
 

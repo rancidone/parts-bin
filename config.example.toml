@@ -5,6 +5,10 @@
 api_key = ""
 base_url = "https://api.openai.com/v1"
 model = "gpt-5.6"
+# For public installations, register /agent/webhooks/openai on this OpenAI project.
+# scripts.openai_webhook saves these to protected host-local configuration.
+# webhook_secret = ""
+# webhook_endpoint_id = ""
 
 [db]
 host = "localhost"

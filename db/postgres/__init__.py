@@ -7,6 +7,7 @@ from .inventory import PostgresInventoryRepository
 from .records import PostgresApprovalRepository
 from .execution import PostgresExecutionRepository, PostgresOperationRepository
 from .conversations import PostgresConversationRepository
+from .dispatch import PostgresDispatchRepository
 from .cache import PostgresEnrichmentCache
 
 
@@ -29,6 +30,7 @@ class PostgresPartsBinRepository:
         self.executions = PostgresExecutionRepository(self)
         self.conversations = PostgresConversationRepository(self)
         self.cache = PostgresEnrichmentCache(self)
+        self.dispatch = PostgresDispatchRepository(self)
 
     @contextmanager
     def unit(self, *, write):

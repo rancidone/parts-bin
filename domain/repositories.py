@@ -2,7 +2,10 @@
 
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from agent_runtime.dispatch import DispatchRepository
 
 from .models import CategorySummary, Part
 
@@ -50,6 +53,7 @@ class OperationRepository(Protocol):
 
 
 class ExecutionRepository(Protocol):
+    def get(self, thread_id: str, execution_id: str) -> StoredExecution | None: ...
     def prepare(self, thread_id: str, execution_id: str,
                 context: dict[str, Any]) -> StoredExecution: ...
     def claim(self, thread_id: str, execution_id: str, worker_id: str,
@@ -118,5 +122,6 @@ class PartsBinRepository(Protocol):
     approvals: ApprovalRepository
     operations: OperationRepository
     executions: ExecutionRepository
+    dispatch: "DispatchRepository"
 
     def transaction(self) -> AbstractContextManager["PartsBinRepository"]: ...

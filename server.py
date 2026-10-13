@@ -8,6 +8,10 @@ typed domain service.
 from __future__ import annotations
 
 import json
+import re
+
+from openai import OpenAI, InvalidWebhookSignatureError
+from domain.repositories import ExecutionUnavailable, RepositoryBusy
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,7 +30,7 @@ from domain import (
 )
 from domain.models import SearchPartsRequest
 from domain.specifications import SPECIFICATIONS, contract
-from fastapi import APIRouter, Body, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, FastAPI, File, Form, HTTPException, Request, UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,7 +44,8 @@ def _services(request: Request) -> ApplicationServices:
     return request.app.state.services
 
 
-def create_app(services: ApplicationServices, *, ui_dist_path: Path | None = None) -> FastAPI:
+def create_app(services: ApplicationServices, *, ui_dist_path: Path | None = None,
+               webhook_secret: str | None = None) -> FastAPI:
     """Build an HTTP adapter from supplied application services."""
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -48,8 +53,11 @@ def create_app(services: ApplicationServices, *, ui_dist_path: Path | None = Non
             yield
         finally:
             await services.close()
+            if _app.state.webhook_client is not None:
+                _app.state.webhook_client.close()
 
     app = FastAPI(title="Parts Bin", lifespan=lifespan)
+    app.state.webhook_client = OpenAI(api_key='signature-verification-only', webhook_secret=webhook_secret) if webhook_secret else None
     app.state.services = services
     app.state.ui_dist_path = ui_dist_path
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -111,6 +119,8 @@ async def list_agent_threads(request: Request) -> dict:
 async def resume_agent_thread(request: Request, thread_id: str, after: int = 0) -> StreamingResponse:
     try:
         events = _services(request).gateway.events(thread_id, after=max(after, 0))
+    except (ExecutionUnavailable, RepositoryBusy, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except UnsupportedRuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
@@ -119,11 +129,21 @@ async def resume_agent_thread(request: Request, thread_id: str, after: int = 0) 
 
 
 @router.post("/agent/threads/{thread_id}/messages")
-async def submit_agent_message(request: Request, thread_id: str, message: str = Form(default=""), photo: UploadFile | None = File(default=None)) -> StreamingResponse:
+async def submit_agent_message(request: Request, thread_id: str, message: str = Form(default=""), photo: UploadFile | None = File(default=None),
+                               execution_id: str = Form(...)) -> StreamingResponse:
     if not message.strip() and photo is None:
         raise HTTPException(status_code=422, detail="message or photo required")
     try:
-        events = _services(request).gateway.submit_stream(thread_id, message.strip() or "Identify this part.", image=await _agent_image(photo))
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', execution_id):
+            raise HTTPException(status_code=422, detail='Invalid execution identity')
+        dispatch = _services(request).dispatch
+        dispatch.gateway._runtime_name(thread_id)
+        if not _services(request).agent_configured:
+            raise HTTPException(status_code=503, detail='OpenAI API is not configured')
+        await dispatch.submit(thread_id, execution_id, message.strip() or "Identify this part.", await _agent_image(photo))
+        events = dispatch.follow(thread_id, execution_id)
+    except (ExecutionUnavailable, RepositoryBusy, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except UnsupportedRuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
@@ -137,7 +157,17 @@ async def resume_agent_execution(request: Request, thread_id: str, execution_id:
     if not execution_id.strip():
         raise HTTPException(status_code=422, detail="execution_id is required")
     try:
-        events = _services(request).gateway.resume_stream(thread_id, execution_id, image=await _agent_image(photo))
+        dispatch = _services(request).dispatch
+        dispatch.gateway._runtime_name(thread_id)
+        image = await _agent_image(photo)
+        with dispatch.repository.transaction() as unit:
+            unit.dispatch.wake(thread_id, execution_id)
+            delivery = unit.dispatch.claim(execution_id) if image else None
+        if delivery:
+            await dispatch.run_delivery(delivery, image=image)
+        events = dispatch.follow(thread_id, execution_id)
+    except (ExecutionUnavailable, RepositoryBusy, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except UnsupportedRuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
@@ -151,12 +181,48 @@ async def respond_to_agent_approval(request: Request, thread_id: str, body: dict
     if not isinstance(request_id, str) or not isinstance(approved, bool):
         raise HTTPException(status_code=422, detail="request_id and approved boolean are required")
     try:
-        events = _services(request).gateway.approval_stream(thread_id, ApprovalResponse(request_id, approved))
+        dispatch = _services(request).dispatch
+        after = max((event.sequence or 0 for event in dispatch.gateway.events(thread_id)), default=0)
+        execution_id = dispatch.decide(thread_id, ApprovalResponse(request_id, approved))
+        # Duplicate approval replies can replay a terminal result without waking paid work.
+        record = dispatch.repository.executions.for_approval(thread_id, request_id)
+        events = dispatch.follow(thread_id, execution_id, after=0 if record.status in {'completed', 'failed'} else after)
+    except (ExecutionUnavailable, RepositoryBusy, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except UnsupportedRuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown conversation thread") from exc
     return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.post('/agent/webhooks/openai', status_code=204)
+async def openai_webhook(request: Request):
+    client = request.app.state.webhook_client
+    if client is None:
+        raise HTTPException(status_code=503, detail='OpenAI webhook verification is not configured')
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > 65536:
+            raise HTTPException(status_code=413, detail='Webhook payload too large')
+    try:
+        event = client.webhooks.unwrap(bytes(raw), request.headers)
+        from agent_runtime.dispatch import TERMINAL_EVENTS
+        if event.type not in TERMINAL_EVENTS:
+            return Response(status_code=204)
+        response_id = event.data.id
+        event_id = request.headers['webhook-id']
+        if not re.fullmatch(r'resp_[A-Za-z0-9_-]{1,200}', response_id) or not 1 <= len(event_id) <= 200:
+            raise ValueError('Invalid notification identity')
+    except (InvalidWebhookSignatureError, ValueError, TypeError, AttributeError, KeyError):
+        raise HTTPException(status_code=400, detail='Invalid OpenAI webhook') from None
+    try:
+        _services(request).domain.repository.dispatch.notify(event_id, response_id, event.type)
+    except Exception:
+        # Never acknowledge before the inbox and wakeup transaction commits.
+        raise HTTPException(status_code=503, detail='Webhook persistence unavailable') from None
+    return Response(status_code=204)
 
 
 @router.get("/health")

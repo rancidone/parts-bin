@@ -42,7 +42,7 @@ def repository(request, tmp_path):
     finally:
         with connect() as connection:
             # DSQL cleanup uses one DDL statement per autocommit transaction.
-            for table in ('pb_legacy_sessions', 'pb_imports', 'supplied_enrichment_cache', 'agent_event_keys', 'agent_events', 'agent_threads', 'agent_execution_approvals',
+            for table in ('agent_dispatch', 'agent_webhook_inbox', 'agent_worker_heartbeat', 'pb_legacy_sessions', 'pb_imports', 'supplied_enrichment_cache', 'agent_event_keys', 'agent_events', 'agent_threads', 'agent_execution_approvals',
                           'agent_executions', 'agent_operations', 'agent_approvals', 'part_specification_reviews',
                           'part_specifications', 'part_pending_field_review', 'part_field_provenance', 'parts', 'pb_revision'):
                 connection.execute(sql.SQL('DROP TABLE IF EXISTS {}').format(sql.Identifier(table)))

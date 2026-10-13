@@ -13,7 +13,7 @@ from ingestion.lookup import fetch_specs_detailed
 from server import create_app as create_http_app
 
 
-def create_app():
+def create_local_services():
     config_path = Path(os.environ.get("PARTS_BIN_CONFIG", Path(__file__).parent / "config.toml"))
     if not config_path.is_file():
         raise RuntimeError(f"config.toml not found at {config_path}")
@@ -45,4 +45,10 @@ def create_app():
                                datasheet_fetcher=DatasheetFetcher(api_key=openai.get('api_key', ''),
                                    model=openai.get('model', 'gpt-5.6'), cache=repository.cache),
                                agent_configured=bool(openai.get("api_key")))
-    return create_http_app(services, ui_dist_path=Path(__file__).parent / "ui" / "dist")
+    return services, openai
+
+
+def create_app():
+    services, openai = create_local_services()
+    return create_http_app(services, ui_dist_path=Path(__file__).parent / "ui" / "dist",
+                           webhook_secret=openai.get('webhook_secret'))
