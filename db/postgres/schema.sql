@@ -65,3 +65,16 @@ CREATE TABLE IF NOT EXISTS pb_imports (
 CREATE TABLE IF NOT EXISTS pb_legacy_sessions (
     thread_id TEXT PRIMARY KEY, data_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agent_dispatch (
+    execution_id TEXT PRIMARY KEY REFERENCES agent_executions(execution_id),
+    available_at DOUBLE PRECISION, token TEXT, lease_until DOUBLE PRECISION NOT NULL,
+    wake_version BIGINT NOT NULL, failures INTEGER NOT NULL, blocked INTEGER NOT NULL,
+    settled INTEGER NOT NULL, response_id TEXT, last_error TEXT
+);
+CREATE TABLE IF NOT EXISTS agent_webhook_inbox (
+    event_id TEXT PRIMARY KEY, response_id TEXT NOT NULL, event_type TEXT NOT NULL,
+    received_at DOUBLE PRECISION NOT NULL, consumed INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_worker_heartbeat (
+    worker_name TEXT PRIMARY KEY, seen_at DOUBLE PRECISION NOT NULL
+);

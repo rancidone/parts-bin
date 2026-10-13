@@ -78,6 +78,12 @@ class PostgresExecutionRepository(Adapter):
         return self.record(row)
 
     @access()
+    def get(self, thread_id: str, execution_id: str) -> StoredExecution | None:
+        row = self.execute('SELECT * FROM agent_executions WHERE thread_id = %s AND execution_id = %s',
+                           (thread_id, execution_id)).fetchone()
+        return None if row is None else self.record(row)
+
+    @access()
     def for_approval(self, thread_id: str, request_id: str) -> StoredExecution | None:
         row = self.execute("""SELECT e.* FROM agent_executions e
             JOIN agent_execution_approvals a ON e.execution_id = a.execution_id
@@ -100,6 +106,8 @@ class PostgresExecutionRepository(Adapter):
         if context.get("approval_id"):
             self.execute("INSERT INTO agent_execution_approvals VALUES (%s, %s) ON CONFLICT(request_id) DO NOTHING",
                          (context["approval_id"], execution_id))
+
+        self.owner.dispatch.checkpoint(execution_id, context, status)
 
     @access(write=True)
     def release(self, execution_id: str, worker_id: str) -> None:

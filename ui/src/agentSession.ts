@@ -212,6 +212,7 @@ export class AgentSession {
       data: { text: message, image: photo ? { media_type: photo.type } : null } }] })
     const form = new FormData()
     form.append('message', message)
+    form.append('execution_id', crypto.randomUUID())
     if (photo) form.append('photo', photo)
     const response = await this.request(`/agent/threads/${encodeURIComponent(this.state.threadId!)}/messages`, { method: 'POST', body: form })
     await this.consume(response, echo)

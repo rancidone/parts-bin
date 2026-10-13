@@ -1,6 +1,6 @@
 # 0026: Advance agent executions at durable stage boundaries
 
-Status: Accepted
+Status: Accepted; HTTP execution and dispatch direction superseded by [0030](0030-durable-dispatch-and-openai-webhooks.md)
 
 ## Context
 

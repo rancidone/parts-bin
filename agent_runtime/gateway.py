@@ -45,9 +45,10 @@ class AgentGateway:
         return tuple(self.store.threads())
 
     async def prepare(self, thread_id: str, execution_id: str, text: str, *,
-                      image: ImageInput | None = None) -> str:
+                      image: ImageInput | None = None, durable: bool = False,
+                      reservation: str | None = None) -> str:
         runtime = await self._runtime_for(thread_id)
-        return runtime.prepare(thread_id, execution_id, text, image=image)
+        return runtime.prepare(thread_id, execution_id, text, image=image, durable=durable, reservation=reservation)
 
     async def advance_background(self, thread_id: str, execution_id: str, *,
                                  image: ImageInput | None = None,

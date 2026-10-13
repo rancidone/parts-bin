@@ -117,12 +117,20 @@ class OpenAIResponsesRuntime:
         self.telemetry = telemetry or AgentTelemetry()
 
     def prepare(self, thread_id: str, execution_id: str, user_text: str, *,
-                image: ImageInput | None = None) -> str:
+                image: ImageInput | None = None, durable: bool = False,
+                reservation: str | None = None) -> str:
         """Accept a stable request identity before any paid work or dispatch."""
         self.store.create_thread(thread_id, self.runtime)
         initial = self._initial_state(thread_id, user_text, image)
         initial["input_digest"] = _input_digest(user_text, image)
-        self.registry.service.repository.executions.prepare(thread_id, execution_id, initial)
+        repository = self.registry.service.repository
+        if durable:
+            repository.dispatch.accept(thread_id, execution_id, initial, reservation)
+            self.store.append_once(ConversationEvent('user_message', thread_id, self.runtime,
+                {'text': user_text, 'image': {'media_type': image.media_type} if image else None,
+                 'execution_id': execution_id}), f'{execution_id}:user')
+        else:
+            repository.executions.prepare(thread_id, execution_id, initial)
         return execution_id
 
     def _initial_state(self, thread_id: str, user_text: str, image: ImageInput | None) -> dict[str, Any]:

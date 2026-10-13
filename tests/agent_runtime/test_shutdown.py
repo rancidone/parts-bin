@@ -1,4 +1,4 @@
-"""Exercise SIGTERM against the real HTTP host with isolated stock and no provider."""
+"""A real HTTP host can exit while accepted work continues in another process."""
 
 import asyncio
 import json
@@ -10,105 +10,102 @@ import subprocess
 import sys
 
 import httpx
-import pytest
 
-from agent_runtime import ModelTurn
-from tests.storage import TestConversations
 from tests.storage import TestRepository
-from domain import PartsBinService
-from application import create_services
 
 
-@pytest.mark.parametrize('forced', [False, True])
-async def test_shutdown_finishes_or_releases_request_without_repeating_stock(tmp_path, forced):
+async def test_http_shutdown_does_not_cancel_durable_worker(tmp_path):
     module = tmp_path / 'shutdown_app.py'
     module.write_text('''
 import asyncio
 import os
 from agent_runtime import ModelTurn, ToolCall
 from application import create_services
-from tests.storage import TestConversations
 from tests.storage import TestRepository
 from server import create_app
 
 class Transport:
-    async def complete(self, request):
-        if not request.exchanges:
-            return ModelTurn(tool_calls=(ToolCall('add_part', {
-                'part_category': 'resistor', 'profile': 'passive',
-                'value': '10k', 'quantity': 3}, 'add'),))
-        await asyncio.sleep(float(os.environ['SHUTDOWN_TEST_DELAY']))
+    async def start(self, request):
+        return 'resp_first' if not request.exchanges else 'resp_final'
+    async def retrieve(self, response_id):
+        if response_id == 'resp_first':
+            return ModelTurn(tool_calls=(ToolCall('add_stock', {'part_id': 1, 'quantity': 2}, 'add'),))
+        await asyncio.sleep(1)
         return ModelTurn('Added once')
 
+def services():
+    repository = TestRepository(os.environ['SHUTDOWN_TEST_DATABASE'])
+    return create_services(repository, repository.conversations, transport_factory=Transport)
+
 def factory():
-    database = os.environ['SHUTDOWN_TEST_DATABASE']
-    return create_app(create_services(TestRepository(database),
-        TestConversations(database), transport_factory=Transport))
+    return create_app(services())
 ''')
-    # Reserve a port briefly; all data and requests are disposable test fixtures.
     with socket.socket() as reservation:
         reservation.bind(('127.0.0.1', 0))
         port = reservation.getsockname()[1]
-    database = tmp_path / 'parts.db'
+    database = tmp_path / 'installation'
+    repository = TestRepository(database)
+    from domain import AddPartRequest, PartFields, PartsBinService
+    PartsBinService(repository).add_part(AddPartRequest(PartFields('resistor', 'passive', 1, value='10k')))
     environment = {**os.environ, 'PYTHONPATH': os.pathsep.join((str(tmp_path), str(Path.cwd()))),
-                   'SHUTDOWN_TEST_DATABASE': str(database), 'SHUTDOWN_TEST_DELAY': '60' if forced else '0.5'}
+                   'SHUTDOWN_TEST_DATABASE': str(database)}
+    worker_code = '''
+import asyncio
+from shutdown_app import services
+async def work():
+    app = services()
+    try:
+        for _ in range(500):
+            app.dispatch.reconcile()
+            with app.domain.repository.transaction() as unit:
+                unit.connection.execute('UPDATE agent_dispatch SET available_at = 0 WHERE settled = 0')
+            await app.dispatch.run_once()
+            await asyncio.sleep(.02)
+    finally:
+        await app.close()
+asyncio.run(work())
+'''
     with (tmp_path / 'server.log').open('w+') as output:
         process = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'shutdown_app:factory', '--factory',
             '--host', '127.0.0.1', '--port', str(port), '--timeout-graceful-shutdown', '1'],
             env=environment, stdout=output, stderr=output)
+        worker = subprocess.Popen([sys.executable, '-c', worker_code], env=environment, stdout=output, stderr=output)
         try:
             async with httpx.AsyncClient(base_url=f'http://127.0.0.1:{port}', timeout=10) as client:
                 for _ in range(100):
                     if process.poll() is not None:
                         output.seek(0)
-                        pytest.fail(output.read()[-3000:])
+                        raise AssertionError(output.read()[-3000:])
                     try:
                         if (await client.get('/health')).status_code == 200:
                             break
                     except httpx.ConnectError:
                         pass
-                    await asyncio.sleep(0.05)
-                else:
-                    pytest.fail('Test HTTP host did not become ready')
+                    await asyncio.sleep(.05)
                 thread = (await client.post('/agent/threads')).json()['thread_id']
-                events = []
                 async with client.stream('POST', f'/agent/threads/{thread}/messages',
-                                         data={'message': 'Add three resistors'}) as response:
+                                         data={'message': 'Add two', 'execution_id': 'request'}) as response:
                     response.raise_for_status()
-                    try:
-                        async for line in response.aiter_lines():
-                            if line.startswith('data: '):
-                                event = json.loads(line[6:])
-                                events.append(event)
-                                if event['kind'] == 'tool_result':
-                                    process.send_signal(signal.SIGTERM)
-                    except httpx.RemoteProtocolError:
-                        assert forced
+                    async for line in response.aiter_lines():
+                        if line.startswith('data: ') and json.loads(line[6:])['kind'] == 'tool_result':
+                            process.send_signal(signal.SIGTERM)
+                            break
                 await asyncio.to_thread(process.wait, timeout=5)
-            # Uvicorn restores and re-raises the signal after completing shutdown.
             assert process.returncode in (0, -signal.SIGTERM)
-            store = TestConversations(database)
-            execution = store.events(thread)[0].data['execution_id']
-            repository = TestRepository(database)
+            for _ in range(100):
+                events = repository.conversations.events(thread)
+                if events[-1].kind == 'completed':
+                    break
+                await asyncio.sleep(.05)
+            assert events[-1].data['status'] == 'completed'
             assert PartsBinService(repository).list()[0].quantity == 3
-            if forced:
-                # Cancellation must free ownership immediately, before the 5-minute lease expires.
-                record = repository.executions.claim(thread, execution, 'probe')
-                assert record.status == 'ready'
-                repository.executions.release(execution, 'probe')
-
-                class FinishTransport:
-                    async def complete(self, request):
-                        return ModelTurn('Recovered acknowledgement')
-
-                services = create_services(repository, store, transport_factory=FinishTransport)
-                resumed = await services.gateway.resume(thread, execution)
-                assert resumed[-1].data['status'] == 'completed'
-                assert PartsBinService(repository).list()[0].quantity == 3
-                assert sum(event.kind == 'tool_result' for event in store.events(thread)) == 1
-            else:
-                assert events[-1]['data']['status'] == 'completed'
+            assert sum(event.kind == 'tool_result' for event in events) == 1
         finally:
-            if process.poll() is None:
-                process.kill()
-                await asyncio.to_thread(process.wait, timeout=5)
+            for child in (process, worker):
+                if child.poll() is None:
+                    child.terminate()
+                    try:
+                        await asyncio.to_thread(child.wait, timeout=5)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                        await asyncio.to_thread(child.wait, timeout=5)

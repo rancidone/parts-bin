@@ -76,7 +76,7 @@ def test_historical_conversations_are_readable_but_cannot_continue(client, runti
         conn.execute("INSERT INTO agent_events VALUES (%s, %s, %s, %s, %s)",
                      ("old-thread", 1, "assistant_text", runtime, '{"text":"preserved history"}'))
     assert "preserved history" in client[0].get("/agent/threads/old-thread/events").text
-    assert client[0].post("/agent/threads/old-thread/messages", data={"message": "continue"}).status_code == 409
+    assert client[0].post("/agent/threads/old-thread/messages", data={"message": "continue", "execution_id": "test-request"}).status_code == 409
     assert client[0].post("/agent/threads/old-thread/approvals", json={"request_id": "old", "approved": True}).status_code == 409
     assert client[0].post("/agent/threads/old-thread/resume", data={"execution_id": "old"}).status_code == 409
     assert client[0].app.state.services.gateway.store.runtime_for("old-thread") == runtime
@@ -145,40 +145,27 @@ async def test_resume_endpoint_replays_completed_execution_without_model_call(tm
 
 
 @pytest.mark.asyncio
-async def test_message_endpoint_returns_sse_before_turn_finishes(tmp_path):
+async def test_message_stream_disconnect_leaves_durable_delivery_running(tmp_path):
     import asyncio
-    from agent_runtime import ModelTurn, ToolCall
-    release = asyncio.Event()
-    stopped = asyncio.Event()
+    from tests.agent_runtime.test_dispatch import build, due
+    from tests.agent_runtime.test_background_workers import Provider
 
-    class PausedTransport:
-        calls = 0
-        async def complete(self, request):
-            self.calls += 1
-            if self.calls == 1:
-                return ModelTurn(tool_calls=(ToolCall("search_parts", {}, "search"),))
-            try:
-                await release.wait()
-                return ModelTurn("done")
-            finally:
-                stopped.set()
-
-    store = TestConversations(tmp_path / "conversation.db")
-    repository = TestRepository(tmp_path / "parts.db")
-    services = create_services(repository, store, transport_factory=PausedTransport)
-    gateway = services.gateway
-    app = server.create_app(services)
-    request = Request({"type": "http", "app": app})
-    thread = gateway.create_thread()
-    response = await asyncio.wait_for(server.submit_agent_message(request, thread, "search", None), 1)
-    assert response.headers["x-accel-buffering"] == "no"
-    for kind in ["user_message", "tool_call", "tool_result"]:
-        chunk = await asyncio.wait_for(anext(response.body_iterator), 1)
-        assert f'"kind": "{kind}"' in chunk
-    assert not release.is_set()
-    # Disconnecting closes the producer, including a still-pending model call.
+    provider = Provider([{'status': 'completed', 'output': []}])
+    services = build(tmp_path, provider)
+    request = Request({'type': 'http', 'app': server.create_app(services)})
+    thread = services.gateway.create_thread()
+    response = await server.submit_agent_message(request, thread, 'hello', None, 'stable-request')
+    assert response.headers['x-accel-buffering'] == 'no'
+    chunk = await asyncio.wait_for(anext(response.body_iterator), 1)
+    assert '"kind": "user_message"' in chunk
     await response.body_iterator.aclose()
-    await asyncio.wait_for(stopped.wait(), 1)
+    assert provider.posts == 0
+    assert await services.dispatch.run_once()
+    due(services.domain.repository)
+    assert await services.dispatch.run_once()
+    assert services.gateway.events(thread)[-1].data['status'] == 'completed'
+    assert provider.posts == 1
+    await services.close()
 
 
 def test_edit_normalizes_value_and_agent_search_finds_it(client):
@@ -562,3 +549,8 @@ def test_electrical_search_separates_accepted_pending_and_asserted_evidence(clie
     assert service.list() == before_search
     assert all(service.get(GetPartRequest(part.id)).quantity == 4 for part in parts)
     assert service.get_specifications(parts[1].id)['pending_review'] is not None
+
+
+def test_message_intake_requires_stable_identity(client):
+    thread = client[0].post('/agent/threads').json()['thread_id']
+    assert client[0].post(f'/agent/threads/{thread}/messages', data={'message': 'hello'}).status_code == 422

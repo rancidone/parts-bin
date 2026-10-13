@@ -20,6 +20,13 @@ class Transport:
         self.calls = 0
         self.closed = False
 
+    async def start(self, request):
+        self.request = request
+        return 'resp_test'
+
+    async def retrieve(self, response_id):
+        return await self.complete(self.request)
+
     async def complete(self, request):
         self.calls += 1
         if self.calls == 1:
@@ -70,7 +77,22 @@ def test_http_apps_keep_installations_isolated_and_close_used_transports(tmp_pat
         assert two.get("/inventory").json() == []
         thread = two.post("/agent/threads").json()["thread_id"]
         assert one.get(f"/agent/threads/{thread}/events").status_code == 404
-        response = two.post(f"/agent/threads/{thread}/messages", data={"message": "Add two 10k resistors"})
+        import threading
+        import time
+        stopping = threading.Event()
+        def worker():
+            while not stopping.is_set():
+                with second.domain.repository.transaction() as unit:
+                    unit.connection.execute('UPDATE agent_dispatch SET available_at = 0 WHERE settled = 0')
+                two.portal.call(second.dispatch.run_once)
+                time.sleep(0.01)
+        task = threading.Thread(target=worker)
+        task.start()
+        try:
+            response = two.post(f"/agent/threads/{thread}/messages", data={"message": "Add two 10k resistors", "execution_id": "test-request"})
+        finally:
+            stopping.set()
+            task.join(timeout=5)
         assert '"status": "completed"' in response.text
         assert one.get("/inventory").json()[0]["quantity"] == 1
         assert two.get("/inventory").json()[0]["quantity"] == 2
@@ -95,8 +117,8 @@ def test_local_factory_loads_explicit_configuration_at_construction(tmp_path, mo
     with TestClient(app) as client:
         assert client.get("/health").json()["agent_configured"] is False
         thread = client.post("/agent/threads").json()["thread_id"]
-        result = client.post(f"/agent/threads/{thread}/messages", data={"message": "hello"})
-        assert "OpenAI API is not configured" in result.text
+        result = client.post(f"/agent/threads/{thread}/messages", data={"message": "hello", "execution_id": "test-request"})
+        assert result.status_code == 503
 
 
 async def test_worker_steps_reassemble_services_without_http(tmp_path):

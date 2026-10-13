@@ -36,13 +36,13 @@ def access(*, write=False):
         def wrapped(self, *args, **kwargs):
             if self.connection is not None:
                 return method(self, *args, **kwargs)
-            for attempt in range(4):
+            for attempt in range(6):
                 try:
                     with self.owner.unit(write=write) as owner:
                         bound = type(self)(owner)
                         return method(bound, *args, **kwargs)
                 except RepositoryBusy:
-                    if attempt == 3:
+                    if attempt == 5:
                         raise
                     time.sleep(0.01 * 2 ** attempt)
         return wrapped
