@@ -278,8 +278,14 @@ confirmed. Incomplete facts may remain in a review or accepted history, but
 cannot confirm those requirements. Matching also depends on stored conditions.
 Equivalent explicit Celsius and humidity intervals or center ± tolerance
 compare by equal endpoints while the original conditions and passages remain
-stored. Resistive and resistive-load spellings of load type compare alike. Other
-condition names and values compare literally; no derating or
+stored. Resistive and resistive-load spellings of load type compare alike.
+Named electrical conditions compare scalars, ranges and center ± tolerance by
+equal SI endpoints. For example, `supply_voltage` values `5 to 36 V`
+and `5000 mV to 0.036 kV` match. A range with units only after the upper endpoint
+uses those units for both endpoints. Different endpoints, a scalar within a
+range, trailing qualifiers and dual-rail annotations remain distinct. This
+also applies to named current, frequency, duration and resistance conditions.
+Condition names remain distinct. Unknown names and values compare literally; no derating or
 room-temperature inference is performed. Reject proposals that omit a source's
 applicable temperature, test environment,
 min/max bound, load pairing or reference-only qualifier. The

@@ -361,3 +361,25 @@ def test_invalid_requirements_are_domain_errors(tmp_path, requirements):
     _, service, _ = setup(tmp_path)
     with pytest.raises(DomainError):
         search(service, 'resistor', requirements)
+
+
+def test_accepted_opamp_supply_range_matches_equivalent_units_after_restart(tmp_path):
+    repository, service, part = setup(tmp_path, 'operational amplifier')
+    proposed = fact('input_offset_voltage', '3 mV', 'maximum_magnitude', conditions={
+        'supply_voltage': '5 to 36 V', 'ambient_temperature': '25 °C', 'common_mode_voltage': '0 V'})
+    service.stage_specifications(part, [proposed])
+    query = requirement(proposed, '3 mV', 'lte')
+    query['conditions']['supply_voltage'] = '5000 mV to 0.036 kV'
+    assert search(service, 'operational amplifier', [query])['incomplete_count'] == 1
+    service.apply_specification_review(part.id)
+    restarted = PartsBinService(SQLitePartsBinRepository(repository.database))
+    before = restarted.list()
+    result = search(restarted, 'opamp', [query])
+    assert result['match_count'] == 1 and result['incomplete_count'] == 0
+    assert result['matches'][0]['supporting_facts'] == [proposed]
+    assert restarted.list() == before
+    assert restarted.get_specifications(part.id)['facts'] == [proposed]
+    for different in ('6 V to 36 V', '5 V', '5 to 36 V typical'):
+        query['conditions']['supply_voltage'] = different
+        result = search(restarted, 'operational amplifier', [query])
+        assert result['match_count'] == 0 and result['incomplete_count'] == 1

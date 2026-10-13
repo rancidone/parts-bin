@@ -222,7 +222,7 @@ def contract(category: str) -> dict:
                if search_category(category) in {'linear regulator', 'buck converter'} else {}),
             **({'value_policy': 'Preserve exact color and intensity bin identity. Maximum forward voltage requires its test current and temperature. Continuous and pulsed stress currents are distinct; retain duty cycle and pulse duration. Dominant wavelength is distinct from peak wavelength. Minimum luminous intensity is distinct from typical intensity and luminous flux; retain test current, temperature and measurement geometry. Unmarked LEDs require identity clarification.'}
                if search_category(category) == 'led' else {}),
-            'conditions_policy': 'Match complete condition mappings. Explicit scalar electrical conditions compare by SI units; Celsius/humidity intervals and center ± tolerance compare by equal endpoints; omitted conditions are incomplete. Preserve original conditions and evidence.',
+            'conditions_policy': 'Match complete condition mappings. Named electrical, Celsius and percentage conditions compare scalars, explicit ranges and center ± tolerance by equal unit-aware endpoints. Omitted conditions are incomplete. Range containment does not establish a match. Unknown conditions and additional qualifiers remain literal. Preserve original conditions and evidence.',
             'evidence_policy': 'Only accepted source evidence confirms requirements. User assertions remain incomplete.'}
 
 

@@ -29,8 +29,9 @@ extraction and keep unsupported fields unknown.
 
 ## Requirements and inventory scale
 
-- Define further operating ranges and derating from concrete source-backed
-  requests; extend fields and condition comparison only where those cases need it.
+- Define application operating-range coverage and derating only from concrete
+  source-backed requests; equal test-condition endpoints alone do not establish
+  operation across a requested range.
 - Add typed category attributes for connectors, modules and kits only when
   concrete ingestion failures require structured variant descriptions. Preserve
   separate unnumbered physical groups and rehearse any migration on copies.
