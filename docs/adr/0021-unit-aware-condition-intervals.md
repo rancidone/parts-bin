@@ -1,6 +1,7 @@
 # 0021: Compare explicit condition intervals with shared unit-aware parsing
 
-Status: Accepted
+Status: Accepted; condition-containment policy extended by
+[0023](0023-operating-condition-coverage.md) for operating minimum/maximum facts.
 
 ## Context
 

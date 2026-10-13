@@ -27,11 +27,11 @@ extraction and keep unsupported fields unknown.
   concrete requests need them; retain integrations only when reliability justifies
   their complexity and cost.
 
-## Requirements and inventory scale
+## Deferred local requirements
 
-- Add derating or coverage across differing test conditions only from concrete
-  source-backed requests. Operating endpoint comparisons under equal conditions
-  do not establish behavior at other temperatures, loads or application conditions.
+- Add derating or coverage beyond explicitly documented operating conditions
+  only from concrete source-backed requests. Containment of documented operating
+  ranges does not establish behavior outside them or turn test points into guarantees.
 - Add typed category attributes for connectors, modules and kits only when
   concrete ingestion failures require structured variant descriptions. Preserve
   separate unnumbered physical groups and rehearse any migration on copies.

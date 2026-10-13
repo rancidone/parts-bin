@@ -40,3 +40,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0021: Compare explicit condition intervals with shared unit-aware parsing](0021-unit-aware-condition-intervals.md)
 
 - [0022: Compare whole specification value intervals](0022-specification-value-intervals.md)
+
+- [0023: Cover requested conditions within documented operating intervals](0023-operating-condition-coverage.md)
