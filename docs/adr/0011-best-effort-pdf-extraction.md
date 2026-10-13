@@ -2,6 +2,9 @@
 
 Status: Accepted
 
+Numeric condition comparison is superseded by
+[0021](0021-unit-aware-condition-intervals.md); the PDF extraction decision remains.
+
 ## Context
 
 PDF reading order and cell association are separate problems. Row flattening

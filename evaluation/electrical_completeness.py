@@ -4,9 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
-from domain import DomainError
 from domain.specification_conditions import interval
-from domain.specifications import definition, numeric_value
+from domain.specifications import definition
 
 EXPECTATIONS = Path(__file__).parent / 'enrichment' / 'electrical_expectations.json'
 
@@ -14,23 +13,9 @@ EXPECTATIONS = Path(__file__).parent / 'enrichment' / 'electrical_expectations.j
 def _equal(raw, expected, unit=None):
     if not isinstance(raw, str):
         return False
-    if unit in {'°C', '%'}:
+    if unit:
         left, right = interval(raw, unit), interval(expected, unit)
         return left is not None and left == right
-    if unit:
-        try:
-            # Explicit endpoint units can differ by SI prefix. Compare the
-            # entire range, never discard an endpoint or trailing annotation.
-            if ' to ' in raw or ' to ' in expected:
-                left, right = raw.split(' to '), expected.split(' to ')
-                if len(left) != 2 or len(right) != 2:
-                    return False
-                left = tuple(numeric_value(value.strip(), unit) for value in left)
-                right = tuple(numeric_value(value.strip(), unit) for value in right)
-                return left[0] <= left[1] and right[0] <= right[1] and left == right
-            return numeric_value(raw, unit) == numeric_value(expected, unit)
-        except DomainError:
-            return False
     return ' '.join(raw.casefold().split()).rstrip('.') == ' '.join(expected.casefold().split()).rstrip('.')
 
 

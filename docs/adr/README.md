@@ -36,3 +36,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0019: Batch accepted specification reads for candidate searches](0019-batched-accepted-specification-reads.md)
 
 - [0020: Keep unnumbered non-passive stock as distinct physical groups](0020-distinct-unnumbered-stock.md)
+
+- [0021: Compare explicit condition intervals with shared unit-aware parsing](0021-unit-aware-condition-intervals.md)
