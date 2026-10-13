@@ -95,3 +95,39 @@ def test_local_factory_loads_explicit_configuration_at_construction(tmp_path, mo
         thread = client.post("/agent/threads").json()["thread_id"]
         result = client.post(f"/agent/threads/{thread}/messages", data={"message": "hello"})
         assert "OpenAI API is not configured" in result.text
+
+
+async def test_worker_steps_reassemble_services_without_http(tmp_path):
+    inventory, events = tmp_path / "inventory.db", tmp_path / "events.db"
+    first_transport = Transport()
+
+    def assemble(transport):
+        return create_services(SQLitePartsBinRepository(inventory),
+                               SQLiteConversationRepository(events),
+                               transport_factory=lambda: transport)
+
+    first = assemble(first_transport)
+    thread = first.gateway.create_thread()
+    result = await first.gateway.advance(thread, "Add two 10k resistors")
+    execution_id = result.execution_id
+    assert result.status == "ready"
+    assert first.domain.list() == []
+    await first.close()
+    assert first_transport.closed
+
+    second_transport = Transport()
+    second = assemble(second_transport)
+    result = await second.gateway.advance(thread, execution_id=execution_id)
+    assert result.status == "ready"
+    assert second.domain.list()[0].quantity == 2
+    assert second_transport.calls == 0
+    await second.close()
+
+    final_transport = Transport()
+    final_transport.calls = 1  # The final worker only supplies the acknowledgement.
+    final = assemble(final_transport)
+    result = await final.gateway.advance(thread, execution_id=execution_id)
+    assert result.status == "completed"
+    assert final.domain.list()[0].quantity == 2
+    assert final.gateway.events(thread) == result.events
+    await final.close()

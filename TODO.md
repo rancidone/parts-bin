@@ -4,8 +4,23 @@ This is a planning list, not implementation evidence. Remove entries when the
 work no longer needs tracking; use code, tests, and run output to inspect behavior.
 Decisions and rationale belong in [ADRs](docs/adr/README.md).
 
-Cloud experiments remain deferred while local ingestion and evidence-backed
-electrical lookup are improved.
+Prepare the application for serverless workers while preserving local operation.
+AWS service selection and paid cloud experiments still require deployment
+constraints and measured tradeoffs.
+
+## Serverless preparation
+
+- Separate durable request intake from worker invocation. Persist a stable
+  request/execution identity before dispatch, reject conflicting duplicate payloads,
+  and recover a lost acknowledgement without creating a second execution. Keep
+  photo bytes ephemeral and request resubmission when initial analysis cannot resume.
+- Define dispatch and continuation around the bounded worker entry point,
+  including duplicate delivery, lost scheduling acknowledgement, approval waits,
+  cancellation and interrupted paid stages. Avoid relying on in-process tasks
+  after an HTTP response; test worker replacement with injected repositories.
+- Separate progress delivery from execution. Reconnect using stored event cursors,
+  preserving ordering and terminal/approval state without restarting work. Validate
+  the chosen authenticated delivery adapter during the cloud experiment.
 
 ## Deferred enrichment measurements
 
