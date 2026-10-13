@@ -21,7 +21,14 @@ CONVERSATION_TABLES = ('agent_threads', 'agent_events', 'agent_event_keys')
 
 
 def snapshot(path):
-    connection = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
+    path = Path(path).resolve()
+    # Online-backup files can retain WAL mode without needing live sidecars.
+    # Immutable reads never create SHM/WAL files; reject unsnapshotted writes.
+    for suffix in ('-wal', '-journal'):
+        sidecar = Path(str(path) + suffix)
+        if sidecar.exists() and sidecar.stat().st_size:
+            raise ValueError('Use a standalone SQLite backup snapshot, not a database with outstanding journal/WAL data')
+    connection = sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True)
     connection.row_factory = sqlite3.Row
     try:
         connection.execute('BEGIN')
