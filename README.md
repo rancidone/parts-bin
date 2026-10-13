@@ -28,16 +28,27 @@ configure the OpenAI API agent; use
 [config.example.toml](config.example.toml) for configuration keys. Keep credentials
 out of version control. See [operations](docs/operations.md) for recovery and diagnostics.
 
-Use an existing PostgreSQL server with a dedicated `parts_bin` database and login.
-Set `[db]` to that installation; use a protected configuration or `PGPASSFILE` for
-the password. Initialize its schema explicitly before startup:
+For a local Docker PostgreSQL server, run:
+
+```sh
+uv run python -m scripts.dev_postgres
+```
+
+This starts the pinned development database on `127.0.0.1:54329`, initializes
+its schema and updates your untracked `config.toml`. Existing SQLite data is
+snapshotted, imported and verified before configuration changes. Stop any old
+local app first. Generated passwords and snapshots stay in ignored `data/`.
+The named volume preserves development stock when the container is stopped.
+
+Alternatively, set `[db]` for an existing PostgreSQL database/login, use protected
+configuration or `PGPASSFILE` for authentication, and initialize its schema:
 
 ```sh
 uv run python -m db.postgres.setup --host localhost --database parts_bin --user parts_bin
 ```
 
-SQLite installations require the explicit [migration procedure](docs/operations.md#sqlite-migration).
-The app does not create databases, migrate data, or fall back to SQLite on startup.
+Follow [migration operations](docs/operations.md#sqlite-migration) for other
+SQLite installations. Startup never initializes data or falls back to SQLite.
 
 Run the API and UI in separate terminals:
 
@@ -54,8 +65,9 @@ npm run dev --prefix ui -- --host 127.0.0.1
 ```
 
 Open `http://localhost:5173`. Stop each process with Ctrl-C. For a container-based
-local deployment, inspect [compose.yaml](compose.yaml), configure its mounts and
-API credentials, then run:
+local deployment, inspect [compose.yaml](compose.yaml), configure its mounts,
+API credentials and a PostgreSQL hostname reachable from the app container
+(for example, `postgres` on a shared Docker network), then run:
 
 ```sh
 docker compose up --build -d
@@ -118,17 +130,24 @@ read committed inventory without model or supplier calls.
 Python tests live in `tests/`, mirroring the source directories. Pytest discovers
 the suite there; run a focused subset with, for example, `uv run pytest tests/domain`.
 
-Use a separate disposable PostgreSQL database whose login can create schemas.
-Tests create isolated schemas and remove them after the session. Never point the
-following setting at a production database. `PGPASSFILE` can supply its password:
+Use the ephemeral PostgreSQL test container; its database lives in tmpfs and
+is discarded when the container is removed. It has a separate loopback port and
+login. Run local setup once to generate the protected password file:
 
 ```sh
-export PARTS_BIN_TEST_POSTGRES_DSN='host=localhost dbname=parts_bin_test user=parts_bin_test'
+docker compose -f compose.postgres.yaml --profile test up -d --wait postgres-test
+export PGPASSFILE="$PWD/data/dev-postgres.pgpass"
+export PARTS_BIN_TEST_POSTGRES_DSN='host=127.0.0.1 port=54330 dbname=parts_bin_test user=parts_bin_test'
 uv run pytest
+docker compose -f compose.postgres.yaml --profile test rm -s -f postgres-test
 npm run lint --prefix ui
 npm run test --prefix ui
 npm run build --prefix ui
 ```
+
+Tests also create and remove isolated schemas per session. You can supply your
+own dedicated disposable database through the same environment setting; its
+login needs schema creation privileges. Never use a production database.
 
 Browser regression tests run the UI against synthetic API responses in Chromium.
 They require no backend, local inventory, or provider credentials:
