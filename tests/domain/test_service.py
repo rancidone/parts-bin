@@ -276,3 +276,24 @@ def test_adjust_stock_serializes_competing_changes_and_preserves_review(tmp_path
     assert service.adjust_stock(AdjustStockRequest(part.id, 1)).quantity == 1
     assert service.list_pending_reviews() == reviews
     assert service.provenance(ProvenanceRequest(part.id)) == provenance
+
+
+@pytest.mark.parametrize('category', ['connector', 'module', 'kit', 'unmarked stock'])
+def test_unnumbered_nonpassives_never_auto_merge_and_allow_explicit_stock(tmp_path, category):
+    from domain import AddPartsRequest
+    service = PartsBinService(SQLitePartsBinRepository(tmp_path / 'parts.db'))
+    first_fields = fields(part_category=category, profile='discrete_ic', value='2-pin', package='through-hole', description='First physical group')
+    second_fields = fields(part_category=category, profile='discrete_ic', value='2-pin', package='through-hole', description='Second physical group')
+    first = service.add_or_increment(AddPartRequest(first_fields))
+    second = service.add_or_increment(AddPartRequest(second_fields))
+    assert first.id != second.id and first.quantity == second.quantity == 5
+    added = service.add_parts(AddPartsRequest((first_fields, first_fields)))
+    assert len({part.id for part in [first, second, *added]}) == 4
+    assert all(part.quantity == 5 for part in service.list())
+    service.bulk_update(BulkUpdateRequest((first.id, second.id), {'description': 'Same label'}))
+    assert service.add_stock(AddStockRequest(first.id, 2)).quantity == 7
+    assert service.get(GetPartRequest(second.id)).quantity == 5
+    # Known ordering codes retain the existing duplicate protections.
+    service.update_part(UpdatePartRequest(first.id, {'part_number': 'EXACT-ORDER-CODE'}))
+    with pytest.raises(DomainError):
+        service.update_part(UpdatePartRequest(second.id, {'part_number': 'EXACT-ORDER-CODE'}))

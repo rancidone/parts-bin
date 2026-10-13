@@ -279,6 +279,11 @@ def _validate(name: str, args: dict[str, Any], schema: dict[str, Any]) -> None:
 
 
 def _validate_add_part_completeness(args: dict[str, Any]) -> None:
+    if (args.get('profile') == 'discrete_ic' and not args.get('part_number')
+            and isinstance(args.get('description'), str) and args['description'].strip()):
+        # A user-described physical group can be stored without inventing an
+        # ordering code. Its description does not confer verified identity.
+        return
     required = "value" if args.get("profile") == "passive" else "part_number"
     if not isinstance(args.get(required), str) or not args[required].strip():
         raise DomainError(ErrorCode.INVALID_INPUT, f"{required} is required for {args['profile']} parts", details={"field": required})
@@ -361,7 +366,7 @@ _TOOL_DEFINITIONS = [
             "required": ["filters"]}},
     }, required=["items"]),
     _tool("get_part", "Get one committed part by id.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
-    _tool("add_part", "Add one distinct part. Set enrich=false for assortment/kit contents, generic stock, or when the user requests no manufacturer lookup. Omitted or true uses automatic enrichment for eligible discrete/IC parts; passive parts skip automatic lookup. Skipping preserves supplied fields and allows an explicit lookup_part_specs request later.", {**_FIELDS, "enrich": {"type": "boolean"}}, required=["part_category", "profile", "quantity"]),
+    _tool("add_part", "Add one distinct part. Unnumbered stock outside resistor/capacitor/inductor categories always creates a separate record; shared descriptions and packages do not establish identity. Use an explicit add_stock part_id for more of an existing physical group; never invent an ordering code to force merging. Set enrich=false for assortment/kit contents, generic stock, or when the user requests no manufacturer lookup. Omitted or true uses automatic enrichment for eligible discrete/IC parts; passive parts skip automatic lookup. Skipping preserves supplied fields and allows an explicit lookup_part_specs request later.", {**_FIELDS, "enrich": {"type": "boolean"}}, required=["part_category", "profile", "quantity"]),
     _tool("add_stock", "Add positive stock to one part.", {"part_id": {"type": "integer", "minimum": 1}, "quantity": {"type": "integer", "minimum": 1}}, required=["part_id", "quantity"]),
     _tool("update_part", "Update explicit fields on one part.", {"part_id": {"type": "integer", "minimum": 1}, "fields": _fields_schema(min_properties=1)}, required=["part_id", "fields"]),
     _tool("bulk_update_parts", "Update explicit fields on an explicit part selection.", {"part_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}}, "fields": _fields_schema(min_properties=1)}, required=["part_ids", "fields"]),

@@ -194,9 +194,13 @@ def normalize_part_payload(part: dict) -> dict:
     return payload
 
 
-def part_identity(fields: dict) -> tuple:
+def part_identity(fields: dict) -> tuple | None:
     """Compare stock identities without treating unknown fields as wildcards."""
     fields = normalize_part_payload(fields)
     if fields.get("part_number") is not None:
         return ("part_number", fields["part_number"])
+    if fields.get('part_category', '').lower() not in _PASSIVE_CATEGORIES:
+        # A shared category/package or description cannot establish that
+        # unnumbered devices, connectors, modules or kits are the same stock.
+        return None
     return ("passive", fields.get("part_category"), fields.get("value"), fields.get("package"))

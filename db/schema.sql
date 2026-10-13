@@ -13,10 +13,11 @@ CREATE TABLE IF NOT EXISTS parts (
     updated_at    TEXT    NOT NULL   -- ISO 8601
 );
 
--- Passives: identity is (part_category, value, package)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_passive
+-- Only nominal passive categories share unnumbered identity.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_nominal_passive
     ON parts (part_category, value, package)
-    WHERE part_number IS NULL;
+    WHERE part_number IS NULL
+      AND lower(part_category) IN ('resistor', 'capacitor', 'inductor');
 
 -- Discretes/ICs: identity is manufacturer part number
 CREATE UNIQUE INDEX IF NOT EXISTS uq_discrete

@@ -118,3 +118,42 @@ def test_batch_specifications_use_existing_transaction_and_preserve_rollback(tmp
             raise RuntimeError('roll back')
     assert set(repository.inventory.specifications_for_parts([1, 2, 3, 4])) == {1, 4}
     assert 3 in repository.inventory.specification_reviews()
+
+
+def test_legacy_identity_index_migrates_on_copy_without_changing_authoritative_data(tmp_path):
+    import sqlite3
+    from db import persistence
+    from db.conversations import SQLiteConversationRepository
+    from agent_runtime import ConversationEvent
+
+    original = tmp_path / 'original.db'
+    repository = SQLitePartsBinRepository(original)
+    service = PartsBinService(repository)
+    part = service.add_part(AddPartRequest(PartFields('connector', 'discrete_ic', 3, value='2-pin', package='through-hole')))
+    repository.inventory.save_pending_review(part.id, {'description': 'Pending label'}, [])
+    store = SQLiteConversationRepository(original)
+    store.append(ConversationEvent('user_message', 'history', 'openai', {'text': 'Synthetic retained history'}))
+    with repository.transaction() as unit:
+        unit.approvals.insert(approval())
+    with sqlite3.connect(original) as connection:
+        connection.execute('DROP INDEX uq_nominal_passive')
+        connection.execute('CREATE UNIQUE INDEX uq_passive ON parts (part_category, value, package) WHERE part_number IS NULL')
+    snapshot = tmp_path / 'migration-copy.db'
+    with sqlite3.connect(original) as source, sqlite3.connect(snapshot) as destination:
+        source.backup(destination)
+    def contents(path):
+        with sqlite3.connect(path) as connection:
+            return {name: connection.execute(f'SELECT * FROM {name} ORDER BY rowid').fetchall()
+                    for (name,) in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    before = contents(original)
+    persistence.init_db(snapshot)
+    persistence.init_db(snapshot)
+    assert contents(snapshot) == before == contents(original)
+    with sqlite3.connect(snapshot) as connection:
+        assert connection.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+        indices = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        assert 'uq_nominal_passive' in indices and 'uq_passive' not in indices
+    copied = PartsBinService(SQLitePartsBinRepository(snapshot))
+    distinct = copied.add_part(AddPartRequest(PartFields('connector', 'discrete_ic', 1, value='2-pin', package='through-hole')))
+    assert distinct.id != part.id
+    assert copied.get(GetPartRequest(part.id)).quantity == 3

@@ -77,3 +77,18 @@ async def test_enrich_requires_boolean_before_adding_stock(registry, invalid):
     assert result["error"]["code"] == "invalid_input"
     assert registry.service.list() == []
     registry.service.spec_fetcher.assert_not_awaited()
+
+
+async def test_distinct_unnumbered_stock_replays_once_without_supplier_requests(registry):
+    args = {'part_category': 'connector', 'profile': 'discrete_ic', 'quantity': 2,
+            'value': '2-pin', 'package': 'through-hole', 'description': 'User-described loose stock', 'enrich': False}
+    results = []
+    for operation in ('first-physical-group', 'second-physical-group'):
+        context = ToolExecutionContext(operation_id=operation)
+        result = await registry.execute('add_part', args, context=context)
+        assert result['ok']
+        assert await registry.execute('add_part', args, context=context) == result
+        results.append(result['result'])
+    assert results[0]['id'] != results[1]['id']
+    assert [part.quantity for part in registry.service.list()] == [2, 2]
+    registry.service.spec_fetcher.assert_not_awaited()

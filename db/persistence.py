@@ -76,6 +76,9 @@ def init_db(db_path: str | Path) -> None:
     conn = _connect(db_path)
     with conn:
         conn.executescript(schema)
+        # Install the narrower index first; retiring the legacy constraint
+        # changes no stock, IDs, timestamps or provenance.
+        conn.execute('DROP INDEX IF EXISTS uq_passive')
         if 'datasheet_url' not in {row['name'] for row in conn.execute('PRAGMA table_info(parts)')}:
             conn.execute('ALTER TABLE parts ADD COLUMN datasheet_url TEXT')
         _ensure_part_field_provenance_columns(conn)

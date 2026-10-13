@@ -333,9 +333,11 @@ class PartsBinService:
         if not request.items:
             raise DomainError(ErrorCode.INVALID_INPUT, "at least one part is required")
         merged: dict[tuple[Any, ...], dict[str, Any]] = {}
-        for item in request.items:
+        for index, item in enumerate(request.items):
             fields = validate_fields(vars(item))
             key = part_identity(fields)
+            if key is None:
+                key = ('unidentified_row', index)
             if key in merged:
                 merged[key]["quantity"] += fields["quantity"]
             else:
@@ -344,6 +346,8 @@ class PartsBinService:
 
     def duplicate_for_add(self, fields: Mapping[str, Any]) -> Part | None:
         candidate = normalize_part_payload(dict(fields))
+        if part_identity(candidate) is None:
+            return None
         if candidate.get("part_number") is not None:
             filters = {"part_number": candidate["part_number"]}
         else:
@@ -578,7 +582,8 @@ class PartsBinService:
         # Compare final identities across the batch before writing any row.
         for part in self.list():
             identity = part_identity(replacements.get(part.id, vars(part)))
-            identities.setdefault(identity, []).append(part.id)
+            if identity is not None:
+                identities.setdefault(identity, []).append(part.id)
         for part_id, fields in updates:
             current = self.get(GetPartRequest(part_id))
             identity_fields = ('part_category', 'profile', 'value', 'package', 'part_number', 'manufacturer')
