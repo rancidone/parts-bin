@@ -157,3 +157,20 @@ def test_legacy_identity_index_migrates_on_copy_without_changing_authoritative_d
     distinct = copied.add_part(AddPartRequest(PartFields('connector', 'discrete_ic', 1, value='2-pin', package='through-hole')))
     assert distinct.id != part.id
     assert copied.get(GetPartRequest(part.id)).quantity == 3
+
+
+def test_concurrent_duplicate_intake_preserves_one_unleased_execution(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    repository = SQLitePartsBinRepository(tmp_path / "parts.db")
+    context = {"input_digest": "same-input", "user_text": "hello"}
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = list(workers.map(lambda _: repository.executions.prepare("thread", "request", context), range(2)))
+    assert results[0] == results[1]
+    original = repository.executions.claim("thread", "request", "worker")
+    repository.executions.save("request", "worker", {**original.context, "round": 1}, "waiting_model")
+    duplicate = repository.executions.prepare("thread", "request", context)
+    assert duplicate.status == "waiting_model"
+    assert duplicate.context["round"] == 1
+    repository.executions.assert_owned("request", "worker")
+    repository.executions.release("request", "worker")

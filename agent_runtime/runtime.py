@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any, Callable, Protocol
@@ -49,6 +51,16 @@ class ModelRequest:
 
 class ModelTransport(Protocol):
     async def complete(self, request: ModelRequest) -> ModelTurn: ...
+    async def start(self, request: ModelRequest) -> str: ...
+    async def retrieve(self, response_id: str) -> ModelTurn | None: ...
+
+
+def _input_digest(user_text: str, image: ImageInput | None) -> str:
+    image_digest = None if image is None else {
+        "media_type": image.media_type,
+        "digest": hashlib.sha256(image.data_base64.encode()).hexdigest()}
+    return hashlib.sha256(json.dumps({"text": user_text, "image": image_digest},
+                                    sort_keys=True).encode()).hexdigest()
 
 
 @dataclass
@@ -64,18 +76,25 @@ class _TurnState:
     approval_id: str | None = None
     had_image: bool = False
     error: dict[str, Any] | None = None
+    input_digest: str | None = None
+    model_submission_started: bool = False
+    model_response_id: str | None = None
 
     def checkpoint(self) -> dict[str, Any]:
         # Image bytes never enter durable execution state.
         return {"user_text": self.user_text, "exchanges": self.exchanges, "history": self.history,
                 "round": self.round, "pending": self.pending, "call_index": self.call_index,
-                "approval_id": self.approval_id, "had_image": self.had_image, "error": self.error}
+                "approval_id": self.approval_id, "had_image": self.had_image, "error": self.error,
+                "input_digest": self.input_digest, "model_submission_started": self.model_submission_started,
+                "model_response_id": self.model_response_id}
 
     @classmethod
     def restore(cls, thread_id: str, context: dict[str, Any], image: ImageInput | None):
         return cls(thread_id, context["user_text"], image, list(context["exchanges"]),
                    tuple(context["history"]), context["round"], context["pending"],
-                   context["call_index"], context["approval_id"], context["had_image"], context["error"])
+                   context["call_index"], context["approval_id"], context["had_image"], context["error"],
+                   context.get("input_digest"), context.get("model_submission_started", False),
+                   context.get("model_response_id"))
 
 
 class OpenAIResponsesRuntime:
@@ -97,13 +116,31 @@ class OpenAIResponsesRuntime:
         self.max_tool_turns = max_tool_turns
         self.telemetry = telemetry or AgentTelemetry()
 
+    def prepare(self, thread_id: str, execution_id: str, user_text: str, *,
+                image: ImageInput | None = None) -> str:
+        """Accept a stable request identity before any paid work or dispatch."""
+        self.store.create_thread(thread_id, self.runtime)
+        initial = self._initial_state(thread_id, user_text, image)
+        initial["input_digest"] = _input_digest(user_text, image)
+        self.registry.service.repository.executions.prepare(thread_id, execution_id, initial)
+        return execution_id
+
+    def _initial_state(self, thread_id: str, user_text: str, image: ImageInput | None) -> dict[str, Any]:
+        history = bounded_history(tuple(
+            {"role": "user" if event.kind == "user_message" else "assistant", "text": str(event.data["text"])}
+            for event in self.store.events(thread_id)
+            if event.kind in {"user_message", "assistant_text"} and event.data.get("text")
+        ))
+        return _TurnState(thread_id, user_text, image, history=history,
+                          had_image=image is not None).checkpoint()
+
     async def run(self, thread_id: str, user_text: str, *, image: ImageInput | None = None,
                   approval_response: ApprovalResponse | None = None,
                   execution_id: str | None = None,
                   on_event: Callable[[ConversationEvent], None] | None = None) -> RuntimeResult:
         return await self._run(thread_id, user_text, image=image,
                                approval_response=approval_response, execution_id=execution_id,
-                               on_event=on_event, single_step=False)
+                               on_event=on_event, single_step=False, background=False)
 
     async def advance(self, thread_id: str, user_text: str = "", *, image: ImageInput | None = None,
                       approval_response: ApprovalResponse | None = None,
@@ -115,13 +152,27 @@ class OpenAIResponsesRuntime:
         """
         return await self._run(thread_id, user_text, image=image,
                                approval_response=approval_response, execution_id=execution_id,
-                               on_event=None, single_step=True)
+                               on_event=None, single_step=True, background=False)
+
+    async def advance_background(self, thread_id: str, execution_id: str, *,
+                                 image: ImageInput | None = None,
+                                 approval_response: ApprovalResponse | None = None) -> RuntimeResult:
+        """Submit or collect one model request, or advance one tool stage.
+
+        Intake must already be prepared. Waiting results release the lease and
+        require a later invocation; this method never polls in a loop.
+        """
+        if not execution_id:
+            raise ValueError("A prepared execution ID is required")
+        return await self._run(thread_id, "", image=image,
+                               approval_response=approval_response, execution_id=execution_id,
+                               on_event=None, single_step=True, background=True)
 
     async def _run(self, thread_id: str, user_text: str, *, image: ImageInput | None,
                    approval_response: ApprovalResponse | None,
                    execution_id: str | None,
                    on_event: Callable[[ConversationEvent], None] | None,
-                   single_step: bool) -> RuntimeResult:
+                   single_step: bool, background: bool) -> RuntimeResult:
         self.store.create_thread(thread_id, self.runtime)
         executions = self.registry.service.repository.executions
         if approval_response is not None:
@@ -134,13 +185,7 @@ class OpenAIResponsesRuntime:
         initial = None
         if execution_id is None:
             execution_id = uuid4().hex
-            history = bounded_history(tuple(
-                {"role": "user" if event.kind == "user_message" else "assistant", "text": str(event.data["text"])}
-                for event in self.store.events(thread_id)
-                if event.kind in {"user_message", "assistant_text"} and event.data.get("text")
-            ))
-            initial = _TurnState(thread_id, user_text, image, history=history,
-                                 had_image=image is not None).checkpoint()
+            initial = self._initial_state(thread_id, user_text, image)
         worker_id = uuid4().hex
         record = executions.claim(thread_id, execution_id, worker_id, initial)
         state = _TurnState.restore(thread_id, record.context, image)
@@ -189,7 +234,11 @@ class OpenAIResponsesRuntime:
                 return result
             emit("user", "user_message", {"text": state.user_text,
                 "image": None if not state.had_image else {"media_type": image.media_type if image else "image/*"}})
-            if state.had_image and state.round == 0 and image is None:
+            if (state.round == 0 and not state.model_submission_started and state.input_digest
+                    and image is not None and _input_digest(state.user_text, image) != state.input_digest):
+                raise ModelBudgetError("image_identity_mismatch",
+                    "The supplied photo differs from this accepted request. Start a new request for a different photo.")
+            if state.had_image and state.round == 0 and image is None and not state.model_submission_started:
                 state.error = {"code": "image_resubmission_required", "message": "The interrupted image request needs a fresh photo; image bytes are not stored"}
                 save("failed")
                 return terminal("failed")
@@ -202,7 +251,23 @@ class OpenAIResponsesRuntime:
                         save("failed")
                         self.telemetry.loop_limit(thread_id, self.runtime, self.max_tool_turns)
                         return terminal("failed")
-                    turn = await self._complete(state)
+                    if state.model_submission_started:
+                        if state.model_response_id is None:
+                            raise ModelBudgetError("model_submission_uncertain",
+                                "Model submission was interrupted before its response ID was saved. Inspect provider usage before starting a new request; this execution will not resubmit it.")
+                        turn = await self.transport.retrieve(state.model_response_id)
+                        if turn is None:
+                            save("waiting_model")
+                            return finish("waiting_model")
+                    elif background:
+                        # Fence uncertain submission before contacting the provider.
+                        state.model_submission_started = True
+                        save()
+                        state.model_response_id = await self.transport.start(self._model_request(state))
+                        save("waiting_model")
+                        return finish("waiting_model")
+                    else:
+                        turn = await self._complete(state)
                     if turn.response_output:
                         state.exchanges.append({"type": "model_output", "items": turn.response_output})
                     state.round += 1
@@ -210,6 +275,8 @@ class OpenAIResponsesRuntime:
                         {"name": call.name, "arguments": call.arguments, "call_id": call.call_id}
                         for call in turn.tool_calls]}
                     state.call_index = 0
+                    state.model_response_id = None
+                    state.model_submission_started = False
                     # Persist model output, including provider reasoning, before any effect.
                     save()
                     advanced = True
@@ -299,15 +366,18 @@ class OpenAIResponsesRuntime:
             executions.release(execution_id, worker_id)
 
     async def _complete(self, state: _TurnState) -> ModelTurn:
+        return await self.transport.complete(self._model_request(state))
+
+    def _model_request(self, state: _TurnState) -> ModelRequest:
         tools = tuple({"type": "function", "name": tool["name"],
                        "description": tool["description"], "parameters": tool["inputSchema"],
                        # Patch-style tools intentionally distinguish omitted fields from null.
                        # The registry validates inputs; strict mode would require every field.
                        "strict": False} for tool in self.registry.list_tools())
-        return await self.transport.complete(ModelRequest(
+        return ModelRequest(
             SYSTEM_INSTRUCTIONS, state.user_text, state.image if state.round == 0 else None, tools,
             tuple(state.exchanges), thread_id=state.thread_id, history=bounded_history(state.history),
-        ))
+        )
 
 
 def _approval_effect(tool_name: str, arguments: dict[str, Any]) -> str:

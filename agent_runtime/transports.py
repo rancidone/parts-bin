@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -22,6 +24,42 @@ class OpenAIResponsesTransport:
         self.telemetry = telemetry or AgentTelemetry()
 
     async def complete(self, request: ModelRequest) -> ModelTurn:
+        response = await self.client.post(f"{self.base_url}/responses", headers=self._headers(),
+                                          json=self._request_body(request))
+        response.raise_for_status()
+        return self._turn(response.json())
+
+    async def start(self, request: ModelRequest) -> str:
+        """Submit without waiting for generation; retain the existing store policy."""
+        body = {**self._request_body(request), "background": True}
+        response = await self.client.post(f"{self.base_url}/responses", headers=self._headers(), json=body)
+        response.raise_for_status()
+        payload = response.json()
+        response_id = payload.get("id")
+        if not isinstance(response_id, str) or not re.fullmatch(r"resp_[A-Za-z0-9_-]+", response_id):
+            raise ValueError("Background submission did not return a valid response ID")
+        return response_id
+
+    async def retrieve(self, response_id: str) -> ModelTurn | None:
+        response = await self.client.get(f"{self.base_url}/responses/{quote(response_id, safe='')}",
+                                         headers=self._headers())
+        if response.status_code in {404, 410}:
+            raise ModelBudgetError("model_response_unavailable",
+                "The submitted model response is unavailable or expired. It will not be submitted again; inspect provider usage before starting a new request.")
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("id") != response_id:
+            raise ModelBudgetError("model_response_invalid", "The provider returned a different response identity")
+        if payload.get("status") in {"queued", "in_progress"}:
+            return None
+        if payload.get("status") not in {"completed", "incomplete", "failed", "cancelled"}:
+            raise ModelBudgetError("model_response_invalid", "The provider returned an unknown response status")
+        return self._turn(payload)
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"}
+
+    def _request_body(self, request: ModelRequest) -> dict[str, Any]:
         content: list[dict[str, Any]] = [{"type": "input_text", "text": request.user_text}]
         if request.image is not None and not request.exchanges:
             content.append({"type": "input_image", "image_url": f"data:{request.image.media_type};base64,{request.image.data_base64}"})
@@ -61,12 +99,12 @@ class OpenAIResponsesTransport:
             raise ModelBudgetError("context_budget_exceeded", "This request exceeds the saved reasoning budget. Saved outcomes remain available; start a narrower request without repeating completed mutations.")
         if input_bytes > MAX_INPUT_BYTES:
             raise ModelBudgetError("context_budget_exceeded", "This request exceeds the model input budget. Saved outcomes remain available; start a narrower request without repeating completed mutations.")
-        response = await self.client.post(f"{self.base_url}/responses", headers={"Authorization": f"Bearer {self.api_key}"},
-            json={"model": self.model, "instructions": request.system, "input": input_items,
-                  "tools": list(request.tools), "tool_choice": "auto", "store": False,
-                  "parallel_tool_calls": False, "max_output_tokens": MAX_OUTPUT_TOKENS})
-        response.raise_for_status()
-        payload = response.json()
+        return {"model": self.model, "instructions": request.system, "input": input_items,
+                "tools": list(request.tools), "tool_choice": "auto", "store": False,
+                "parallel_tool_calls": False, "max_output_tokens": MAX_OUTPUT_TOKENS}
+
+    @staticmethod
+    def _turn(payload: dict[str, Any]) -> ModelTurn:
         if payload.get("status") in {"incomplete", "failed", "cancelled"}:
             raise ModelBudgetError("model_response_incomplete", "The model did not complete its response. No partial tool calls were executed; inspect saved outcomes before making a new request.")
         text: list[str] = []
