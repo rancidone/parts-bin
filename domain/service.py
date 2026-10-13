@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import contextmanager
+from decimal import Decimal, localcontext
 from typing import Any
 
 from .repositories import PartsBinRepository, RepositoryConflict
@@ -14,7 +15,7 @@ from .models import (
 )
 from .normalization import normalize_part_payload, part_identity, validate_fields, clean_text
 
-from .search import values_match, nominal_value, search_category
+from .search import values_match, nominal_value, nominal_mismatch, search_category
 from . import specifications
 from .quantities import interval
 from .pagination import validate_page, next_offset
@@ -116,11 +117,28 @@ class PartsBinService:
             for text in (part.description, part.manufacturer, part.part_number)
         )), key=lambda part: part.id)
 
+    def _nominal_alternatives(self, request: SearchPartsRequest) -> list[tuple[Decimal, Part, dict[str, str]]]:
+        # A category gives nominal notation its dimension; all other filters remain exact.
+        value, category = request.filters.get('value'), request.filters.get('part_category')
+        if not isinstance(value, str) or not isinstance(category, str):
+            return []
+        filters = {key: item for key, item in request.filters.items() if key != 'value'}
+        alternatives = []
+        for part in self.search(SearchPartsRequest(filters, request.minimum_quantity)):
+            mismatch = nominal_mismatch(part.value, value, part.part_category) if part.value is not None else None
+            if mismatch is not None:
+                alternatives.append((mismatch.relative_difference, part, mismatch.as_record()))
+        return sorted(alternatives, key=lambda item: (item[0], item[1].id))
+
     def search_page(self, request: SearchPartsRequest, *, limit: int = 20, offset: int = 0) -> dict:
         validate_page(limit, offset)
         rows = sorted(self.search(request), key=lambda part: part.id)
-        following = next_offset(len(rows), limit, offset)
+        alternatives = self._nominal_alternatives(request)
+        following = next_offset(max(len(rows), len(alternatives)), limit, offset)
         return {"parts": rows[offset:offset + limit], "count": len(rows),
+                "partial_matches": [{'part': part, 'filter_mismatches': [mismatch], 'match_kind': 'partial'}
+                                    for _, part, mismatch in alternatives[offset:offset + limit]],
+                "partial_match_count": len(alternatives),
                 "truncated": following is not None, "next_offset": following}
 
     def candidate_page(self, request: SearchCandidatesRequest, *, limit: int = 20, offset: int = 0) -> dict:
@@ -189,20 +207,33 @@ class PartsBinService:
             raise DomainError(ErrorCode.INVALID_INPUT, 'Specification search requires one explicit category')
         validate_page(limit, offset)
         checked = specifications.validate_requirements(category, requirements)
-        matches, incomplete = [], []
-        candidates = sorted(self.search(request), key=lambda part: part.id)
-        accepted = self.repository.inventory.specifications_for_parts([part.id for part in candidates])
-        for part in candidates:
-            eligible, missing, supporting = specifications.evaluate(
-                category, accepted.get(part.id, []), checked)
-            if not eligible:
-                continue
-            if missing:
-                incomplete.append({'part': vars(part), 'missing_or_unqualified': missing})
+        matches, incomplete, partial = [], [], []
+        candidates = [(part, [], Decimal(0)) for part in sorted(self.search(request), key=lambda part: part.id)]
+        candidates.extend((part, [mismatch], distance) for distance, part, mismatch in self._nominal_alternatives(request))
+        accepted = self.repository.inventory.specifications_for_parts([part.id for part, _, _ in candidates])
+        for part, filter_mismatches, nominal_distance in candidates:
+            assessment = specifications.evaluate(category, accepted.get(part.id, []), checked)
+            if assessment.failed_requirements or filter_mismatches:
+                with localcontext() as context:
+                    context.prec = 220
+                    distance = assessment.distance + nominal_distance
+                rank = (-len(assessment.supporting_facts), len(assessment.missing_or_unqualified),
+                        len(assessment.failed_requirements) + len(filter_mismatches), distance, part.id)
+                partial.append((rank, {
+                    'part': vars(part), 'supporting_facts': assessment.supporting_facts,
+                    'failed_requirements': assessment.failed_requirements, 'filter_mismatches': filter_mismatches,
+                    'match_kind': 'partial',
+                    'missing_or_unqualified': assessment.missing_or_unqualified,
+                    'matched_requirement_count': len(assessment.supporting_facts),
+                }))
+            elif assessment.missing_or_unqualified:
+                incomplete.append({'part': vars(part), 'missing_or_unqualified': assessment.missing_or_unqualified})
             else:
-                matches.append({'part': vars(part), 'supporting_facts': supporting})
-        following = next_offset(max(len(matches), len(incomplete)), limit, offset)
+                matches.append({'part': vars(part), 'supporting_facts': assessment.supporting_facts})
+        partial_matches = [item for _, item in sorted(partial, key=lambda entry: entry[0])]
+        following = next_offset(max(len(matches), len(incomplete), len(partial_matches)), limit, offset)
         return {'matches': matches[offset:offset + limit], 'incomplete': incomplete[offset:offset + limit],
+                'partial_matches': partial_matches[offset:offset + limit], 'partial_match_count': len(partial_matches),
                 'match_count': len(matches), 'incomplete_count': len(incomplete),
                 'truncated': following is not None, 'next_offset': following}
 

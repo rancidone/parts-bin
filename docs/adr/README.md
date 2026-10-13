@@ -42,3 +42,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0022: Compare whole specification value intervals](0022-specification-value-intervals.md)
 
 - [0023: Cover requested conditions within documented operating intervals](0023-operating-condition-coverage.md)
+
+- [0024: Return explained partial inventory matches](0024-explained-partial-inventory-matches.md)

@@ -12,8 +12,8 @@ async def test_scale_measurements_distinguish_bounded_results_from_candidate_rea
     electrical = measurements['electrical_first_page']
     assert electrical['reads'] == {'inventory_search_calls': 1, 'candidate_rows_materialized': 8,
                                    'specification_batch_calls': 1, 'specification_part_ids_requested': 8}
-    assert electrical['returned_part_records'] == 2
-    assert electrical['counts'] == {'match_count': 2, 'incomplete_count': 4, 'next_offset': 1}
+    assert electrical['returned_part_records'] == 3
+    assert electrical['counts'] == {'match_count': 2, 'incomplete_count': 4, 'partial_match_count': 2, 'next_offset': 1}
     assert measurements['electrical_later_page']['reads'] == electrical['reads']
     assert measurements['exact_bom']['returned_part_records'] == 8
     assert measurements['overlapping_bom']['returned_part_records'] == 2

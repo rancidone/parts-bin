@@ -514,7 +514,7 @@ def test_electrical_search_contracts_and_validation(client):
     query = {'filters': {'part_category': 'resistor'}, 'requirements': [requirement]}
     response = http.post('/inventory/specification-search', json=query)
     assert response.status_code == 200
-    assert response.json() == {'matches': [], 'incomplete': [], 'match_count': 0,
+    assert response.json() == {'matches': [], 'incomplete': [], 'partial_matches': [], 'partial_match_count': 0, 'match_count': 0,
                                'incomplete_count': 0, 'truncated': False, 'next_offset': None}
     for change in [{'offset': -1}, {'limit': 101}, {'minimum_quantity': True},
                    {'requirements': []}, {'filters': {}}, {'unexpected': 1},
@@ -545,6 +545,10 @@ def test_electrical_search_separates_accepted_pending_and_asserted_evidence(clie
         'comparison': 'lte'}], 'limit': 1}
     first = http.post('/inventory/specification-search', json=query).json()
     assert first['match_count'] == 1 and first['incomplete_count'] == 2
+    assert first['partial_match_count'] == 1
+    assert first['partial_matches'][0]['match_kind'] == 'partial'
+    assert first['partial_matches'][0]['failed_requirements'][0]['fact']['value'] == '5 V'
+    assert first['partial_matches'][0]['failed_requirements'][0]['requirement']['value'] == '3 V'
     assert first['matches'][0]['part']['id'] == parts[0].id
     assert first['matches'][0]['supporting_facts'] == facts
     assert first['incomplete'][0]['part']['id'] == parts[1].id

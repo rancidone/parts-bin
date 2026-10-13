@@ -1,14 +1,14 @@
 """Extensible, category-specific facts and requirements over reviewed evidence."""
 
 from dataclasses import asdict, dataclass
-from decimal import Decimal
+from decimal import Decimal, localcontext
 import re
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 from .errors import DomainError, ErrorCode
 from .specification_conditions import conditions_cover, same_conditions
-from .quantities import compare_intervals, interval
+from .quantities import compare_intervals, interval, relative_interval_gap
 from .search import search_category
 
 
@@ -225,6 +225,7 @@ def contract(category: str) -> dict:
                if search_category(category) == 'led' else {}),
             'numeric_value_policy': 'Values accept nonnegative scalars, ordered ranges and center ± tolerance with units. Equality requires equal endpoints. At least compares the stored lower bound to the requested upper bound; at most compares the stored upper bound to the requested lower bound. Overlapping but unconfirmed comparisons remain incomplete. Nominal passive identity facts remain scalar. For operating-range coverage, require the operating minimum at most the requested range and operating maximum at least the requested range under complete source-covered operating conditions. Never substitute stress limits or infer derating.',
             'conditions_policy': 'Match complete condition mappings. Named electrical, Celsius and percentage conditions compare scalars, explicit ranges and center ± tolerance by equal unit-aware endpoints. Operating minimum/maximum facts also cover contained requested condition intervals. Other bases require equal conditions. Omitted or extra conditions are incomplete; numeric containment cannot turn a test point, typical value or stress rating into an operating guarantee. Unknown conditions and additional qualifiers remain literal. Preserve original conditions and evidence.',
+            'partial_match_policy': 'Known source-backed value failures are partial matches, with each requested requirement and actual fact retained. Nearby passive nominal values are also partial matches when a category and value filter are explicit. Rank by most confirmed requirements, fewer unresolved qualifiers, fewer mismatches, then normalized numeric shortfall. Unknown or mismatched conditions remain unconfirmed. Partial matches do not meet all requirements; explain every difference and require the user to choose which requirements to relax.',
             'evidence_policy': 'Only accepted source evidence confirms requirements. User assertions remain incomplete.'}
 
 
@@ -348,9 +349,18 @@ def validate_requirements(category: str, raw: list[dict]) -> list[dict]:
     return requirements
 
 
-def evaluate(category: str, facts: list[dict], requirements: list[dict]) -> tuple[bool, list[str], list[dict]]:
+@dataclass(frozen=True)
+class SpecificationEvaluation:
+    supporting_facts: list[dict]
+    missing_or_unqualified: list[str]
+    failed_requirements: list[dict]
+    distance: Decimal = Decimal(0)
+
+
+def evaluate(category: str, facts: list[dict], requirements: list[dict]) -> SpecificationEvaluation:
     by_name = {fact['name']: fact for fact in facts}
-    missing, supporting = [], []
+    missing, supporting, failed = [], [], []
+    distance = Decimal(0)
     for requirement in requirements:
         name = requirement['name']
         match_conditions = conditions_cover if requirement['basis'] in OPERATING_CONDITION_BASES else same_conditions
@@ -369,9 +379,15 @@ def evaluate(category: str, facts: list[dict], requirements: list[dict]) -> tupl
         else:
             outcome = left == right
         if outcome is False:
-            return False, [], []  # A known failing constraint excludes the candidate.
+            failed.append({'requirement': {key: requirement[key] for key in
+                ('name', 'comparison', 'value', 'basis', 'conditions')}, 'fact': fact})
+            gap = relative_interval_gap(left, right, requirement['comparison']) if item.unit else Decimal(1)
+            with localcontext() as context:
+                context.prec = 220
+                distance += gap
+            continue
         if outcome is None:
             missing.append(name)  # Overlap alone cannot confirm a whole-interval comparison.
             continue
         supporting.append(fact)
-    return True, missing, supporting
+    return SpecificationEvaluation(supporting, missing, failed, distance)

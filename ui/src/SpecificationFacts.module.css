@@ -24,7 +24,7 @@
 .identity strong { font-size: .95rem; }
 .identity span { font-size: .78rem; color: var(--spec-muted); }
 .stock { white-space: nowrap; font-size: .8rem; font-weight: 500; }
-.confirmed, .incomplete { display: inline-block; font-size: .75rem; margin-top: 10px; padding: 3px 7px; border-radius: 5px; }
+.confirmed, .incomplete, .partial { display: inline-block; font-size: .75rem; margin-top: 10px; padding: 3px 7px; border-radius: 5px; }
 .confirmed { color: var(--spec-pass); background: rgb(71 163 106 / .12); }
 .incomplete { color: var(--spec-incomplete); background: rgb(190 137 52 / .12); }
 .facts { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
@@ -49,3 +49,6 @@
 @media (prefers-color-scheme: dark) {
   .results, .card { --spec-muted: #b0b0b0; --spec-pass: #8bd5aa; --spec-incomplete: #e9c484; --accent: #8bb8ff; }
 }
+
+.partial { color: var(--spec-incomplete); background: rgb(190 137 52 / .12); font-weight: 600; }
+.mismatch { border-left: 3px solid var(--spec-incomplete); padding-left: 10px; margin-top: 12px; font-size: .85rem; }
