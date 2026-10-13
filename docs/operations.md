@@ -93,11 +93,12 @@ requires no model or supplier requests.
 
 ## Interrupted requests
 
-Compose upgrades give active requests time to finish: Uvicorn waits up to fourteen
-minutes, inside Docker's fifteen-minute stop window. New connections can fail
+Compose upgrades give active requests time to finish: Uvicorn waits up to five
+minutes, inside Docker's five-minute-thirty-second stop window. The extra thirty
+seconds allow cancelled workers to release leases and close connections. New connections can fail
 during this single-container replacement. Do not shorten deployment stop timeouts.
 When upgrading an older container with the default ten-second stop window, pass
-`--timeout 900` to the deployment's existing `docker compose up` command for that
+`--timeout 330` to the deployment's existing `docker compose up` command for that
 first replacement; subsequent containers retain the Compose setting. Preserve the
 existing production override files and infrastructure deployment procedure.
 
