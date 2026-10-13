@@ -14,6 +14,8 @@ export function SpecificationSearch() {
   const [category, setCategory] = useState('')
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [minimumQuantity, setMinimumQuantity] = useState('0')
+  const [nominalValue, setNominalValue] = useState('')
+  const passiveCategory = ['resistor', 'capacitor', 'inductor'].includes(category)
   const [result, setResult] = useState<SpecificationState | null>(null)
   const [nextOffset, setNextOffset] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
@@ -67,7 +69,7 @@ export function SpecificationSearch() {
       })
       const response = await fetch('/inventory/specification-search', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filters: { part_category: category }, requirements: parsed, minimum_quantity: Number(minimumQuantity), limit: 20, offset }),
+        body: JSON.stringify({ filters: { part_category: category, ...(passiveCategory && nominalValue.trim() ? { value: nominalValue.trim() } : {}) }, requirements: parsed, minimum_quantity: Number(minimumQuantity), limit: 20, offset }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.detail?.message ?? data.detail ?? response.statusText)
@@ -85,15 +87,17 @@ export function SpecificationSearch() {
     <form onSubmit={event => { event.preventDefault(); void search() }}>
       <div className={styles.row}>
         <label>Electrical category<select value={category} onChange={event => {
-          invalidate(); setCategory(event.target.value)
+          invalidate(); setCategory(event.target.value); setNominalValue('')
           setRequirements([blank(contracts.find(item => item.category === event.target.value)!)])
         }}>{contracts.map(item => <option key={item.category}>{item.category}</option>)}</select></label>
         <label>Minimum stock<input type="number" min="0" step="1" required value={minimumQuantity} onChange={event => { invalidate(); setMinimumQuantity(event.target.value) }} /></label>
       </div>
+      {passiveCategory && <label>Nominal value (optional)<input value={nominalValue} placeholder={category === 'resistor' ? 'e.g. 10 kΩ' : category === 'capacitor' ? 'e.g. 100 nF' : 'e.g. 10 µH'} onChange={event => { invalidate(); setNominalValue(event.target.value) }} /></label>}
       {contract && <>
         <p>{contract.evidence_policy} {contract.conditions_policy}</p>
         {contract.value_policy && <p>{contract.value_policy}</p>}
         <p>{contract.numeric_value_policy}</p>
+        <p>Partial matches show nearby nominal values or failed electrical requirements. Review each difference before choosing an alternative.</p>
         {requirements.map((item, index) => {
           const field = contract.fields[item.name]
           const qualifiers = contract.minimum_source_conditions[item.name] ?? []

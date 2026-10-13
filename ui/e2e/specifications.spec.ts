@@ -141,3 +141,46 @@ test('electrical filters send qualified requirements and page confirmed and inco
   await page.getByRole('button', { name: 'Browse inventory', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Edit part', exact: true })).toBeVisible()
 })
+
+test('partial matches explain electrical and nominal differences and keep pagination separate', async ({ context, page }) => {
+  const searches: Record<string, unknown>[] = []
+  const resistor = { ...part, part_category: 'resistor', profile: 'passive', value: '9.1k', package: '0603' }
+  const power = { ...fact, name: 'rated_power', value: '250 mW', basis: 'rated', conditions: { ambient_temperature: '25 °C' } }
+  await context.route('**/inventory**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (path === '/inventory/specification-contracts') return route.fulfill({ json: { categories: [{
+      category: 'resistor', fields: { rated_power: { unit: 'W', basis: 'rated', choices: [] } },
+      minimum_source_conditions: {}, evidence_policy: 'Only accepted source evidence confirms requirements.',
+      conditions_policy: 'Match complete condition mappings.', numeric_value_policy: 'Include units.'
+    }] } })
+    if (path === '/inventory/specification-search') {
+      const query = route.request().postDataJSON()
+      searches.push(query)
+      return route.fulfill({ json: { matches: [], incomplete: [], match_count: 0, incomplete_count: 0,
+        partial_match_count: 21, next_offset: query.offset ? null : 20, truncated: !query.offset,
+        partial_matches: [{ part: { ...resistor, id: query.offset ? 44 : 42 }, supporting_facts: [],
+          matched_requirement_count: 0, missing_or_unqualified: ['tolerance'],
+          filter_mismatches: [{ field: 'value', requested: '10k', actual: '9.1k', unit: 'Ω', relative_difference: '.09' }],
+          failed_requirements: [{ requirement: query.requirements[0], fact: power }] }] } })
+    }
+    return route.fulfill({ json: path === '/inventory/pending' ? { reviews: {} } : [resistor] })
+  })
+  await page.goto('/#/inventory')
+  await page.getByRole('button', { name: 'Filter electrical specs', exact: true }).click()
+  await page.getByLabel('Nominal value (optional)', { exact: true }).fill('10k')
+  await page.getByRole('combobox', { name: 'Comparison', exact: true }).selectOption('gte')
+  await page.getByLabel('Required value', { exact: true }).fill('0.5 W')
+  await page.getByLabel('Conditions (one condition=value per line)', { exact: true }).fill('ambient_temperature=25 °C')
+  await page.getByRole('button', { name: 'Search accepted specifications', exact: true }).click()
+  const partial = page.getByRole('article', { name: 'Part 42: partial match', exact: true })
+  await expect(partial).toContainText('Partial match · does not meet all requirements')
+  await expect(partial).toContainText('Nominal value: requested 10k; stored 9.1k.')
+  await expect(partial).toContainText('Does not meet: rated power at least 0.5 W.')
+  await expect(partial).toContainText('250 mW')
+  await expect(partial).toContainText('Also not confirmed for: tolerance.')
+  await expect(partial.getByText('Meets stated requirements', { exact: true })).toHaveCount(0)
+  expect(searches[0].filters).toEqual({ part_category: 'resistor', value: '10k' })
+  await page.getByRole('button', { name: 'Next results', exact: true }).click()
+  await expect(page.getByRole('article', { name: 'Part 44: partial match', exact: true })).toBeVisible()
+  expect(searches[1].offset).toBe(20)
+})

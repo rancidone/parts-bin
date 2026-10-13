@@ -20,7 +20,9 @@ requirement contracts. Preserve original values and evidence.
 Equality confirms identical endpoints. At least confirms when the stored lower
 endpoint is at least the requested upper endpoint; at most confirms when the
 stored upper endpoint is at most the requested lower endpoint. A stored interval
-that cannot satisfy the requested bound excludes the candidate. Uncertain overlap
+that cannot satisfy the requested bound fails the requirement.
+[0024](0024-explained-partial-inventory-matches.md) retains it as an explicitly
+labeled partial match. Uncertain overlap
 remains incomplete. Scalars are degenerate intervals, preserving scalar behavior.
 
 For operating coverage under identical conditions, compare the operating minimum

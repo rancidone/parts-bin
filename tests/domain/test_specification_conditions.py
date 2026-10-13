@@ -3,7 +3,7 @@ from copy import deepcopy
 import pytest
 
 from domain.specification_conditions import same_conditions
-from domain.specifications import evaluate, validate_requirements
+from domain.specifications import SpecificationEvaluation, evaluate, validate_requirements
 
 
 @pytest.mark.parametrize('left,right', [
@@ -19,7 +19,7 @@ def test_equivalent_explicit_intervals_preserve_original_evidence(left, right):
     requirements = validate_requirements('switch', [{
         'name': 'rated_current', 'value': '0.1 A', 'basis': 'rated', 'comparison': 'eq',
         'conditions': {'ambient_temperature': right, 'ambient_humidity': '65±5%'}}])
-    assert evaluate('switch', [fact], requirements) == (True, [], [fact])
+    assert evaluate('switch', [fact], requirements) == SpecificationEvaluation([fact], [], [])
     assert fact == original
 
 
@@ -55,10 +55,10 @@ def test_source_capacitor_missing_dc_qualifier_remains_incomplete():
     requirements = validate_requirements('capacitor', [{
         'name': 'rated_voltage', 'value': '500 V', 'basis': 'rated', 'comparison': 'eq',
         'conditions': {'rating_temperature': '85 °C'}}])
-    assert evaluate('capacitor', [fact], requirements) == (True, ['rated_voltage'], [])
+    assert evaluate('capacitor', [fact], requirements) == SpecificationEvaluation([], ['rated_voltage'], [])
     fact['conditions']['voltage_type'] = 'DC'
     requirements[0]['conditions']['current_type'] = 'DC'
-    assert evaluate('capacitor', [fact], requirements) == (True, [], [fact])
+    assert evaluate('capacitor', [fact], requirements) == SpecificationEvaluation([fact], [], [])
 
 
 @pytest.mark.parametrize('left,right', [

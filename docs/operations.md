@@ -340,3 +340,31 @@ endpoints; absolute maxima do not establish operation. Fixed and adjustable
 outputs differ. Unmarked LEDs need identity clarification before source-backed
 extraction. New fields do not populate existing stock automatically: supply a
 manufacturer datasheet, inspect the proposal and approve it through review.
+
+
+## Flexible inventory searches
+
+Search results distinguish confirmed matches, partial matches, and candidates
+needing evidence or matching conditions. A partial match does not meet all the
+requested requirements. Each known electrical failure includes the requested
+comparison/value, the actual accepted fact, conditions and its source passages.
+Unknown facts and mismatched qualifiers remain unconfirmed, even when a candidate
+also has known failures. Review every difference before choosing which requirement
+to relax; a partial match is not a claim of interchangeability or safe operation.
+
+An explicit resistor, capacitor or inductor category plus nominal value filter
+also returns nearby numeric values. The electrical filter panel has an optional
+nominal value field. These alternatives show requested versus committed values;
+unknown or incompatible value notation is not given an invented proximity.
+Package, profile, full ordering code and minimum quantity remain exact filters.
+BOM availability checks still use exact requirements and do not count alternatives.
+
+Confirmed and incomplete records retain ID order. Partial alternatives rank by
+most confirmed electrical requirements, fewer unresolved requirements, fewer
+known mismatches, then smaller normalized numeric shortfall and ID. Categorical
+mismatches have no inferred numeric similarity. This ordering helps review; it is
+not a confidence or suitability score. There is no assumed acceptable tolerance.
+
+Follow `next_offset` with the same query to retrieve all result groups. Each
+group is independently bounded by `limit`; counts include the whole group, not
+only the current page. Restart pagination if stock or accepted facts change.

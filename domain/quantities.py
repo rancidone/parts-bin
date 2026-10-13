@@ -126,3 +126,20 @@ def compare_intervals(left: tuple[Decimal, Decimal], right: tuple[Decimal, Decim
 def contains_interval(available: tuple[Decimal, Decimal], requested: tuple[Decimal, Decimal]) -> bool:
     """Whether every requested point lies within an explicit available interval."""
     return available[0] <= requested[0] and requested[1] <= available[1]
+
+
+def relative_interval_gap(left: tuple[Decimal, Decimal], right: tuple[Decimal, Decimal],
+                          comparison: str) -> Decimal:
+    """Dimensionless shortfall for ranking known value mismatches, not suitability."""
+    with localcontext() as context:
+        context.prec = 220
+        if comparison == 'gte':
+            gap = max(Decimal(0), right[1] - left[1])
+        elif comparison == 'lte':
+            gap = max(Decimal(0), left[0] - right[0])
+        elif comparison == 'eq':
+            gap = max(Decimal(0), right[0] - left[1], left[0] - right[1])
+        else:
+            invalid('Unsupported interval comparison')
+        scale = max(abs(value) for value in (*left, *right))
+        return gap / scale if scale else Decimal(0)

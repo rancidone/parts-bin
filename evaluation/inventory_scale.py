@@ -105,7 +105,7 @@ async def measure(size: int, *, repeats: int = 3, limit: int = 20) -> dict:
                 if not response['ok']:
                     raise RuntimeError(f'{name}: {response["error"]}')
                 result = response['result']
-                returned = sum(len(result.get(key, [])) for key in ('parts', 'candidates', 'matches', 'incomplete'))
+                returned = sum(len(result.get(key, [])) for key in ('parts', 'candidates', 'matches', 'incomplete', 'partial_matches'))
                 if tool == 'check_inventory':
                     returned = sum(len(item['parts']) for item in result['items'])
                 samples.append({'elapsed_ms': elapsed, 'response_bytes': len(json.dumps(response, ensure_ascii=False).encode()),
@@ -114,7 +114,7 @@ async def measure(size: int, *, repeats: int = 3, limit: int = 20) -> dict:
                                     'overlapping_requirement_groups': len(result['overlapping_requirements'])}
                                    if tool == 'check_inventory' else {}),
                                 'reads': dict(measured.reads),
-                                'counts': {key: result[key] for key in ('count', 'match_count', 'incomplete_count', 'next_offset') if key in result}})
+                                'counts': {key: result[key] for key in ('count', 'match_count', 'incomplete_count', 'partial_match_count', 'next_offset') if key in result}})
             measurements.append({'workload': name, 'tool': tool, 'samples': samples,
                                  'median_elapsed_ms': median(sample['elapsed_ms'] for sample in samples)})
         return {'inventory_records': size, 'page_limit': limit, 'measurements': measurements}

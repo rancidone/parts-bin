@@ -334,7 +334,7 @@ uv run python -m evaluation.inventory_scale \
 
 The command creates and removes disposable databases. It never loads application
 configuration. The synthetic one-category stress case includes accepted source
-fixtures, pending reviews, absent facts, and known failing constraints; its
+fixtures, pending reviews, absent facts, and partial matches with known failing constraints; its
 passages are not manufacturer evidence. Workloads cover exact and nominal
 lookups, broad and narrow candidate searches, electrical pagination, a whole
 exact-code BOM, and overlapping requirements.

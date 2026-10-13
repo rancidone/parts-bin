@@ -2,9 +2,12 @@ import type { Part } from './types'
 import styles from './SpecificationFacts.module.css'
 
 type Fact = { name: string; value: string; basis: string; conditions: Record<string, string>; evidence: { kind: string; excerpt: string; url?: string; page?: number; supporting_passages?: { page: number; excerpt: string }[] } }
+type FailedRequirement = { requirement: { name: string; comparison: string; value: string; basis: string; conditions: Record<string, string> }; fact: Fact }
+type FilterMismatch = { field: string; requested: string; actual: string; unit: string; relative_difference: string }
+type PartialMatch = { part: Part; supporting_facts: Fact[]; failed_requirements: FailedRequirement[]; filter_mismatches: FilterMismatch[]; missing_or_unqualified: string[]; matched_requirement_count: number }
 type Review = { facts: Fact[]; snapshot: { metadata: { part_number: string | null; package: string | null; part_category: string } } }
 type Assessment = { confidence_score: number; rejected_fields?: { name: string; reason: string }[]; score_explanation: string; missing_fields: string[]; incomplete_fields?: Record<string, string[]>; reasons: string[]; relevant_pages: { page: number; reason: string; url: string }[] }
-export type SpecificationState = { outcome?: string; extraction_assessment?: Assessment | null; clarification?: string | null; matches?: { part: Part; supporting_facts: Fact[] }[]; incomplete?: { part: Part; missing_or_unqualified: string[] }[]; facts?: Fact[]; part_id?: number; pending_review?: Review | null; truncated?: boolean; match_count?: number; incomplete_count?: number }
+export type SpecificationState = { outcome?: string; extraction_assessment?: Assessment | null; clarification?: string | null; matches?: { part: Part; supporting_facts: Fact[] }[]; incomplete?: { part: Part; missing_or_unqualified: string[] }[]; facts?: Fact[]; part_id?: number; pending_review?: Review | null; truncated?: boolean; match_count?: number; incomplete_count?: number; partial_matches?: PartialMatch[]; partial_match_count?: number }
 
 const label = (text: string) => text.replaceAll('_', ' ')
 
@@ -37,22 +40,35 @@ export function SpecificationReview({ review, partId }: { review: Review; partId
   </section>
 }
 
-function SpecificationMatch({ part, facts, missing }: { part: Part; facts?: Fact[]; missing?: string[] }) {
-  const incomplete = missing !== undefined
-  return <article className={styles.card} aria-label={`Part ${part.id}: ${incomplete ? 'needs evidence' : 'confirmed match'}`}>
+function SpecificationMatch({ part, facts, missing, partial }: { part: Part; facts?: Fact[]; missing?: string[]; partial?: PartialMatch }) {
+  const incomplete = missing !== undefined && !partial
+  const status = partial ? 'partial match' : incomplete ? 'needs evidence' : 'confirmed match'
+  const comparison = (op: string) => ({ eq: 'equal to', gte: 'at least', lte: 'at most' })[op] ?? op
+  return <article className={styles.card} aria-label={`Part ${part.id}: ${status}`}>
     <div className={styles.cardHeader}>
       <div className={styles.identity}><strong>{[part.part_category, part.value, part.package].filter(Boolean).join(' · ')}</strong>
         <span>{part.part_number ?? 'Ordering code unknown'} · <a href={`#/inventory/${part.id}`}>Part #{part.id}</a></span></div>
       <span className={styles.stock}>{part.quantity} in stock</span>
     </div>
-    <span className={incomplete ? styles.incomplete : styles.confirmed}>{incomplete ? 'Needs evidence or matching conditions' : 'Meets stated requirements'}</span>
-    {incomplete ? <p className={styles.note}>Not confirmed for: {missing.map(label).join(', ')}.</p> : <SpecificationFacts facts={facts ?? []} />}
+    <span className={partial ? styles.partial : incomplete ? styles.incomplete : styles.confirmed}>{partial ? 'Partial match · does not meet all requirements' : incomplete ? 'Needs evidence or matching conditions' : 'Meets stated requirements'}</span>
+    {partial && <>
+      <p className={styles.note}>{partial.matched_requirement_count} electrical requirement{partial.matched_requirement_count === 1 ? '' : 's'} confirmed. Review the differences before choosing this part.</p>
+      {partial.filter_mismatches.map(item => <p key={item.field} className={styles.mismatch}>Nominal {label(item.field)}: requested {item.requested}; stored {item.actual}.</p>)}
+      {partial.failed_requirements.map((item, index) => <div className={styles.mismatch} key={index}>
+        <strong>Does not meet: {label(item.requirement.name)} {comparison(item.requirement.comparison)} {item.requirement.value}.</strong>
+        <SpecificationFacts facts={[item.fact]} />
+      </div>)}
+      {partial.missing_or_unqualified.length > 0 && <p className={styles.note}>Also not confirmed for: {partial.missing_or_unqualified.map(label).join(', ')}.</p>}
+      {partial.supporting_facts.length > 0 && <details><summary>Requirements met</summary><SpecificationFacts facts={partial.supporting_facts} /></details>}
+    </>}
+    {incomplete ? <p className={styles.note}>Not confirmed for: {missing.map(label).join(', ')}.</p> : !partial && <SpecificationFacts facts={facts ?? []} />}
   </article>
 }
 
 export function SpecificationResult({ value }: { value: SpecificationState }) {
   const matches = value.matches ?? []
   const incomplete = value.incomplete ?? []
+  const partial = value.partial_matches ?? []
   const searching = value.matches !== undefined
   return <section className={styles.results} aria-label={searching ? 'Specification search results' : 'Electrical specifications'}>
     {!value.extraction_assessment && value.clarification && <p className={styles.note}>{value.clarification}</p>}
@@ -81,11 +97,13 @@ export function SpecificationResult({ value }: { value: SpecificationState }) {
     </section>}
     {searching && <div className={styles.overview}><strong>{value.match_count ?? matches.length} confirmed match{(value.match_count ?? matches.length) === 1 ? '' : 'es'}</strong>
       {(value.incomplete_count ?? incomplete.length) > 0 && <span> · {value.incomplete_count ?? incomplete.length} {(value.incomplete_count ?? incomplete.length) === 1 ? 'needs' : 'need'} evidence or conditions</span>}
+      {(value.partial_match_count ?? partial.length) > 0 && <span> · {value.partial_match_count ?? partial.length} partial match{(value.partial_match_count ?? partial.length) === 1 ? '' : 'es'}</span>}
     </div>}
     {matches.map(match => <SpecificationMatch key={match.part.id} part={match.part} facts={match.supporting_facts} />)}
+    {partial.map(item => <SpecificationMatch key={item.part.id} part={item.part} partial={item} />)}
     {incomplete.map(item => <SpecificationMatch key={item.part.id} part={item.part} missing={item.missing_or_unqualified} />)}
-    {searching && !matches.length && !incomplete.length && <p className={styles.note}>No inventory records meet these requirements.</p>}
-    {value.truncated && <p className={styles.note}>Showing {matches.length} confirmed and {incomplete.length} incomplete records. Narrow your search to see other candidates.</p>}
+    {searching && !matches.length && !incomplete.length && !partial.length && <p className={styles.note}>No inventory records meet these requirements.</p>}
+    {value.truncated && <p className={styles.note}>Showing {matches.length} confirmed, {partial.length} partial and {incomplete.length} incomplete records. Narrow your search to see other candidates.</p>}
     {value.facts && <section className={styles.card}><strong>Electrical specs{value.part_id ? ` · Part #${value.part_id}` : ''}</strong><SpecificationFacts facts={value.facts} /></section>}
     {value.pending_review && <div><p className={styles.overview}>Pending specification review</p><SpecificationReview review={value.pending_review} partId={value.part_id ?? 'unknown'} /></div>}
   </section>

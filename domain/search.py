@@ -1,9 +1,11 @@
 """Read-only nominal-value comparisons; these do not define stock identity."""
 
+from dataclasses import dataclass
 from decimal import Decimal
 import re
 
 from .normalization import normalize_value
+from .quantities import relative_interval_gap
 
 _SCALES = {
     "resistor": {"r": 0, "k": 3, "m": 6, "g": 9},
@@ -71,3 +73,28 @@ def values_match(stored: str, requested: str, category: str) -> bool:
     if left is not None or right is not None:
         return left is not None and right is not None and left == right
     return normalize_value(stored, category) == normalize_value(requested, category)
+
+
+@dataclass(frozen=True)
+class NominalMismatch:
+    requested: str
+    actual: str
+    unit: str
+    relative_difference: Decimal
+
+    def as_record(self) -> dict[str, str]:
+        return {'field': 'value', 'requested': self.requested, 'actual': self.actual,
+                'unit': self.unit, 'relative_difference': str(self.relative_difference)}
+
+
+def nominal_mismatch(stored: str, requested: str, category: str) -> NominalMismatch | None:
+    """Describe a numeric alternative without relaxing physical stock identity."""
+    units = {'resistor': 'Ω', 'capacitor': 'F', 'inductor': 'H'}
+    unit = units.get(category.lower())
+    if unit is None:
+        return None
+    left, right = nominal_value(stored, category), nominal_value(requested, category)
+    if left is None or right is None or left == right:
+        return None
+    gap = relative_interval_gap((left, left), (right, right), 'eq')
+    return NominalMismatch(requested, stored, unit, gap)

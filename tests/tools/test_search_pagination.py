@@ -64,7 +64,7 @@ async def test_specification_pages_preserve_evidence_and_both_groups(service):
         service.stage_specifications(part, [power(part, '0.5 W')])
         service.apply_specification_review(part.id)
     service.stage_specifications(parts[3], [power(parts[3], '0.125 W')])
-    service.apply_specification_review(parts[3].id)  # known failure is excluded
+    service.apply_specification_review(parts[3].id)  # known failure remains explicitly partial
     service.stage_specifications(parts[4], [power(parts[4], '1 W')])  # pending remains incomplete
     query = {'filters': {'part_category': 'resistor'}, 'requirements': [{
         'name': 'rated_power', 'value': '0.25 W', 'basis': 'rated',
@@ -77,6 +77,9 @@ async def test_specification_pages_preserve_evidence_and_both_groups(service):
         assert response['ok']
         page = response['result']
         assert page['match_count'] == 3 and page['incomplete_count'] == 3
+        assert page['partial_match_count'] == 1
+        if offset == 0:
+            assert page['partial_matches'][0]['part']['id'] == parts[3].id
         assert len(page['matches']) <= 2 and len(page['incomplete']) <= 2
         for match in page['matches']:
             assert match['supporting_facts'] == [power(parts[match['part']['id'] - 1], '0.5 W')]

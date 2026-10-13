@@ -68,7 +68,7 @@ test('counts distinguish full results from the returned subset', () => {
   const html = render({ matches: [{ part, supporting_facts: [fact] }], incomplete: [], match_count: 25, incomplete_count: 3, truncated: true })
   assert.ok(html.includes('25 confirmed matches'))
   assert.ok(html.includes('3 need evidence or conditions'))
-  assert.ok(html.includes('Showing 1 confirmed and 0 incomplete records.'))
+  assert.ok(html.includes('Showing 1 confirmed, 0 partial and 0 incomplete records.'))
 })
 
 test('extraction separates the result and missing specs from collapsed diagnostics', () => {
@@ -84,4 +84,22 @@ test('extraction separates the result and missing specs from collapsed diagnosti
   assert.ok(html.includes('Open datasheet pages'))
   assert.ok(html.includes('Extraction details'))
   assert.ok(!html.includes('open=""'))
+})
+
+
+test('partial matches call out requested and actual values without claiming suitability', () => {
+  const html = render({ matches: [], incomplete: [], partial_match_count: 7, partial_matches: [{
+    part, supporting_facts: [], matched_requirement_count: 0, missing_or_unqualified: ['tolerance'],
+    filter_mismatches: [{ field: 'value', requested: '10k', actual: '9.1k', unit: 'Ω', relative_difference: '.09' }],
+    failed_requirements: [{ requirement: { name: 'rated_power', comparison: 'gte', value: '0.5 W', basis: 'rated', conditions: {} }, fact }]
+  }] })
+  assert.ok(html.includes('7 partial matches'))
+  assert.ok(html.includes('Partial match · does not meet all requirements'))
+  assert.ok(html.includes('Nominal value: requested 10k; stored 9.1k.'))
+  assert.ok(html.includes('Does not meet: rated power at least 0.5 W.'))
+  assert.ok(html.includes('250 mW'))
+  assert.ok(html.includes('Also not confirmed for: tolerance.'))
+  assert.ok(html.includes('View source evidence'))
+  assert.ok(!html.includes('Meets stated requirements'))
+  assert.ok(!html.includes('No inventory records meet these requirements.'))
 })
