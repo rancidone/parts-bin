@@ -93,6 +93,29 @@ requires no model or supplier requests.
 
 ## Interrupted requests
 
+Worker hosts can accept a stable request through `AgentGateway.prepare`, then
+call `advance_background` with that execution ID. A `waiting_model` result means
+the worker has released its lease; invoke it later to retrieve the saved provider
+response. A `ready` result needs another stage; `awaiting_approval` needs the
+original approval decision. Read progress from stored conversation events. This
+worker interface does not schedule continuation and is not enabled by the current
+HTTP routes.
+
+Background submission keeps `store=false`. OpenAI temporarily retains background
+results for roughly ten minutes; collect them promptly. `model_response_unavailable`
+means the result is missing or expired and is not automatically resubmitted.
+`model_submission_uncertain` means the worker could not save a submission's response
+ID. Inspect provider usage before making a new request; replaying that execution
+does not repeat the POST. A transient collection failure can continue with the same
+execution ID and saved response ID. The application never persists photo bytes:
+initial submission needs the accepted photo, while result collection does not.
+Different photos require a new request identity.
+
+Once background workers are used, drain their executions before rolling back to
+a version predating [the background checkpoint contract](adr/0027-durable-intake-and-background-responses.md).
+Such versions can mistake a pending submission for a fresh model call. Configuration
+and data remain separate from the application image.
+
 Compose upgrades give active requests time to finish: Uvicorn waits up to five
 minutes, inside Docker's five-minute-thirty-second stop window. The extra thirty
 seconds allow cancelled workers to release leases and close connections. New connections can fail

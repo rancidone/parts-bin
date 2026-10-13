@@ -63,6 +63,25 @@ class SQLiteExecutionRepository:
     def record(row) -> StoredExecution:
         return StoredExecution(row["execution_id"], row["thread_id"], json.loads(row["context_json"]), row["status"])
 
+    def prepare(self, thread_id: str, execution_id: str, context: dict) -> StoredExecution:
+        """Persist intake without a lease; duplicate delivery never resets progress."""
+        if not execution_id or not context.get("input_digest"):
+            raise ValueError("Execution identity and input digest are required")
+        with self.connection() as conn:
+            row = conn.execute("SELECT * FROM agent_executions WHERE execution_id = ?",
+                               (execution_id,)).fetchone()
+            if row is not None:
+                record = self.record(row)
+                if record.thread_id != thread_id or record.context.get("input_digest") != context["input_digest"]:
+                    raise ExecutionUnavailable("Execution identity was already used for a different request")
+                return record
+            if conn.execute("SELECT 1 FROM agent_executions WHERE thread_id = ? AND status IN ('ready', 'waiting_model')",
+                            (thread_id,)).fetchone():
+                raise ExecutionUnavailable("Resume the unfinished execution before starting another message")
+            conn.execute("INSERT INTO agent_executions VALUES (?, ?, ?, 'ready', NULL, 0)",
+                         (execution_id, thread_id, encode(context)))
+            return StoredExecution(execution_id, thread_id, context, "ready")
+
     def claim(self, thread_id: str, execution_id: str, worker_id: str, context: dict | None = None) -> StoredExecution:
         now = time.time()
         with self.connection() as conn:
@@ -71,7 +90,7 @@ class SQLiteExecutionRepository:
             if row is None:
                 if context is None:
                     raise ExecutionUnavailable("Unknown execution for this conversation")
-                if conn.execute("SELECT 1 FROM agent_executions WHERE thread_id = ? AND status = 'ready'",
+                if conn.execute("SELECT 1 FROM agent_executions WHERE thread_id = ? AND status IN ('ready', 'waiting_model')",
                                 (thread_id,)).fetchone():
                     raise ExecutionUnavailable("Resume the unfinished execution before starting another message")
                 conn.execute("INSERT INTO agent_executions VALUES (?, ?, ?, 'ready', ?, ?)",

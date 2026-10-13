@@ -44,6 +44,18 @@ class AgentGateway:
     def threads(self) -> tuple[ConversationSummary, ...]:
         return tuple(self.store.threads())
 
+    async def prepare(self, thread_id: str, execution_id: str, text: str, *,
+                      image: ImageInput | None = None) -> str:
+        runtime = await self._runtime_for(thread_id)
+        return runtime.prepare(thread_id, execution_id, text, image=image)
+
+    async def advance_background(self, thread_id: str, execution_id: str, *,
+                                 image: ImageInput | None = None,
+                                 approval_response: ApprovalResponse | None = None) -> RuntimeResult:
+        runtime = await self._runtime_for(thread_id)
+        return await runtime.advance_background(thread_id, execution_id, image=image,
+                                                approval_response=approval_response)
+
     async def advance(self, thread_id: str, text: str = "", *, execution_id: str | None = None,
                       image: ImageInput | None = None,
                       approval_response: ApprovalResponse | None = None) -> RuntimeResult:
