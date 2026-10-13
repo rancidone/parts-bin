@@ -134,13 +134,13 @@ class PartsBinService:
         """Check a whole bounded BOM, grouping identical rows without allocating stock."""
         if not 1 <= len(request.items) <= 100:
             raise DomainError(ErrorCode.INVALID_INPUT, "Check one to one hundred inventory items")
-        groups = {}
+        groups, unidentified = {}, []
         for index, item in enumerate(request.items):
             filters = dict(item.filters)
             if any(not isinstance(value, str) or not value.strip() for value in filters.values()):
                 raise DomainError(ErrorCode.INVALID_INPUT, "Inventory check filters must be non-empty strings")
             if not filters.get("part_number") and not (filters.get("part_category") and filters.get("value")):
-                raise DomainError(ErrorCode.INVALID_INPUT, "Each item needs a part number or a category and value")
+                unidentified.append(index)
             if item.quantity is not None and (type(item.quantity) is not int or item.quantity < 1):
                 raise DomainError(ErrorCode.INVALID_INPUT, "Requested quantity must be a positive integer")
             # Exact submitted filters define duplicates. Related ordering codes,
@@ -150,6 +150,10 @@ class PartsBinService:
             group["input_indices"].append(index)
             group["unknown_quantity"] |= item.quantity is None
             group["quantity"] += item.quantity or 0
+        if unidentified:
+            raise DomainError(ErrorCode.INVALID_INPUT,
+                              "Each item needs a part number or a category and value",
+                              details={"input_indices": unidentified})
         results, stock_groups = [], {}
         for group in groups.values():
             filters = group['filters']
