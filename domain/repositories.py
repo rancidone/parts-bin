@@ -15,6 +15,14 @@ class ExecutionUnavailable(ValueError):
     """Work is unknown, already leased, or no longer owned by this worker."""
 
 
+class ExecutionBusy(ExecutionUnavailable):
+    """A live lease prevents takeover; this is a temporary recovery condition."""
+
+    def __init__(self, retry_after_seconds: int):
+        super().__init__("Execution is already running; refresh history and retry resume after its worker releases it")
+        self.retry_after_seconds = retry_after_seconds
+
+
 @dataclass(frozen=True)
 class StoredOperation:
     operation_id: str

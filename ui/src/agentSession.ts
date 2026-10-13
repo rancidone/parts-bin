@@ -48,6 +48,7 @@ export function unfinishedExecutions(events: AgentEvent[]) {
     if (event.kind === 'user_message') execution.photo = Boolean(event.data.image)
     if (event.kind === 'assistant_text' || event.kind === 'tool_call') execution.needsPhoto = false
     else if (event.kind === 'user_message') execution.needsPhoto = execution.photo
+    if (event.kind === 'completed' && event.data.status === 'busy') continue
     if (event.kind === 'completed') execution.status = String(event.data.status)
     else if (event.kind !== 'error') execution.status = 'unfinished'
     executions.set(id, execution)

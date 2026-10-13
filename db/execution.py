@@ -1,10 +1,11 @@
 """SQLite persistence for execution checkpoints and committed addition outcomes."""
 
 import json
+import math
 import time
 from contextlib import contextmanager
 
-from domain.repositories import ExecutionUnavailable, StoredExecution, StoredOperation
+from domain.repositories import ExecutionBusy, ExecutionUnavailable, StoredExecution, StoredOperation
 from . import persistence
 
 LEASE_SECONDS = 300
@@ -79,7 +80,7 @@ class SQLiteExecutionRepository:
             if row["status"] in {"completed", "failed"}:
                 return self.record(row)
             if row["worker_id"] is not None and row["lease_until"] > now:
-                raise ExecutionUnavailable("Execution is already running; retry after its worker releases it")
+                raise ExecutionBusy(max(1, math.ceil(row["lease_until"] - now)))
             conn.execute("UPDATE agent_executions SET worker_id = ?, lease_until = ? WHERE execution_id = ?",
                          (worker_id, now + LEASE_SECONDS, execution_id))
             return self.record(row)

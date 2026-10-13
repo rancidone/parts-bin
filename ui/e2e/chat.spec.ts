@@ -459,3 +459,21 @@ test('direct inventory links survive reload and malformed part routes are reject
   await page.getByRole('link', { name: 'Chat', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible()
 })
+
+test('busy resume shows a temporary notice and retains the original recovery button', async ({ context, page }) => {
+  const f = await fixture(context, [user])
+  await f.open(page)
+  const busy = event(2, 'completed', { status: 'busy', execution_id: 'work',
+    message: 'This request is still running. Refresh history, then retry Resume request in up to 100 seconds.',
+    retry_after_seconds: 100 })
+  f.respond(route => {
+    f.histories.set('current', [user, busy])
+    return stream(route, [busy])
+  })
+  await page.getByRole('button', { name: 'Resume request', exact: true }).click()
+  await expect(page.getByText('This request is still running. Refresh history, then retry Resume request in up to 100 seconds.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Resume request', exact: true })).toBeEnabled()
+  await expect(page.getByRole('status').filter({ hasText: /^Unfinished work$/ })).toBeVisible()
+  expect(f.posts).toHaveLength(1)
+  expect(f.posts[0].postData()).toContain('work')
+})

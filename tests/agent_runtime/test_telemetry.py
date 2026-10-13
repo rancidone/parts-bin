@@ -56,3 +56,56 @@ async def test_telemetry_records_tool_error_approval_loop_and_runtime_failure(tm
     await looping.run("two", "secret")
     emitted = {event for event, _ in captured.items}
     assert "agent_tool_error" in emitted and "agent_loop_limit" in emitted
+
+
+async def test_budget_failures_emit_exact_code_once_and_preserve_saved_failure(tmp_path):
+    from agent_runtime.budgets import ModelBudgetError
+    from .test_runtime import build_runtime
+
+    for code in ('context_budget_exceeded', 'model_response_incomplete'):
+        captured = CapturedTelemetry()
+        (tmp_path / code).mkdir()
+        runtime, _, store = build_runtime(tmp_path / code, [])
+        runtime.telemetry = AgentTelemetry(captured.emit)
+
+        class BudgetTransport:
+            async def complete(self, request):
+                raise ModelBudgetError(code, 'private error detail')
+
+        runtime.transport = BudgetTransport()
+        result = await runtime.run('private-thread', 'private prompt')
+        assert result.status == 'failed'
+        assert next(event for event in store.events('private-thread') if event.kind == 'error').data['code'] == code
+        failures = [fields for event, fields in captured.items if event == 'agent_runtime_error']
+        assert len(failures) == 1 and failures[0]['error_code'] == code
+        assert captured.items[-1][1]['status'] == 'failed'
+        assert 'private' not in repr(captured.items)
+
+
+async def test_cancelled_model_call_releases_lease_and_reports_interruption(tmp_path):
+    import asyncio
+    from .test_runtime import build_runtime
+
+    runtime, _, store = build_runtime(tmp_path, [])
+    captured = CapturedTelemetry()
+    runtime.telemetry = AgentTelemetry(captured.emit)
+    entered = asyncio.Event()
+
+    class PausedTransport:
+        async def complete(self, request):
+            entered.set()
+            await asyncio.Event().wait()
+
+    runtime.transport = PausedTransport()
+    task = asyncio.create_task(runtime.run('thread', 'hello'))
+    await entered.wait()
+    execution = store.events('thread')[0].data['execution_id']
+    task.cancel()
+    import pytest
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    record = runtime.registry.service.repository.executions.claim('thread', execution, 'new-worker')
+    assert record.status == 'ready'
+    runtime.registry.service.repository.executions.release(execution, 'new-worker')
+    assert captured.items[-2][1]['error_code'] == 'execution_interrupted'
+    assert captured.items[-1][1]['status'] == 'interrupted'

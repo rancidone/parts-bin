@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any, Callable, Protocol
@@ -255,7 +256,14 @@ class OpenAIResponsesRuntime:
         except ModelBudgetError as exc:
             state.error = {"code": exc.code, "message": str(exc)}
             save("failed")
+            self.telemetry.runtime_failure(thread_id, self.runtime, exc.code)
             return terminal("failed")
+        except asyncio.CancelledError:
+            self.telemetry.runtime_failure(thread_id, self.runtime, "execution_interrupted")
+            self.telemetry.turn_finished(thread_id, self.runtime,
+                latency_ms=(perf_counter() - started) * 1000, status="interrupted",
+                domain_outcome=domain_outcome)
+            raise
         except Exception:
             self.telemetry.runtime_failure(thread_id, self.runtime, "execution_interrupted")
             raise

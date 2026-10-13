@@ -11,12 +11,15 @@ from .models import ModelTurn, ToolCall
 from .budgets import (MAX_INPUT_BYTES, MAX_OUTPUT_TOKENS, MAX_REASONING_STATE_BYTES,
                       ModelBudgetError, bounded_history, encoded, model_tool_result, size)
 from .runtime import ModelRequest
+from .telemetry import AgentTelemetry
 
 
 class OpenAIResponsesTransport:
-    def __init__(self, *, api_key: str, model: str, base_url: str = "https://api.openai.com/v1", client: httpx.AsyncClient | None = None):
+    def __init__(self, *, api_key: str, model: str, base_url: str = "https://api.openai.com/v1", client: httpx.AsyncClient | None = None,
+                 telemetry: AgentTelemetry | None = None):
         self.api_key, self.model, self.base_url = api_key, model, base_url.rstrip("/")
         self.client = client or httpx.AsyncClient(timeout=60.0)
+        self.telemetry = telemetry or AgentTelemetry()
 
     async def complete(self, request: ModelRequest) -> ModelTurn:
         content: list[dict[str, Any]] = [{"type": "input_text", "text": request.user_text}]
@@ -48,9 +51,15 @@ class OpenAIResponsesTransport:
                               and item.get("encrypted_content"))
         text_input = [{key: value for key, value in item.items() if key != "encrypted_content"}
                       if item.get("type") == "reasoning" else item for item in text_input]
+        input_bytes = size({"instructions": request.system, "input": text_input, "tools": request.tools})
+        self.telemetry.model_request(request.thread_id, input_bytes=input_bytes,
+            reasoning_bytes=reasoning_bytes, tool_count=len(request.tools),
+            exchange_count=len(request.exchanges), omitted_results=sum(
+                bool(json.loads(item["output"]).get("result_omitted"))
+                for item in input_items if item.get("type") == "function_call_output"))
         if reasoning_bytes > MAX_REASONING_STATE_BYTES:
             raise ModelBudgetError("context_budget_exceeded", "This request exceeds the saved reasoning budget. Saved outcomes remain available; start a narrower request without repeating completed mutations.")
-        if size({"instructions": request.system, "input": text_input, "tools": request.tools}) > MAX_INPUT_BYTES:
+        if input_bytes > MAX_INPUT_BYTES:
             raise ModelBudgetError("context_budget_exceeded", "This request exceeds the model input budget. Saved outcomes remain available; start a narrower request without repeating completed mutations.")
         response = await self.client.post(f"{self.base_url}/responses", headers={"Authorization": f"Bearer {self.api_key}"},
             json={"model": self.model, "instructions": request.system, "input": input_items,

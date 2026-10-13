@@ -74,6 +74,18 @@ class AgentTelemetry:
         self._emit("agent_runtime_error", thread_hash=fingerprint(thread_id), runtime=runtime,
                    error_code=code, failure_scope="runtime")
 
+    def execution_deferred(self, thread_id: str, runtime: str, execution_id: str, *,
+                           retry_after_seconds: int) -> None:
+        self._emit("agent_execution_deferred", thread_hash=fingerprint(thread_id), runtime=runtime,
+                   execution_hash=fingerprint(execution_id), reason="execution_busy",
+                   retry_after_seconds=retry_after_seconds)
+
+    def model_request(self, thread_id: str | None, *, input_bytes: int, reasoning_bytes: int,
+                      tool_count: int, exchange_count: int, omitted_results: int) -> None:
+        self._emit("agent_model_request", thread_hash=fingerprint(thread_id), runtime="openai",
+                   input_bytes=input_bytes, reasoning_bytes=reasoning_bytes,
+                   tool_count=tool_count, exchange_count=exchange_count, omitted_results=omitted_results)
+
 
 def _domain_outcome(tool: str, result: dict[str, Any]) -> str:
     payload = result.get("result") if isinstance(result, dict) else None

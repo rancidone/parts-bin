@@ -14,6 +14,8 @@ from time import perf_counter
 from typing import Awaitable
 from uuid import uuid4
 
+from domain.repositories import ExecutionBusy
+
 from .models import ApprovalResponse, ConversationEvent, ConversationSummary, ImageInput, RuntimeName
 from .runtime import OpenAIResponsesRuntime
 from .store import ConversationRepository, UnsupportedRuntimeError
@@ -30,6 +32,7 @@ class AgentGateway:
         self.store = store
         self._make_runtime = make_runtime
         self._runtime: OpenAIResponsesRuntime | None = None
+        self._tasks: set[asyncio.Task] = set()
         self.telemetry = telemetry or AgentTelemetry()
 
     def create_thread(self) -> str:
@@ -81,6 +84,18 @@ class AgentGateway:
             runtime = await self._runtime_for(thread_id)
             return (await runtime.run(thread_id, "", execution_id=execution_id,
                                       image=image, on_event=on_event)).events
+        except ExecutionBusy as exc:
+            self.telemetry.execution_deferred(thread_id, runtime_name, execution_id,
+                                             retry_after_seconds=exc.retry_after_seconds)
+            events = (self.store.append(ConversationEvent("completed", thread_id, runtime_name, {
+                "execution_id": execution_id, "status": "busy", "code": "execution_busy",
+                "message": f"This request is still running or waiting for an interrupted worker's lease to expire. Refresh history, then retry Resume request in up to {exc.retry_after_seconds} seconds.",
+                "retry_after_seconds": exc.retry_after_seconds,
+            })),)
+            if on_event is not None:
+                for event in events:
+                    on_event(event)
+            return events
         except Exception as exc:
             events = self._failure(thread_id, runtime_name, "execution_resume_failed", str(exc),
                                    latency_ms=(perf_counter() - started) * 1000)
@@ -107,6 +122,8 @@ class AgentGateway:
                 queue.put_nowait(None)
 
         task = asyncio.create_task(produce())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
         try:
             while (event := await queue.get()) is not None:
                 yield event
@@ -124,6 +141,11 @@ class AgentGateway:
 
     async def close(self) -> None:
         """Release runtime-owned connections/processes during application shutdown."""
+        tasks = tuple(self._tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         if self._runtime is not None:
             closer = getattr(self._runtime.transport, "close", None)
             if closer is not None:

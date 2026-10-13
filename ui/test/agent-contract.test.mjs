@@ -275,3 +275,11 @@ test('open tabs keep independent active histories when one tab selects another c
   assert.deepEqual(second.getSnapshot().events, [user, done])
   assert.equal(requests.filter(item => item.init?.method === 'POST').length, 0)
 })
+
+test('busy resume preserves recovery controls without reopening completed executions', () => {
+  const busy = event(4, 'completed', { status: 'busy', execution_id: 'work', retry_after_seconds: 100 })
+  assert.equal(unfinishedExecutions([user, busy])[0].status, 'unfinished')
+  assert.equal(unfinishedExecutions([user, done, busy]).length, 0)
+  const waiting = event(2, 'completed', { status: 'awaiting_approval', execution_id: 'work' })
+  assert.equal(unfinishedExecutions([user, waiting, busy])[0].status, 'awaiting_approval')
+})
