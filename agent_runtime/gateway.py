@@ -162,7 +162,7 @@ class AgentGateway:
     def events(self, thread_id: str, *, after: int = 0) -> tuple[ConversationEvent, ...]:
         if self.store.runtime_for(thread_id) is None:
             raise KeyError(thread_id)
-        return tuple(event for event in self.store.events(thread_id) if (event.sequence or 0) > after)
+        return tuple(self.store.events(thread_id, after=after))
 
     async def close(self) -> None:
         """Release runtime-owned connections/processes during application shutdown."""

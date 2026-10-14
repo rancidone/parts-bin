@@ -9,6 +9,10 @@ from .records import encode
 
 
 class PostgresConversationRepository(Adapter):
+    @property
+    def storage_id(self):
+        return self.owner.storage_id
+
     @access(write=True)
     def create_thread(self, thread_id, runtime):
         row = self.execute('SELECT runtime FROM agent_threads WHERE thread_id = %s', (thread_id,)).fetchone()
@@ -67,6 +71,6 @@ class PostgresConversationRepository(Adapter):
         return ConversationEvent(row['kind'], thread_id, row['runtime'], json.loads(row['data_json']), row['sequence'])
 
     @access()
-    def events(self, thread_id):
+    def events(self, thread_id, *, after=0):
         return [self._event(row, thread_id) for row in self.execute(
-            'SELECT * FROM agent_events WHERE thread_id = %s ORDER BY sequence', (thread_id,)).fetchall()]
+            'SELECT * FROM agent_events WHERE thread_id = %s AND sequence > %s ORDER BY sequence', (thread_id, after)).fetchall()]

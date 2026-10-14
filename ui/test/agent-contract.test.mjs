@@ -6,7 +6,7 @@ const event = (sequence, kind, data = {}, runtime = 'openai', threadId = 'thread
 const user = event(1, 'user_message', { text: 'hello', execution_id: 'work' })
 const done = event(3, 'completed', { status: 'completed', execution_id: 'work' })
 const encode = events => events.map(item => `event: agent_event\ndata: ${JSON.stringify(item)}\n\n`).join('')
-const response = events => new Response(encode(events))
+const response = (events, active = false, accepted = true) => new Response(encode(events), { headers: { 'X-Agent-Active': String(active), 'X-Execution-Accepted': String(accepted) } })
 const summary = (thread_id = 'thread', runtime = 'openai', title = 'hello', last_sequence = 3) => ({ thread_id, runtime, title, last_sequence })
 const list = (threads = [summary()]) => Response.json({ threads })
 const isList = (url, init) => url === '/agent/threads' && !init?.method
@@ -82,19 +82,15 @@ test('failed restore retains its ID and blocks messages until history is recover
   assert.equal(f.session.getSnapshot().restored, true)
 })
 
-test('truncated mutation streams require read-only recovery and never resubmit automatically', async () => {
+test('truncated mutation streams recover through cursor GETs without another POST', async () => {
   const f = fixture([])
   await f.session.restore()
-  f.respond(async (url, init) => isList(url, init) ? list() : response([user]))
-  assert.equal(await f.session.submit('hello'), false)
-  assert.match(f.session.getSnapshot().error, /interrupted/)
-  assert.equal(f.session.getSnapshot().restored, false)
-  const requests = f.requests.length
-  assert.equal(await f.session.submit('hello'), false)
-  assert.equal(f.requests.length, requests)
-  f.respond(async (url, init) => isList(url, init) ? list() : response([user]))
-  await f.session.refresh()
-  assert.equal(unfinishedExecutions(f.session.getSnapshot().events)[0].id, 'work')
+  f.respond(async (url, init) => isList(url, init) ? list() : init?.method === 'POST' ? response([user]) : response([event(2, 'assistant_text', { text: 'saved', execution_id: 'work' }), done]))
+  assert.equal(await f.session.submit('hello'), true)
+  assert.equal(f.session.getSnapshot().error, null)
+  assert.equal(f.session.getSnapshot().restored, true)
+  assert.equal(unfinishedExecutions(f.session.getSnapshot().events).length, 0)
+  assert.match(f.requests.at(-1).url, /events\?after=1&execution_id=/)
   assert.equal(f.requests.filter(item => item.init?.method === 'POST').length, 1)
 })
 
@@ -219,13 +215,13 @@ test('storage being disabled still allows an in-memory conversation', async () =
   assert.equal(session.getSnapshot().threadId, 'thread')
 })
 
-test('an interrupted approval response does not send a second decision automatically', async () => {
+test('an interrupted approval response recovers saved progress without a second decision', async () => {
   const proposal = event(2, 'approval_request', { execution_id: 'work', request_id: 'review' })
   const f = fixture([user, proposal])
   await f.session.restore()
   f.respond(async () => response([event(3, 'approval_decision', { execution_id: 'work', request_id: 'review', approved: true })]))
-  assert.equal(await f.session.decide('review', true), false)
-  assert.equal(f.session.getSnapshot().restored, false)
+  assert.equal(await f.session.decide('review', true), true)
+  assert.equal(f.session.getSnapshot().restored, true)
   assert.equal(approvalDecision(f.session.getSnapshot().events, 'review'), true)
   assert.equal(f.requests.filter(item => item.init?.method === 'POST').length, 1)
 })

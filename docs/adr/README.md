@@ -52,3 +52,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0029: Use existing PostgreSQL and share SQL with the DSQL experiment](0029-postgresql-and-dsql.md)
 
 - [0030: Dispatch durable stages through PostgreSQL and signed OpenAI notifications](0030-durable-dispatch-and-openai-webhooks.md)
+
+- [0031: Reconnect chat progress through read-only event cursors](0031-read-only-chat-progress-reconnect.md)

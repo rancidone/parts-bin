@@ -10,8 +10,9 @@ const done = event(3, 'completed', { status: 'completed', execution_id: 'work' }
 const proposal = event(2, 'approval_request', { execution_id: 'work', request_id: 'review', effect: 'Delete resistor', tool: 'delete_part' })
 const waiting = event(3, 'completed', { status: 'awaiting_approval', execution_id: 'work' })
 const photo = { name: 'fresh.png', mimeType: 'image/png', buffer: Buffer.from('synthetic image bytes') }
-const stream = (route: Route, events: AgentEvent[]) => route.fulfill({
+const stream = (route: Route, events: AgentEvent[], active = false, accepted = true) => route.fulfill({
   contentType: 'text/event-stream',
+  headers: { 'X-Agent-Active': String(active), 'X-Execution-Accepted': String(accepted) },
   body: events.map(item => `event: agent_event\ndata: ${JSON.stringify(item)}\n\n`).join(''),
 })
 
@@ -27,6 +28,8 @@ async function fixture(context: BrowserContext, initial: AgentEvent[]) {
     ['retired', [event(1, 'assistant_text', { text: 'Historical provider message' }, 'retired', 'codex')]],
   ])
   const posts: Request[] = []
+  const reads: Request[] = []
+  const active = new Set<string>()
   let write: (route: Route) => Promise<void> = route => stream(route, [user, done])
   let historyUnavailable = false
   await context.route('**/agent/**', async route => {
@@ -36,13 +39,15 @@ async function fixture(context: BrowserContext, initial: AgentEvent[]) {
       posts.push(request)
       return write(route)
     }
+    reads.push(request)
     if (path === '/agent/threads') return route.fulfill({ json: { threads: [...histories].map(([thread_id, events]) => ({
       thread_id, runtime: events[0]?.runtime ?? 'openai', title: thread_id, last_sequence: events.at(-1)?.sequence ?? 0,
     })) } })
     if (historyUnavailable) return route.fulfill({ status: 503, json: { detail: 'History temporarily unavailable' } })
     const thread = path.split('/')[3]
     if (!histories.has(thread)) throw new Error(`Unexpected history request: ${path}`)
-    return stream(route, histories.get(thread)!)
+    const after = Number(new URL(request.url()).searchParams.get('after') ?? 0)
+    return stream(route, histories.get(thread)!.filter(event => event.sequence > after), active.has(thread))
   })
   const open = async (page: Page) => {
     await page.goto('/')
@@ -52,7 +57,7 @@ async function fixture(context: BrowserContext, initial: AgentEvent[]) {
     await expect(page.getByRole('button', { name: 'Conversation', exact: true })).toHaveText('current▾')
     await expect(page.getByRole('button', { name: 'Refresh history' })).toBeEnabled()
   }
-  return { histories, posts, open, respond: (handler: typeof write) => { write = handler },
+  return { histories, posts, reads, active, open, respond: (handler: typeof write) => { write = handler },
     failHistory: (failed: boolean) => { historyUnavailable = failed } }
 }
 
@@ -192,29 +197,40 @@ test('ambiguous part numbers are not linked and deleted records show a clear mes
   await expect(page.getByText('This part is no longer in inventory.')).toBeVisible()
 })
 
-test('interrupted response requires read-only reconnect before explicit resume', async ({ context, page }) => {
+test('interrupted progress reconnects automatically by cursor without restarting work', async ({ context, page }) => {
   const f = await fixture(context, [])
   await f.open(page)
-  f.respond(route => { f.histories.set('current', [user]); return stream(route, [user]) })
+  f.respond(route => { f.active.add('current'); f.histories.set('current', [user]); return stream(route, [user]) })
   await page.getByRole('textbox', { name: 'Message' }).fill('Add a resistor')
   await page.getByRole('button', { name: 'Send message' }).click()
-  await expect(page.getByRole('alert')).toContainText('interrupted')
-  await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('Add a resistor')
-  await expect(page.getByRole('button', { name: 'Send message' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Resume request' })).toBeDisabled()
-  await page.getByRole('button', { name: 'Refresh history' }).click()
-  await expect(page.getByRole('status')).toHaveText('Unfinished work')
-  await page.reload()
-  await expect(page.getByRole('status')).toHaveText('Unfinished work')
-  expect(f.posts).toHaveLength(1)
-  f.respond(route => { f.histories.set('current', [user, done]); return stream(route, [user, done, done]) })
-  await page.getByRole('button', { name: 'Resume request' }).click()
+  await expect(page.getByRole('status')).toHaveText('Working…')
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Resume request' })).toHaveCount(0)
+  await expect.poll(() => f.reads.some(request => new URL(request.url()).searchParams.get('after') === '1')).toBe(true)
+  f.histories.set('current', [user, event(2, 'assistant_text', { execution_id: 'work', text: 'Recovered answer' }), done, done])
+  f.active.delete('current')
   await expect(page.getByRole('status')).toHaveText('Ready')
+  await expect(page.getByText('Recovered answer')).toBeVisible()
   await expect(page.getByText('Add a resistor', { exact: true }).and(page.locator('div'))).toHaveCount(1)
-  expect(f.posts).toHaveLength(2)
-  expect(new URL(f.posts[1].url()).pathname).toBe('/agent/threads/current/resume')
-  expect(f.posts[1].postData()).toContain('name="execution_id"\r\n\r\nwork')
-  expect(f.posts[1].postData()).not.toContain('name="message"')
+  expect(f.posts).toHaveLength(1)
+  expect(new URL(f.posts[0].url()).pathname).toBe('/agent/threads/current/messages')
+})
+
+test('reload during active photo work follows saved events without resending the photo', async ({ context, page }) => {
+  const photoUser = event(1, 'user_message', { execution_id: 'work', image: { media_type: 'image/png' } })
+  const f = await fixture(context, [photoUser])
+  f.active.add('current')
+  await f.open(page)
+  await expect(page.getByRole('status')).toHaveText('Working…')
+  await page.reload()
+  await expect(page.getByRole('status')).toHaveText('Working…')
+  await expect(page.getByRole('button', { name: 'Resume request' })).toHaveCount(0)
+  expect(await page.evaluate(() => ({ ...localStorage }))).toEqual({ [key]: 'current' })
+  f.histories.set('current', [photoUser, event(2, 'assistant_text', { execution_id: 'work', text: 'Identified from saved output' }), done])
+  f.active.delete('current')
+  await expect(page.getByRole('paragraph').filter({ hasText: 'Identified from saved output' })).toBeVisible()
+  await expect(page.getByRole('status')).toHaveText('Ready')
+  expect(f.posts).toHaveLength(0)
 })
 
 test('unavailable history blocks writes until refresh succeeds and retains the draft', async ({ context, page }) => {
@@ -476,4 +492,20 @@ test('busy resume shows a temporary notice and retains the original recovery but
   await expect(page.getByRole('status').filter({ hasText: /^Unfinished work$/ })).toBeVisible()
   expect(f.posts).toHaveLength(1)
   expect(f.posts[0].postData()).toContain('work')
+})
+
+
+test('reload retries unavailable progress automatically and recovers without writes', async ({ context, page }) => {
+  const f = await fixture(context, [user])
+  f.active.add('current')
+  await f.open(page)
+  f.failHistory(true)
+  await page.reload()
+  await expect(page.getByRole('status')).toHaveText('Reconnecting to progress…')
+  f.histories.set('current', [user, event(2, 'assistant_text', { execution_id: 'work', text: 'Recovered after outage' }), done])
+  f.active.delete('current')
+  f.failHistory(false)
+  await expect(page.getByRole('paragraph').filter({ hasText: 'Recovered after outage' })).toBeVisible()
+  await expect(page.getByRole('status')).toHaveText('Ready')
+  expect(f.posts).toHaveLength(0)
 })

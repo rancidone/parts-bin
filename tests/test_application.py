@@ -41,7 +41,7 @@ class Transport:
 def services_at(directory, transport):
     directory.mkdir()
     repository = TestRepository(directory / "inventory.db")
-    conversations = TestConversations(directory / "events.db")
+    conversations = repository.conversations
     return create_services(repository, conversations, transport_factory=lambda: transport)
 
 

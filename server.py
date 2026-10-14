@@ -47,6 +47,9 @@ def _services(request: Request) -> ApplicationServices:
 def create_app(services: ApplicationServices, *, ui_dist_path: Path | None = None,
                webhook_secret: str | None = None) -> FastAPI:
     """Build an HTTP adapter from supplied application services."""
+    if services.gateway.store.storage_id != services.domain.repository.storage_id:
+        raise ValueError('HTTP progress, conversations and executions must share one transactional database')
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
@@ -116,16 +119,22 @@ async def list_agent_threads(request: Request) -> dict:
 
 
 @router.get("/agent/threads/{thread_id}/events")
-async def resume_agent_thread(request: Request, thread_id: str, after: int = 0) -> StreamingResponse:
+async def resume_agent_thread(request: Request, thread_id: str, after: int = 0,
+                              execution_id: str | None = None) -> StreamingResponse:
     try:
-        events = _services(request).gateway.events(thread_id, after=max(after, 0))
+        snapshot = _services(request).domain.repository.dispatch.progress_snapshot(thread_id, max(after, 0), execution_id)
+        progress, events = snapshot.state, snapshot.events
     except (ExecutionUnavailable, RepositoryBusy, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except UnsupportedRuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown conversation thread") from exc
-    return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+               "X-Agent-Active": str(progress.active).lower()}
+    if progress.accepted is not None:
+        headers['X-Execution-Accepted'] = str(progress.accepted).lower()
+    return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers=headers)
 
 
 @router.post("/agent/threads/{thread_id}/messages")
