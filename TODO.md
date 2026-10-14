@@ -10,6 +10,9 @@ constraints and measured tradeoffs.
 
 ## Serverless preparation
 
+- Activate the public OpenAI webhook through project settings and verify a real
+  signed provider delivery. The current API login lacks webhook-management scope;
+  keep reconciliation polling active until the operator registers the endpoint.
 - Evaluate background Responses submission and collection with the intended
   model and workloads on real inventory/photo workloads. Measure submission
   latency, collection cadence, costs and result-expiry behavior within the
