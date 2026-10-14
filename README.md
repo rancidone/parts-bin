@@ -97,7 +97,14 @@ Add **Nominal value** for category-aware matching (for example, `10 kΩ` finds
 resistors stored as `10k`, and `0.1 µF` finds capacitors stored as `100n`). Choose
 a category to disambiguate bare values. Other categories compare values exactly.
 **Exact package** matches stored spelling, including case and punctuation:
-`SOT23` and `SOT-23` remain distinct. These filters combine with text terms and
+`SOT23` and `SOT-23` remain distinct. The package field suggests distinct, nonempty
+package names from committed inventory, narrowed by the selected category. With
+All categories selected, it suggests packages across inventory. Suggestions are
+independent of text, nominal value, stock and page, so an empty search does not
+hide available spelling. You can select a suggestion or type an exact package.
+Changing category keeps your current package filter; clear it or choose another
+suggestion when it no longer applies. Pending package proposals are excluded.
+These filters combine with text terms and
 work without a text query. Text terms remain literal; use Nominal value for unit
 equivalence. Only matching records are paged; nearby nominal values are excluded. **Clear filters** restores
 full browsing. Filtered results show totals and **Previous results** / **Next

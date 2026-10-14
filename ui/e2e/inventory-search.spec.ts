@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test'
 import type { BrowserContext } from '@playwright/test'
+import type { Part } from '../src/types'
 
 const mosfets = Array.from({ length: 53 }, (_, i) => ({ id: i + 1, part_category: 'mosfet', profile: 'discrete_ic', value: null,
   package: 'SOT23', part_number: `PBSS5350T,${i + 100}`, manufacturer: 'Nexperia', description: 'PNP transistor', quantity: i === 0 ? 1 : 0 }))
 const resistor = { id: 90, part_category: 'resistor', profile: 'passive', value: '10k', package: '0402', part_number: null, manufacturer: null, description: 'Drawer B', quantity: 7 }
-async function fixture(context: BrowserContext) {
-  const parts = [...mosfets.map(part => ({ ...part })), { ...resistor }]
+async function fixture(context: BrowserContext, extraParts: Part[] = [], reviews: Record<string, unknown> = {}) {
+  const parts: Part[] = [...mosfets.map(part => ({ ...part })), { ...resistor }, ...extraParts]
   const requests: { path: string; method: string; query: URLSearchParams }[] = []
   let fail = false
   let delay = false
@@ -14,7 +15,7 @@ async function fixture(context: BrowserContext) {
   await context.route(/\/inventory(?:\/|\?|$)/, async route => {
     const url = new URL(route.request().url())
     requests.push({ path: url.pathname, method: route.request().method(), query: url.searchParams })
-    if (url.pathname === '/inventory/pending') return route.fulfill({ json: { reviews: {} } })
+    if (url.pathname === '/inventory/pending') return route.fulfill({ json: { reviews } })
     if (url.pathname.endsWith('/quantity')) {
       const id = Number(url.pathname.split('/')[2])
       const part = parts.find(part => part.id === id)!
@@ -288,4 +289,57 @@ test('package filter combines with candidate text and resets paging without losi
   await expect(page.getByRole('status')).toContainText('53 candidate records')
   await page.getByLabel('Exact package', { exact: true }).fill('sot23')
   await expect(page.getByText('No parts found.', { exact: true })).toBeVisible()
+})
+
+
+test('package suggestions use distinct committed spelling across the whole inventory and narrow by category', async ({ context, page }) => {
+  const f = await fixture(context, [
+    { ...mosfets[0], id: 100, package: 'SOT-23', quantity: 0 },
+    { ...mosfets[0], id: 101, package: 'sot23', quantity: 0 },
+    { ...resistor, id: 102, package: '0603' },
+    { ...resistor, id: 103, package: '0402' },
+    { ...resistor, id: 104, package: null },
+    { ...resistor, id: 105, package: '   ' },
+  ], { '90': { fields: { package: { accepted: true, value: 'PendingPackage' } } } })
+  await page.goto('/#/inventory?category=mosfet&query=missing&minimum_quantity=8&page=2')
+  const options = page.locator('#inventory-packages option')
+  await expect(page.getByLabel('Exact package', { exact: true })).toHaveAttribute('list', 'inventory-packages')
+  await expect.poll(() => options.evaluateAll(nodes => nodes.map(node => node.getAttribute('value')))).toEqual(['SOT-23', 'SOT23', 'sot23'])
+  await expect(page.getByRole('button', { name: 'First results', exact: true })).toBeVisible()
+  await page.getByLabel('Search category').selectOption('resistor')
+  await expect.poll(() => options.evaluateAll(nodes => nodes.map(node => node.getAttribute('value')))).toEqual(['0402', '0603'])
+  await page.getByLabel('Search category').selectOption('')
+  await expect.poll(() => options.evaluateAll(nodes => nodes.map(node => node.getAttribute('value')))).toEqual(['0402', '0603', 'SOT-23', 'SOT23', 'sot23'])
+  expect(f.requests.every(request => request.method === 'GET')).toBe(true)
+})
+
+test('suggested packages keep exact filtering, bookmarks and history without changing the package on category changes', async ({ context, page }) => {
+  const f = await fixture(context, [{ ...mosfets[0], id: 100, package: 'SOT-23', quantity: 2 }])
+  await page.goto('/#/inventory?category=mosfet')
+  const input = page.getByLabel('Exact package', { exact: true })
+  const options = page.locator('#inventory-packages option')
+  await expect(options).toHaveCount(2)
+  // Native datalist selection writes an option's exact value into the input.
+  const suggested = await options.first().getAttribute('value')
+  await input.fill(suggested!)
+  await expect(page.getByRole('status')).toContainText('1 inventory record')
+  await expect(page).toHaveURL(/package=SOT-23/)
+  await page.reload()
+  await expect(input).toHaveValue('SOT-23')
+  await expect(page.getByRole('status')).toContainText('1 inventory record')
+  await page.getByLabel('Search category').selectOption('resistor')
+  await expect(input).toHaveValue('SOT-23')
+  await expect(options).toHaveCount(1)
+  await expect(page.getByText('No parts found.', { exact: true })).toBeVisible()
+  await page.goBack()
+  await expect(page.getByLabel('Search category')).toHaveValue('mosfet')
+  await expect(options).toHaveCount(2)
+  await expect(page.getByRole('status')).toContainText('1 inventory record')
+  await input.fill('SOT')
+  await expect(page.getByText('No parts found.', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(input).toHaveValue('')
+  await expect(options).toHaveCount(3)
+  expect(f.requests.some(request => request.query.get('package') === 'SOT-23')).toBe(true)
+  expect(f.requests.every(request => request.method === 'GET')).toBe(true)
 })

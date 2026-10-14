@@ -68,3 +68,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0037: Restore Inventory search criteria from bookmarkable URLs](0037-bookmarkable-inventory-search.md)
 
 - [0038: Filter Inventory by nominal value and exact package](0038-direct-nominal-and-package-filters.md)
+
+- [0039: Suggest exact package spelling from committed inventory](0039-inventory-package-suggestions.md)
