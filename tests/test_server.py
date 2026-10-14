@@ -556,3 +556,52 @@ def test_electrical_search_separates_accepted_pending_and_asserted_evidence(clie
 def test_message_intake_requires_stable_identity(client):
     thread = client[0].post('/agent/threads').json()['thread_id']
     assert client[0].post(f'/agent/threads/{thread}/messages', data={'message': 'hello'}).status_code == 422
+
+
+def test_inventory_candidate_search_uses_shared_domain_without_agent(client):
+    from domain import AddPartRequest, PartFields, SearchCandidatesRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    a = service.add_part(AddPartRequest(PartFields('mosfet', 'discrete_ic', 8,
+        part_number='ABC123,215', manufacturer='Nexperia', package='SOT23')))
+    b = service.add_part(AddPartRequest(PartFields('mosfet', 'discrete_ic', 0,
+        part_number='ABC123,115', manufacturer='Nexperia', package='SOT23')))
+    service.add_part(AddPartRequest(PartFields('resistor', 'passive', 4, value='10k', package='0402')))
+    service.repository.inventory.save_pending_review(a.id, {'description': 'uncommitted ghost'}, [])
+    before = service.list()
+    params = {'query': 'Nexperia ABC123 SOT23', 'category': 'mosfet', 'minimum_quantity': 0, 'limit': 1}
+    response = http.get('/inventory/search', params=params)
+    assert response.status_code == 200
+    page = response.json()
+    assert page['count'] == 2 and page['next_offset'] == 1 and page['match_kind'] == 'candidate'
+    assert [p['id'] for p in page['candidates']] == [a.id]
+    next_page = http.get('/inventory/search', params={**params, 'offset': 1}).json()
+    assert [p['id'] for p in next_page['candidates']] == [b.id]
+    assert next_page['next_offset'] is None
+    expected = service.candidate_page(SearchCandidatesRequest(params['query'], {'part_category': 'mosfet'}, 5))
+    stocked = http.get('/inventory/search', params={**params, 'minimum_quantity': 5}).json()
+    assert [p['id'] for p in stocked['candidates']] == [p.id for p in expected['candidates']]
+    assert http.get('/inventory/search', params={'query': 'ghost'}).json()['count'] == 0
+    assert http.get('/inventory/search', params={'query': ',216'}).json()['count'] == 0
+    assert service.list() == before
+
+
+def test_inventory_category_and_stock_search_without_text(client):
+    from domain import AddPartRequest, PartFields
+    http, _ = client
+    service = http.app.state.services.domain
+    stocked = service.add_part(AddPartRequest(PartFields('resistor', 'passive', 4, '10k', '0402')))
+    service.add_part(AddPartRequest(PartFields('resistor', 'passive', 0, '22k', '0402')))
+    service.add_part(AddPartRequest(PartFields('capacitor', 'passive', 5, '100n', '0402')))
+    page = http.get('/inventory/search', params={'category': 'resistor', 'minimum_quantity': 1}).json()
+    assert page['match_kind'] == 'inventory' and page['count'] == 1
+    assert page['candidates'][0]['id'] == stocked.id
+    assert http.get('/inventory/search').json()['count'] == 3
+
+
+@pytest.mark.parametrize('params', [
+    {'minimum_quantity': -1}, {'minimum_quantity': '1.5'}, {'limit': 0},
+    {'limit': 101}, {'offset': -1}, {'query': 'x' * 201},
+])
+def test_inventory_search_validates_bounds(client, params):
+    assert client[0].get('/inventory/search', params=params).status_code == 422

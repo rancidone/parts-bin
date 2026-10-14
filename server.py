@@ -28,9 +28,9 @@ from domain import (
     AdjustStockRequest, ApplyReviewRequest, DeletePartRequest, DomainError, FetchSpecsRequest,
     ProvenanceRequest, RejectReviewRequest, UpdatePartRequest, GetPartRequest,
 )
-from domain.models import SearchPartsRequest
+from domain.models import SearchPartsRequest, SearchCandidatesRequest
 from domain.specifications import SPECIFICATIONS, contract
-from fastapi import APIRouter, Body, FastAPI, File, Form, HTTPException, Request, UploadFile, Response
+from fastapi import APIRouter, Body, FastAPI, File, Form, HTTPException, Request, UploadFile, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -248,6 +248,22 @@ async def openai_webhook(request: Request):
 @router.get("/health")
 async def health(request: Request) -> dict:
     return {"status": "ok", "agent_configured": _services(request).agent_configured}
+
+
+@router.get('/inventory/search')
+async def search_inventory(request: Request, query: str = Query(default='', max_length=200),
+                           category: str | None = None, minimum_quantity: int = Query(default=0, ge=0),
+                           limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0)) -> dict:
+    service = _services(request).domain
+    filters = {'part_category': category} if category else {}
+    try:
+        if query.strip():
+            return service.candidate_page(SearchCandidatesRequest(query, filters, minimum_quantity), limit=limit, offset=offset)
+        page = service.search_page(SearchPartsRequest(filters, minimum_quantity), limit=limit, offset=offset)
+        return {'candidates': page['parts'], 'count': page['count'], 'next_offset': page['next_offset'],
+                'truncated': page['truncated'], 'match_kind': 'inventory'}
+    except DomainError as exc:
+        raise _domain_error(exc) from exc
 
 
 @router.get("/inventory")

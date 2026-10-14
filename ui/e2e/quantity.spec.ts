@@ -41,7 +41,7 @@ test('historical cards adjust current stock and share the count with inventory',
   await context.addInitScript(() => localStorage.setItem('parts-bin.current-thread', 'current'))
   await context.route('**/agent/**', route => {
     if (new URL(route.request().url()).pathname === '/agent/threads') return route.fulfill({ json: { threads: [{ thread_id: 'current', runtime: 'openai', title: 'current', last_sequence: 2 }] } })
-    return route.fulfill({ contentType: 'text/event-stream', body: events.map(event => `event: agent_event\ndata: ${JSON.stringify(event)}\n\n`).join('') })
+    return route.fulfill({ contentType: 'text/event-stream', headers: { 'X-Agent-Active': 'false' }, body: events.map(event => `event: agent_event\ndata: ${JSON.stringify(event)}\n\n`).join('') })
   })
   await context.route('**/inventory**', route => {
     const path = new URL(route.request().url()).pathname

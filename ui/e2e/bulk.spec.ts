@@ -10,6 +10,11 @@ test('bulk selection includes hidden rows and applies only checked fields after 
   let current = parts.map(part => ({ ...part }))
   await context.route('**/inventory**', route => {
     const path = new URL(route.request().url()).pathname
+    if (path === '/inventory/search') {
+      const query = new URL(route.request().url()).searchParams.get('query') ?? ''
+      const candidates = current.filter(part => part.value?.includes(query))
+      return route.fulfill({ json: { candidates, count: candidates.length, next_offset: null, match_kind: 'candidate' } })
+    }
     if (path === '/inventory/bulk/preview') {
       const body = route.request().postDataJSON()
       writes.push(body)
