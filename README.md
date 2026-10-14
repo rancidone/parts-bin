@@ -93,21 +93,28 @@ outside the image; see [backup and recovery](docs/operations.md#backup-and-recov
 In Inventory, enter terms in **Filter inventory** to find candidates directly,
 without chat, model calls or supplier retrieval. Choose a **Category** and set
 **Minimum stock** to narrow the results; stock applies to each individual record.
-Category and stock filters work without a text query. **Clear filters** restores
+Add **Nominal value** for category-aware matching (for example, `10 kΩ` finds
+resistors stored as `10k`, and `0.1 µF` finds capacitors stored as `100n`). Choose
+a category to disambiguate bare values. Other categories compare values exactly.
+**Exact package** matches stored spelling, including case and punctuation:
+`SOT23` and `SOT-23` remain distinct. These filters combine with text terms and
+work without a text query. Text terms remain literal; use Nominal value for unit
+equivalence. Only matching records are paged; nearby nominal values are excluded. **Clear filters** restores
 full browsing. Filtered results show totals and **Previous results** / **Next
 results** controls. Sorting and CSV export cover the visible page. Pending review
 text is excluded; candidates do not establish interchangeable parts or electrical
 suitability. After inventory changes, refresh or restart pagination.
 
-Bookmark or copy the Inventory URL to save its query, category, minimum stock,
-and page. Reload and browser Back/Forward restore those controls and read current
+Bookmark or copy the Inventory URL to save its query, category, nominal value, exact package,
+minimum stock, and page. The `value` and `package` URL parameters preserve these
+new filters. Reload and browser Back/Forward restore those controls and read current
 inventory. For example, `/#/inventory?query=SOT23&category=mosfet&minimum_quantity=1&page=2`
 opens the second page of that search. Pages start at 1, with 50 records per filtered
 page; defaults are omitted from links. Changing a filter returns to the first page.
 Typing in one field creates one history step; category changes, paging and clearing
 filters create separate steps. If a saved page no longer has results, choose
 **First results**. Invalid page values fall back to the first page; invalid stock
-or oversized query values show validation errors. Direct part links remain separate.
+or oversized query, nominal-value or package inputs show validation errors. Direct part links remain separate.
 These URLs save search criteria, not a snapshot of stock or electrical filters.
 
 The UI uses hash routes: `/#/` for chat, `/#/inventory` for inventory, and

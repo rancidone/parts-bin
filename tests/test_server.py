@@ -605,3 +605,76 @@ def test_inventory_category_and_stock_search_without_text(client):
 ])
 def test_inventory_search_validates_bounds(client, params):
     assert client[0].get('/inventory/search', params=params).status_code == 422
+
+
+@pytest.mark.parametrize('category,value,package,minimum,query,expected', [
+    ('resistor', '10000 Ω', '0402', 0, '', [0]),
+    ('resistor', '10 kΩ', None, 0, '', [0, 1]),
+    ('resistor', '10000r', '0603', 0, '', [1]),
+    ('resistor', '10000 Ω', None, 8, '', []),  # Seven plus three is not one record with eight.
+    ('capacitor', '0.1 µF', '0402', 0, '', [2]),
+    ('capacitor', '100 nF', '0402', 0, '', [2]),
+    ('inductor', '10000 nH', '0603', 0, '', [3]),
+    ('resistor', '10 MΩ', '0805', 0, '', [4]),
+    ('resistor', '10 mΩ', '0805', 0, '', [5]),
+    ('resistor', '10 F', '0402', 0, '', []),
+    ('resistor', '10k', '040', 0, '', []),
+    ('resistor', '10k', '0402', 0, 'Drawer', [0]),
+    ('resistor', '10k', '0402', 0, '10000r', []),  # Text terms remain literal.
+    ('resistor', '20k', '0402', 0, '', []),  # Pending value is not committed stock.
+])
+def test_inventory_nominal_and_package_filters_share_domain_rules(client, category, value, package, minimum, query, expected):
+    from domain import AddPartRequest, PartFields, SearchCandidatesRequest, SearchPartsRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    rows = [('resistor', '10k', '0402', 7), ('resistor', '10k', '0603', 3),
+            ('capacitor', '100n', '0402', 6), ('inductor', '10u', '0603', 4),
+            ('resistor', '10m', '0805', 1), ('resistor', '0.01r', '0805', 1)]
+    parts = [service.add_part(AddPartRequest(PartFields(cat, 'passive', stock, nominal, pkg, description='Drawer A')))
+             for cat, nominal, pkg, stock in rows]
+    service.repository.inventory.save_pending_review(parts[0].id, {'value': '20k'}, [])
+    before, reviews = service.list(), service.list_pending_reviews()
+    params = {'category': category, 'value': value, 'minimum_quantity': minimum, 'query': query}
+    filters = {'part_category': category, 'value': value}
+    if package is not None:
+        params['package'] = package
+        filters['package'] = package
+    response = http.get('/inventory/search', params=params)
+    assert response.status_code == 200
+    page = response.json()
+    assert [part['id'] for part in page['candidates']] == [parts[i].id for i in expected]
+    shared = (service.candidate_page(SearchCandidatesRequest(query, filters, minimum), limit=50) if query else
+              service.exact_search_page(SearchPartsRequest(filters, minimum), limit=50))
+    assert page['count'] == shared['count'] == len(expected)
+    assert page['next_offset'] is None
+    assert service.list() == before and service.list_pending_reviews() == reviews
+
+
+def test_nominal_inventory_pages_do_not_offer_nearby_values(client):
+    from domain import AddPartRequest, PartFields, SearchPartsRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    exact = service.add_part(AddPartRequest(PartFields('resistor', 'passive', 1, '10k', '0402')))
+    for i in range(55):
+        service.add_part(AddPartRequest(PartFields('resistor', 'passive', 1, f'{11000 + i}r', '0402')))
+    params = {'category': 'resistor', 'value': '10000 Ω', 'package': '0402', 'limit': 1}
+    page = http.get('/inventory/search', params=params).json()
+    assert page['count'] == 1 and page['next_offset'] is None and page['truncated'] is False
+    assert page['candidates'][0]['id'] == exact.id
+    following = http.get('/inventory/search', params={**params, 'offset': 1}).json()
+    assert following['candidates'] == [] and following['next_offset'] is None
+    # Agent search still offers explicitly labelled alternatives where requested.
+    assert service.search_page(SearchPartsRequest({'part_category': 'resistor', 'value': '10000 Ω'}))['partial_match_count'] == 55
+
+
+def test_inventory_package_filter_is_exact_and_preserves_ordering_codes(client):
+    from domain import AddPartRequest, PartFields
+    http, _ = client
+    service = http.app.state.services.domain
+    a = service.add_part(AddPartRequest(PartFields('mosfet', 'discrete_ic', 2, package='SOT23', part_number='ABC,215')))
+    b = service.add_part(AddPartRequest(PartFields('mosfet', 'discrete_ic', 3, package='SOT-23', part_number='ABC,115')))
+    for package, expected in [('SOT23', [a.id]), ('SOT-23', [b.id]), ('sot23', []), ('SOT', []), ('%', [])]:
+        page = http.get('/inventory/search', params={'query': 'ABC', 'package': package}).json()
+        assert [part['id'] for part in page['candidates']] == expected
+    assert http.get('/inventory/search', params={'value': 'x' * 201}).status_code == 422
+    assert http.get('/inventory/search', params={'package': 'x' * 201}).status_code == 422

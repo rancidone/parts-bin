@@ -4,12 +4,14 @@ import type { Part } from './types'
 
 type Page = { candidates: Part[]; count: number; next_offset: number | null; match_kind: string }
 export function useInventorySearch(enabled: boolean, query: string, category: string, minimumStock: string,
-  offset: number, parts: Part[], quantities: Map<number, number>) {
+  nominalValue: string, packageFilter: string, offset: number, parts: Part[], quantities: Map<number, number>) {
   const request = useMemo(() => {
     const params = new URLSearchParams({ query: query.trim(), minimum_quantity: minimumStock, limit: String(INVENTORY_PAGE_SIZE), offset: String(offset) })
     if (category) params.set('category', category)
+    if (nominalValue.trim()) params.set('value', nominalValue.trim())
+    if (packageFilter.trim()) params.set('package', packageFilter.trim())
     return { enabled, url: `/inventory/search?${params}`, inventory: parts, stock: quantities }
-  }, [enabled, query, category, minimumStock, offset, parts, quantities])
+  }, [enabled, query, category, minimumStock, nominalValue, packageFilter, offset, parts, quantities])
   const [result, setResult] = useState<{ request: typeof request; page: Page | null; error: string | null }>()
   useEffect(() => {
     if (!request.enabled) return
@@ -17,6 +19,7 @@ export function useInventorySearch(enabled: boolean, query: string, category: st
     const timer = setTimeout(() => {
       void (async () => {
         try {
+          if (nominalValue.length > 200 || packageFilter.length > 200) throw new Error('Nominal value and package must contain at most 200 characters.')
           if (query.length > 200) throw new Error('Search terms must contain at most 200 characters.')
           if (!/^\d+$/.test(minimumStock) || !Number.isSafeInteger(Number(minimumStock))) throw new Error('Minimum stock must be a whole number of zero or more.')
           const response = await fetch(request.url, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) })
@@ -31,7 +34,7 @@ export function useInventorySearch(enabled: boolean, query: string, category: st
       })()
     }, 250)
     return () => { clearTimeout(timer); controller.abort() }
-  }, [request, offset, minimumStock, query])
+  }, [request, offset, minimumStock, query, nominalValue, packageFilter])
   const current = result?.request === request ? result : undefined
   return { page: current?.page ?? null, error: current?.error ?? null, pending: enabled && !current }
 }

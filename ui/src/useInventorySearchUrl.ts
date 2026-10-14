@@ -8,7 +8,7 @@ export function useInventorySearchUrl() {
   const navigationType = useNavigationType()
   const state = readInventorySearch(location.pathname === '/inventory' ? location.search : '')
   const typing = useRef<{ field: string; search: string } | null>(null)
-  function update(change: Partial<InventorySearch>, field?: 'query' | 'stock') {
+  function update(change: Partial<InventorySearch>, field?: 'query' | 'stock' | 'value' | 'package') {
     // Hash history changes before React finishes its navigation render. Merge
     // against that current URL so rapid consecutive controls cannot resurrect filters.
     const currentRoute = parsePath(window.location.hash.slice(1))
