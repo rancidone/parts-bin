@@ -267,6 +267,18 @@ async def search_inventory(request: Request, query: str = Query(default='', max_
         raise _domain_error(exc) from exc
 
 
+@router.get('/inventory/search/suggestions')
+async def inventory_search_suggestions(request: Request, category: str | None = None,
+                                       value: str | None = Query(default=None, max_length=200),
+                                       package: str | None = Query(default=None, max_length=200),
+                                       minimum_quantity: int = Query(default=0, ge=0)) -> dict:
+    filters = {key: item for key, item in {'part_category': category, 'value': value, 'package': package}.items() if item is not None}
+    try:
+        return _services(request).domain.search_suggestions(SearchPartsRequest(filters, minimum_quantity))
+    except DomainError as exc:
+        raise _domain_error(exc) from exc
+
+
 @router.get("/inventory")
 async def inventory(request: Request) -> list[dict]:
     return [vars(part) for part in _services(request).domain.list()]

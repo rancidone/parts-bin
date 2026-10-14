@@ -1,6 +1,6 @@
 # 0040: Suggest stored nominal values without changing unit matching
 
-**Status:** Accepted
+**Status:** Suggestion scoping superseded by [0041](0041-cross-filtered-inventory-suggestions.md); stored spelling and input preservation retained.
 
 ## Context
 

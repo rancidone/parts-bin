@@ -6,7 +6,7 @@ test('inventory quantity controls preserve stock on failure and disable decremen
   let part = { ...initial, quantity: 1 }
   let fail = false
   const changes: unknown[] = []
-  await context.route(/\/inventory(?:\/|\?|$)/, route => {
+  await context.route(/\/inventory(?:\/(?!search\/suggestions)|\?|$)/, route => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/quantity')) {
       const body = route.request().postDataJSON()
@@ -43,7 +43,7 @@ test('historical cards adjust current stock and share the count with inventory',
     if (new URL(route.request().url()).pathname === '/agent/threads') return route.fulfill({ json: { threads: [{ thread_id: 'current', runtime: 'openai', title: 'current', last_sequence: 2 }] } })
     return route.fulfill({ contentType: 'text/event-stream', headers: { 'X-Agent-Active': 'false' }, body: events.map(event => `event: agent_event\ndata: ${JSON.stringify(event)}\n\n`).join('') })
   })
-  await context.route(/\/inventory(?:\/|\?|$)/, route => {
+  await context.route(/\/inventory(?:\/(?!search\/suggestions)|\?|$)/, route => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/quantity')) {
       expect(route.request().postDataJSON()).toEqual({ delta: -1 })
@@ -67,7 +67,7 @@ test('editor supports exact counts, validation, cancellation, and retry after fa
   let part = { ...initial }
   const writes: Record<string, unknown>[] = []
   let fail = true
-  await context.route(/\/inventory(?:\/|\?|$)/, route => {
+  await context.route(/\/inventory(?:\/(?!search\/suggestions)|\?|$)/, route => {
     if (route.request().method() === 'PATCH') {
       const body = route.request().postDataJSON()
       writes.push(body)
@@ -101,4 +101,8 @@ test('editor supports exact counts, validation, cancellation, and retry after fa
   await expect(page.getByRole('cell', { name: 'Drawer A', exact: true })).toBeVisible()
   expect(writes[1]).toMatchObject({ part: { quantity: 12, description: 'Drawer A' } })
   expect((writes[1].part as Record<string, unknown>).id).toBeUndefined()
+})
+
+test.beforeEach(async ({ context }) => {
+  await context.route('**/inventory/search/suggestions?**', route => route.fulfill({ json: { values: [], packages: [] } }))
 })

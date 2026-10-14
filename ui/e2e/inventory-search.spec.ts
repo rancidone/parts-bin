@@ -22,6 +22,16 @@ async function fixture(context: BrowserContext, extraParts: Part[] = [], reviews
       part.quantity += route.request().postDataJSON().delta
       return route.fulfill({ json: { part } })
     }
+    if (url.pathname === '/inventory/search/suggestions') {
+      const category = url.searchParams.get('category')
+      const minimum = Number(url.searchParams.get('minimum_quantity'))
+      const value = url.searchParams.get('value')
+      const packageFilter = url.searchParams.get('package')
+      const eligible = parts.filter(part => (!category || part.part_category === category) && part.quantity >= minimum)
+      const values = [...new Set(eligible.filter(part => !packageFilter || part.package === packageFilter).map(part => part.value).filter(value => value?.trim()))].sort()
+      const packages = [...new Set(eligible.filter(part => !value || part.value === value || part.part_category === 'resistor' && part.value === '10k' && value === '10000 Ω').map(part => part.package).filter(value => value?.trim()))].sort()
+      return route.fulfill({ json: { values, packages } })
+    }
     if (url.pathname !== '/inventory/search') return route.fulfill({ json: parts })
     if (fail) return route.fulfill({ status: 503, json: { detail: 'Search temporarily unavailable' } })
     const q = url.searchParams.get('query') ?? ''
@@ -301,7 +311,7 @@ test('package suggestions use distinct committed spelling across the whole inven
     { ...resistor, id: 104, package: null },
     { ...resistor, id: 105, package: '   ' },
   ], { '90': { fields: { package: { accepted: true, value: 'PendingPackage' } } } })
-  await page.goto('/#/inventory?category=mosfet&query=missing&minimum_quantity=8&page=2')
+  await page.goto('/#/inventory?category=mosfet&query=missing&page=2')
   const options = page.locator('#inventory-packages option')
   await expect(page.getByLabel('Exact package', { exact: true })).toHaveAttribute('list', 'inventory-packages')
   await expect.poll(() => options.evaluateAll(nodes => nodes.map(node => node.getAttribute('value')))).toEqual(['SOT-23', 'SOT23', 'sot23'])
@@ -345,7 +355,7 @@ test('suggested packages keep exact filtering, bookmarks and history without cha
 })
 
 
-test('nominal suggestions preserve distinct committed notation and narrow only by category', async ({ context, page }) => {
+test('nominal suggestions preserve distinct committed notation and category filtering', async ({ context, page }) => {
   const f = await fixture(context, [
     { ...resistor, id: 100, value: '10k', quantity: 0 },
     { ...resistor, id: 101, value: '10 MΩ', quantity: 0 },
@@ -355,7 +365,7 @@ test('nominal suggestions preserve distinct committed notation and narrow only b
     { ...resistor, id: 105, value: '   ' },
     { ...resistor, id: 106, part_category: 'capacitor', value: '100n' },
   ], { '90': { fields: { value: { accepted: true, value: 'PendingValue' } } } })
-  await page.goto('/#/inventory?category=resistor&query=missing&package=missing&minimum_quantity=8&page=2')
+  await page.goto('/#/inventory?category=resistor&query=missing&page=2')
   const options = page.locator('#inventory-nominal-values option')
   await expect(page.getByLabel('Nominal value', { exact: true })).toHaveAttribute('list', 'inventory-nominal-values')
   await expect.poll(() => options.evaluateAll(nodes => nodes.map(node => node.getAttribute('value')))).toEqual(['10 MΩ', '10 mΩ', '10000 Ω', '10k'])
@@ -404,4 +414,83 @@ test('suggested nominal value and typed equivalents retain bookmarks, unit match
   await expect(page).toHaveURL(/#\/inventory$/)
   expect(f.requests.some(request => request.query.get('value') === '10000 Ω')).toBe(true)
   expect(f.requests.every(request => request.method === 'GET')).toBe(true)
+})
+
+
+test('suggestions narrow each other with unit-aware values and per-record stock and recover through history', async ({ context, page }) => {
+  await fixture(context, [
+    { ...resistor, id: 100, package: '0603', quantity: 3 },
+    { ...resistor, id: 101, value: '22k', package: '0402', quantity: 2 },
+    { ...resistor, id: 102, value: '47k', package: '0805', quantity: 0 },
+  ])
+  await page.goto('/#/inventory?category=resistor&value=10000+%CE%A9&package=0402&minimum_quantity=1')
+  const values = page.locator('#inventory-nominal-values option')
+  const packages = page.locator('#inventory-packages option')
+  const names = (nodes: Element[]) => nodes.map(node => node.getAttribute('value'))
+  await expect.poll(() => values.evaluateAll(names)).toEqual(['10k', '22k'])
+  await expect.poll(() => packages.evaluateAll(names)).toEqual(['0402', '0603'])
+  await page.getByLabel('Minimum stock', { exact: true }).fill('4')
+  await page.getByLabel('Minimum stock', { exact: true }).blur()
+  await expect.poll(() => values.evaluateAll(names)).toEqual(['10k'])
+  await expect.poll(() => packages.evaluateAll(names)).toEqual(['0402'])
+  await page.reload()
+  await expect.poll(() => packages.evaluateAll(names)).toEqual(['0402'])
+  await page.getByLabel('Exact package', { exact: true }).fill('0603')
+  await page.getByLabel('Exact package', { exact: true }).blur()
+  await expect(values).toHaveCount(0)
+  await expect.poll(() => packages.evaluateAll(names)).toEqual(['0402'])
+  await expect(page.getByLabel('Nominal value', { exact: true })).toHaveValue('10000 Ω')
+  await page.goBack()
+  await expect(page.getByLabel('Exact package', { exact: true })).toHaveValue('0402')
+  await expect.poll(() => values.evaluateAll(names)).toEqual(['10k'])
+  await page.goForward()
+  await expect(page.getByLabel('Exact package', { exact: true })).toHaveValue('0603')
+  await expect(values).toHaveCount(0)
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await expect.poll(() => values.evaluateAll(names)).toEqual(['10k', '22k', '47k'])
+})
+
+test('suggestion failure clears options and retries without changing bookmarked filters', async ({ context, page }) => {
+  await fixture(context)
+  let fail = true
+  await context.route('**/inventory/search/suggestions?**', async route => {
+    if (fail) return route.fulfill({ status: 503, json: { detail: 'Suggestions temporarily unavailable' } })
+    await route.fallback()
+  })
+  await page.goto('/#/inventory?category=resistor&value=10000+%CE%A9&package=0402')
+  await expect(page.getByRole('alert')).toContainText('Suggestions temporarily unavailable')
+  await expect(page.locator('#inventory-nominal-values option')).toHaveCount(0)
+  await expect(page.getByRole('status')).toContainText('1 inventory record')
+  fail = false
+  await page.getByRole('button', { name: 'Retry suggestions' }).click()
+  await expect(page.locator('#inventory-nominal-values option')).toHaveAttribute('value', '10k')
+  await expect(page.getByLabel('Nominal value', { exact: true })).toHaveValue('10000 Ω')
+})
+
+
+test('late suggestion responses cannot restore options from a previous category and stock edits refresh suggestions', async ({ context, page }) => {
+  await fixture(context)
+  let release: (() => void) | undefined
+  let held = false
+  await context.route('**/inventory/search/suggestions?**', async route => {
+    if (new URL(route.request().url()).searchParams.get('category') === 'resistor') {
+      held = true
+      await new Promise<void>(resolve => { release = resolve })
+      return route.fulfill({ json: { values: ['stale'], packages: ['stale'] } }).catch(() => {})
+    }
+    await route.fallback()
+  })
+  await page.goto('/#/inventory?category=resistor')
+  await expect.poll(() => held).toBe(true)
+  await page.getByLabel('Search category').selectOption('mosfet')
+  const packages = page.locator('#inventory-packages option')
+  await expect(packages).toHaveAttribute('value', 'SOT23')
+  release?.()
+  await expect(packages).toHaveAttribute('value', 'SOT23')
+  await page.getByLabel('Minimum stock', { exact: true }).fill('1')
+  await expect(page.getByRole('status')).toContainText('1 inventory record')
+  await expect(packages).toHaveAttribute('value', 'SOT23')
+  await page.getByRole('button', { name: 'Decrease quantity for PBSS5350T,100 (#1)', exact: true }).click()
+  await expect(page.getByText('No parts found.', { exact: true })).toBeVisible()
+  await expect(packages).toHaveCount(0)
 })

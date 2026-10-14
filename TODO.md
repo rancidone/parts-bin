@@ -4,8 +4,7 @@ This is a planning list, not implementation evidence. Remove entries when the
 work no longer needs tracking; use code, tests, and run output to inspect behavior.
 Decisions and rationale belong in [ADRs](docs/adr/README.md).
 
-Prioritize finding parts through discoverable committed inventory values and
-packages, and reliable operation on the existing Docker/PostgreSQL installation.
+Prioritize finding parts through available inventory combinations, and reliable operation on the existing Docker/PostgreSQL installation.
 Keep execution compatible with short-lived, replaceable workers;
 cloud deployment and provider-specific infrastructure are outside the roadmap.
 

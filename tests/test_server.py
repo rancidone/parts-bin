@@ -678,3 +678,39 @@ def test_inventory_package_filter_is_exact_and_preserves_ordering_codes(client):
         assert [part['id'] for part in page['candidates']] == expected
     assert http.get('/inventory/search', params={'value': 'x' * 201}).status_code == 422
     assert http.get('/inventory/search', params={'package': 'x' * 201}).status_code == 422
+
+
+def test_inventory_suggestions_cross_filter_with_shared_units_and_per_record_stock(client):
+    from domain import AddPartRequest, PartFields, SearchPartsRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    rows = [('resistor', '10k', '0402', 7), ('resistor', '10k', '0603', 3),
+            ('resistor', '22k', '0402', 2), ('resistor', '47k', '0805', 0),
+            ('capacitor', '100n', '0402', 6), ('resistor', '10m', 'SOT23', 1),
+            ('resistor', '0.01r', 'SOT-23', 1)]
+    parts = [service.add_part(AddPartRequest(PartFields(cat, 'passive', stock, value, package)))
+             for cat, value, package, stock in rows]
+    service.repository.inventory.save_pending_review(parts[0].id, {'value': 'PendingValue', 'package': 'PendingPackage'}, [])
+    before, reviews = service.list(), service.list_pending_reviews()
+    for params, expected in [
+        ({'category': 'resistor', 'value': '10000 Ω', 'package': '0402', 'minimum_quantity': 1},
+         {'values': ['10k', '22k'], 'packages': ['0402', '0603']}),
+        ({'category': 'resistor', 'value': '10000 Ω', 'package': '0603', 'minimum_quantity': 4},
+         {'values': [], 'packages': ['0402']}),
+        ({'category': 'resistor', 'value': '10000 Ω', 'minimum_quantity': 8}, {'values': [], 'packages': []}),
+        ({'category': 'capacitor', 'value': '0.1 µF'}, {'values': ['100n'], 'packages': ['0402']}),
+        ({'category': 'resistor', 'value': '10 MΩ'}, {'values': ['0.01r', '10k', '10m', '22k', '47k'], 'packages': ['SOT23']}),
+        ({'category': 'resistor', 'value': '10 mΩ'}, {'values': ['0.01r', '10k', '10m', '22k', '47k'], 'packages': ['SOT-23']}),
+        ({'package': 'sot23'}, {'values': [], 'packages': ['0402', '0603', '0805', 'SOT-23', 'SOT23']}),
+    ]:
+        response = http.get('/inventory/search/suggestions', params=params)
+        assert response.status_code == 200 and response.json() == expected
+        filters = {('part_category' if key == 'category' else key): value for key, value in params.items() if key != 'minimum_quantity'}
+        assert service.search_suggestions(SearchPartsRequest(filters, params.get('minimum_quantity', 0))) == expected
+    assert service.list() == before and service.list_pending_reviews() == reviews
+
+
+@pytest.mark.parametrize('params', [{'minimum_quantity': -1}, {'minimum_quantity': '1.5'},
+                                  {'value': 'x' * 201}, {'package': 'x' * 201}])
+def test_inventory_suggestions_validate_inputs(client, params):
+    assert client[0].get('/inventory/search/suggestions', params=params).status_code == 422

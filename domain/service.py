@@ -121,6 +121,15 @@ class PartsBinService:
                 matches.append(part)
         return matches
 
+    def search_suggestions(self, request: SearchPartsRequest) -> dict[str, list[str]]:
+        """Suggest each field under the other filters, preserving committed spelling."""
+        values = self.search(SearchPartsRequest(
+            {key: value for key, value in request.filters.items() if key != "value"}, request.minimum_quantity))
+        packages = self.search(SearchPartsRequest(
+            {key: value for key, value in request.filters.items() if key != "package"}, request.minimum_quantity))
+        return {"values": sorted({part.value for part in values if part.value and part.value.strip()}),
+                "packages": sorted({part.package for part in packages if part.package and part.package.strip()})}
+
     def search_candidates(self, request: SearchCandidatesRequest) -> list[Part]:
         """Literal text discovery only; candidates do not establish stock identity.
 
