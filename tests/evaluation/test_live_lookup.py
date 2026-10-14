@@ -127,7 +127,9 @@ async def test_network_failure_records_an_uncertain_attempt_without_retry(tmp_pa
     text = path.read_text()
     result = json.loads(text)['results'][0]
     assert result['provider_attempts'] == 1
-    assert result['responses'] == []
+    assert len(result['responses']) == 1
+    assert result['responses'][0]['operation'] == 'submission'
+    assert result['responses'][0]['outcome'] == 'uncertain_submission'
     assert result['recorded_contract']['failure'] == 'ReadTimeout'
     assert 'private exception details' not in text
 
@@ -185,3 +187,96 @@ async def test_live_report_detects_electrical_review_mutation_without_quantity_c
     result = json.loads(path.read_text())['results'][0]
     assert not result['inventory_unchanged']
     assert result['recorded_contract']['status'] == 'failed'
+
+
+async def test_background_collects_persisted_rounds_and_probes_expiry_without_resubmission(tmp_path):
+    submissions, polls = [], []
+
+    def respond(request):
+        if request.method == 'POST':
+            body = json.loads(request.content)
+            submissions.append(body)
+            assert body['store'] is False and body['background'] is True
+            return httpx.Response(200, json={'id': f'resp_{len(submissions)}', 'status': 'queued'})
+        response_id = request.url.path.split('/')[-1]
+        polls.append(response_id)
+        if len(polls) == 1:
+            return httpx.Response(200, json={'id': response_id, 'status': 'in_progress'})
+        if len(submissions) == 1:
+            output = [{'type': 'function_call', 'call_id': 'categories', 'name': 'list_categories', 'arguments': '{}'}]
+        elif len(submissions) == 2:
+            output = [{'type': 'function_call', 'call_id': 'lookup', 'name': 'search_parts',
+                'arguments': json.dumps({'filters': {'part_category': 'capacitor', 'value': '0.1 µF', 'package': '0603'}})}]
+        elif response_id == 'resp_1':
+            return httpx.Response(404, json={'error': {'message': 'private details'}})
+        else:
+            output = [answer('Yes: six (6) in 0603, equivalent to 0.1 µF.')]
+        return httpx.Response(200, json={'id': response_id, **payload(output)})
+
+    path = await run_lookup(tmp_path, api_key='private-key', model='test', scenario_ids=[CASE],
+        http_transport=httpx.MockTransport(respond), background=True, poll_seconds=0, probe_after_seconds=0)
+    report = json.loads(path.read_text())
+    result = report['results'][0]
+    assert result['recorded_contract']['status'] == 'passed'
+    assert result['inventory_unchanged']
+    assert result['provider_attempts'] == len(submissions) == 3
+    assert len(polls) == 5
+    assert report['retention_probe']['status'] == 'unavailable'
+    assert result['responses'][0]['operation'] == 'submission'
+    assert result['responses'][1]['operation'] == 'collection'
+    assert len(result['background_stages']) > len(submissions)
+    assert 'private-key' not in path.read_text() and 'private details' not in path.read_text()
+
+
+@pytest.mark.parametrize('operation', ['submission', 'collection'])
+async def test_background_network_failure_never_resubmits(tmp_path, operation):
+    requests = []
+    def respond(request):
+        requests.append(request.method)
+        if operation == 'submission' or request.method == 'GET':
+            raise httpx.ReadTimeout('private failure', request=request)
+        return httpx.Response(200, json={'id': 'resp_1', 'status': 'queued'})
+    path = await run_lookup(tmp_path, api_key='test', model='test', scenario_ids=[CASE, 'inventory_lookup_exact_ordering_suffix'],
+        http_transport=httpx.MockTransport(respond), background=True, poll_seconds=0)
+    report = json.loads(path.read_text())
+    result = report['results'][0]
+    assert report['status'] == 'provider_failure' and len(report['results']) == 1
+    assert requests.count('POST') == 1
+    assert result['recorded_contract']['status'] != 'passed'
+    assert result['responses'][-1]['outcome'] == (
+        'uncertain_submission' if operation == 'submission' else 'retrieval_failure')
+
+
+async def test_invalid_background_measurement_bounds_make_no_requests(tmp_path):
+    for options in ({'poll_seconds': -1}, {'timeout_seconds': 600}, {'probe_after_seconds': 10}):
+        with pytest.raises(ValueError):
+            await run_lookup(tmp_path, api_key='test', model='test', **options)
+    assert not list(tmp_path.iterdir())
+
+
+async def test_captured_photo_uses_upload_pipeline_and_is_not_in_report(tmp_path):
+    import base64
+    from PIL import Image
+    from evaluation.runner import INVENTORY_LOOKUP_SCENARIOS_PATH
+    scenario = json.loads(INVENTORY_LOOKUP_SCENARIOS_PATH.read_text())
+    scenario['scenarios'] = [next(item for item in scenario['scenarios'] if item['id'] == CASE)]
+    scenario['scenarios'][0]['conversation'][0]['image'] = True
+    fixture = tmp_path / 'captured.json'
+    fixture.write_text(json.dumps(scenario))
+    photo = tmp_path / 'stock.png'
+    Image.new('RGB', (8, 8), 'red').save(photo)
+    bodies = []
+    def respond(request):
+        if request.method == 'POST':
+            bodies.append(json.loads(request.content))
+            return httpx.Response(200, json={'id': 'resp_photo', 'status': 'queued'})
+        return httpx.Response(200, json={'id': 'resp_photo', **payload([answer('I need clarification.')])})
+    with pytest.raises(ValueError, match='photo'):
+        await run_lookup(tmp_path, api_key='test', model='test', background=True, scenarios_path=fixture)
+    path = await run_lookup(tmp_path, api_key='test', model='test', background=True, scenarios_path=fixture,
+        photo_path=photo, poll_seconds=0, http_transport=httpx.MockTransport(respond))
+    image_url = bodies[0]['input'][-1]['content'][-1]['image_url']
+    assert image_url.startswith('data:image/jpeg;base64,')
+    assert base64.b64decode(image_url.split(',')[1]).startswith(b'\xff\xd8')
+    assert image_url.split(',')[1] not in path.read_text()
+    assert json.loads(path.read_text())['has_photo'] is True
