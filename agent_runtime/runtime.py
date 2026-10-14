@@ -53,6 +53,7 @@ class ModelTransport(Protocol):
     async def complete(self, request: ModelRequest) -> ModelTurn: ...
     async def start(self, request: ModelRequest) -> str: ...
     async def retrieve(self, response_id: str) -> ModelTurn | None: ...
+    async def cancel(self, response_id: str) -> str: ...
 
 
 def _input_digest(user_text: str, image: ImageInput | None) -> str:
@@ -79,6 +80,7 @@ class _TurnState:
     input_digest: str | None = None
     model_submission_started: bool = False
     model_response_id: str | None = None
+    cancellation_outcome: str | None = None
 
     def checkpoint(self) -> dict[str, Any]:
         # Image bytes never enter durable execution state.
@@ -86,7 +88,7 @@ class _TurnState:
                 "round": self.round, "pending": self.pending, "call_index": self.call_index,
                 "approval_id": self.approval_id, "had_image": self.had_image, "error": self.error,
                 "input_digest": self.input_digest, "model_submission_started": self.model_submission_started,
-                "model_response_id": self.model_response_id}
+                "model_response_id": self.model_response_id, "cancellation_outcome": self.cancellation_outcome}
 
     @classmethod
     def restore(cls, thread_id: str, context: dict[str, Any], image: ImageInput | None):
@@ -94,7 +96,7 @@ class _TurnState:
                    tuple(context["history"]), context["round"], context["pending"],
                    context["call_index"], context["approval_id"], context["had_image"], context["error"],
                    context.get("input_digest"), context.get("model_submission_started", False),
-                   context.get("model_response_id"))
+                   context.get("model_response_id"), context.get("cancellation_outcome"))
 
 
 class OpenAIResponsesRuntime:
@@ -208,7 +210,7 @@ class OpenAIResponsesRuntime:
             if event in emitted:
                 return
             emitted.append(event)
-            if on_event is not None and record.status not in {"completed", "failed"}:
+            if on_event is not None and record.status not in {"completed", "failed", "cancelled"}:
                 on_event(event)
 
         def save(status: str = "ready") -> None:
@@ -220,26 +222,52 @@ class OpenAIResponsesRuntime:
             return RuntimeResult(tuple(emitted), status, execution_id)  # type: ignore[arg-type]
 
         def terminal(status: str) -> RuntimeResult:
-            if state.error:
+            if status == "cancelled":
+                pass
+            elif state.error:
                 emit("error", "error", state.error)
             elif state.pending and state.pending.get("text"):
                 emit(f"text:{state.round}", "assistant_text", {"text": state.pending["text"]})
-            emit("terminal", "completed", {"status": status})
+            emit("terminal", "completed", {"status": status, **({"provider_outcome": state.cancellation_outcome} if status == "cancelled" else {})})
             finish(status)
             # Replay all saved events so a caller can recover a missed acknowledgement.
             return RuntimeResult(tuple(event for event in self.store.events(thread_id)
                                        if event.data.get("execution_id") == execution_id), status, execution_id)
 
+        async def cancel() -> RuntimeResult:
+            # Recover committed receipts/publication without executing any tool.
+            if state.pending:
+                for index, call in enumerate(state.pending["calls"]):
+                    step = f"{state.round}:{index}"
+                    receipt = self.registry.service.repository.operations.get(f"{execution_id}:{step}")
+                    result = call.get("result") or (receipt.result if receipt else None)
+                    if result is None and state.approval_id and index == state.call_index:
+                        approval = self.approvals.repository.approvals.get(thread_id, state.approval_id)
+                        result = approval.result if approval else None
+                    if result is not None:
+                        emit(f"result:{step}", "tool_result", {"call_id": call["call_id"],
+                            "name": call["name"], "arguments": call["arguments"], "result": result})
+            if state.model_response_id:
+                state.cancellation_outcome = await self.transport.cancel(state.model_response_id)
+            else:
+                state.cancellation_outcome = "submission_uncertain" if state.model_submission_started else "no_inflight_response"
+            save("cancelled")
+            return terminal("cancelled")
+
         try:
+            if approval_response is not None and executions.cancellation_requested(execution_id):
+                raise ValueError("This execution was cancelled; start a new request")
             if approval_response is not None:
                 # Validate even a duplicate decision on an already completed execution.
                 self.approvals.decide(thread_id, approval_response.request_id, approval_response.approved)
-            if record.status in {"completed", "failed"}:
+            if record.status in {"completed", "failed", "cancelled"}:
                 result = terminal(record.status)
                 if on_event is not None:
                     for event in result.events:
                         on_event(event)
                 return result
+            if not executions.begin_stage(execution_id, worker_id):
+                return await cancel()
             emit("user", "user_message", {"text": state.user_text,
                 "image": None if not state.had_image else {"media_type": image.media_type if image else "image/*"}})
             if (state.round == 0 and not state.model_submission_started and state.input_digest
@@ -251,6 +279,8 @@ class OpenAIResponsesRuntime:
                 save("failed")
                 return terminal("failed")
             while True:
+                if not executions.begin_stage(execution_id, worker_id):
+                    return await cancel()
                 if state.pending is None:
                     if single_step and advanced:
                         return finish("ready")
@@ -288,6 +318,8 @@ class OpenAIResponsesRuntime:
                     # Persist model output, including provider reasoning, before any effect.
                     save()
                     advanced = True
+                if not executions.begin_stage(execution_id, worker_id):
+                    return await cancel()
                 if state.pending["text"]:
                     emit(f"text:{state.round}", "assistant_text", {"text": state.pending["text"]})
                 calls = state.pending["calls"]
@@ -295,6 +327,8 @@ class OpenAIResponsesRuntime:
                     save("completed")
                     return terminal("completed")
                 while state.call_index < len(calls):
+                    if not executions.begin_stage(execution_id, worker_id):
+                        return await cancel()
                     if single_step and advanced:
                         return finish("ready")
                     call = calls[state.call_index]
@@ -357,6 +391,8 @@ class OpenAIResponsesRuntime:
                 state.pending = None
                 save()
         except ModelBudgetError as exc:
+            if executions.cancellation_requested(execution_id):
+                return await cancel()
             state.error = {"code": exc.code, "message": str(exc)}
             save("failed")
             self.telemetry.runtime_failure(thread_id, self.runtime, exc.code)

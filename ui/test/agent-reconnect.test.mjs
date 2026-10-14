@@ -247,3 +247,47 @@ test('effect cleanup during restore can reconnect the same session without dupli
   assert.equal(f.session.getSnapshot().watching, false)
   assert.ok(f.requests.every(value => !value.init?.method))
 })
+
+test('cancellation can run while intake is pending, preserving the original stream', async t => {
+  let finishIntake
+  let executionId
+  const f = setup(t, (url, init) => {
+    if (url.endsWith('/messages')) {
+      executionId = init.body.get('execution_id')
+      return new Promise(resolve => { finishIntake = resolve })
+    }
+    if (url.endsWith('/cancel')) return Response.json({ status: 'cancelling', execution_id: executionId })
+    if (!url.includes('?')) return replay([])
+    return replay([event(1, 'user_message', { text: 'hello', execution_id: executionId }),
+      event(2, 'cancellation_requested', { execution_id: executionId })], true)
+  })
+  await f.session.restore()
+  const submission = f.session.submit('hello')
+  await flush()
+  assert.equal(f.session.getSnapshot().pending, true)
+  assert.equal(await f.session.cancel(executionId), true)
+  assert.equal(f.session.getSnapshot().pending, true)
+  finishIntake(replay([event(1, 'user_message', { text: 'hello', execution_id: executionId }),
+    event(2, 'cancellation_requested', { execution_id: executionId }),
+    event(3, 'completed', { execution_id: executionId, status: 'cancelled', provider_outcome: 'cancelled' })]))
+  assert.equal(await submission, true)
+  assert.deepEqual(f.session.getSnapshot().events.map(e => e.sequence), [1, 2, 3])
+  assert.equal(f.requests.filter(r => r.init?.method === 'POST').length, 2)
+})
+
+test('a lost cancellation acknowledgement is confirmed by replay without resubmitting work', async t => {
+  const requested = event(2, 'cancellation_requested', { execution_id: 'work' })
+  const cancelled = event(3, 'completed', { execution_id: 'work', status: 'cancelled' })
+  let requestedCancel = false
+  const f = setup(t, (url, init) => {
+    if (init?.method === 'POST') { requestedCancel = true; throw new TypeError('lost cancel acknowledgement') }
+    return requestedCancel ? replay([user, requested, cancelled]) : replay([user], true)
+  })
+  await f.session.restore()
+  assert.equal(await f.session.cancel('work'), true)
+  assert.equal(f.session.getSnapshot().error, null)
+  assert.equal(f.requests.filter(r => r.init?.method === 'POST').length, 1)
+  assert.ok(f.requests.some(r => r.url.endsWith('/executions/work/cancel')))
+  assert.equal(await f.session.resume('work'), true)
+  assert.equal(f.requests.filter(r => r.init?.method === 'POST').length, 1)
+})

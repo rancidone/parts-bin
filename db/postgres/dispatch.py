@@ -72,7 +72,7 @@ class PostgresDispatchRepository(Adapter):
         if row is None:
             return  # Historical/explicit foreground executions were never enrolled.
         response_id = context.get('model_response_id')
-        due = time.time() + (POLL_SECONDS if status == 'waiting_model' else 0)
+        due = time.time() + (POLL_SECONDS if status == 'waiting_model' and not self.owner.executions.cancellation_requested(execution_id) else 0)
         if response_id and self.execute('SELECT 1 FROM agent_webhook_inbox WHERE response_id = %s AND consumed = 0',
                                         (response_id,)).fetchone():
             due = time.time()
@@ -98,7 +98,7 @@ class PostgresDispatchRepository(Adapter):
             else:
                 status = self.execute('SELECT status FROM agent_executions WHERE execution_id = %s',
                                       (delivery.execution_id,)).fetchone()['status']
-                if status in {'completed', 'failed', 'awaiting_approval'}:
+                if status in {'completed', 'failed', 'cancelled', 'awaiting_approval'}:
                     due, settled = None, 1
                 # A waiting checkpoint may already have been woken by an early webhook.
         else:
@@ -109,11 +109,13 @@ class PostgresDispatchRepository(Adapter):
         return bool(blocked)
 
     @access(write=True)
-    def wake(self, thread_id, execution_id):
+    def wake(self, thread_id, execution_id, *, cancellation=False):
         row = self.execute('SELECT * FROM agent_executions WHERE execution_id = %s AND thread_id = %s',
                            (execution_id, thread_id)).fetchone()
         if row is None:
             raise ExecutionUnavailable('Unknown execution for this conversation')
+        if not cancellation and self.owner.executions.cancellation_requested(execution_id):
+            raise ExecutionUnavailable('Cancellation is irreversible; start a new request. Retry Cancel to recover provider cleanup.')
         # Explicit resume may enroll an old checkpoint, but reconciliation never does.
         self.execute('''INSERT INTO agent_dispatch
             (execution_id, available_at, token, lease_until, wake_version, failures, blocked, settled, response_id, last_error)

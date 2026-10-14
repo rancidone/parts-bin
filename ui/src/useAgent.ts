@@ -10,5 +10,5 @@ export function useAgent() {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
   useEffect(() => { void session.restore(); return session.disconnect }, [session])
   return { ...state, submit: session.submit, decide: session.decide, refresh: session.refresh,
-    resume: session.resume, newChat: session.newChat, selectConversation: session.selectConversation }
+    cancel: session.cancel, resume: session.resume, newChat: session.newChat, selectConversation: session.selectConversation }
 }

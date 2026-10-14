@@ -11,7 +11,7 @@ import type { AgentEvent, Part } from './types'
 import styles from './Chat.module.css'
 
 export function Chat({ onOpenPart }: { onOpenPart: (id: number) => void }) {
-  const { events, conversations, threadId, pending, submit, decide, refresh, resume, newChat,
+  const { events, conversations, threadId, pending, submit, decide, refresh, resume, cancel, cancelling, newChat,
     selectConversation, error, restored, watching, reconnecting } = useAgent()
   const unfinished = unfinishedExecutions(events)
   const replyParts = partsByReply(events)
@@ -58,8 +58,12 @@ export function Chat({ onOpenPart }: { onOpenPart: (id: number) => void }) {
     {readOnly && <div className={styles.notice}>This conversation uses a retired provider. Start a new chat to continue.</div>}
     <div className={styles.thread}>
       {events.length === 0 && <div className={styles.empty}>Ask about your inventory, add a part, or attach a photo.</div>}
-      {events.map(event => <EventBubble onOpenPart={onOpenPart} parts={replyParts.get(event.sequence) ?? []} key={`${event.thread_id}-${event.sequence}`} event={event} decide={decide} disabled={pending || watching || !restored || readOnly || (typeof event.data.execution_id === 'string' && !unfinished.some(item => item.id === event.data.execution_id))} decision={approvalDecision(events, String(event.data.request_id))} />)}
-      {!pending && !watching && !readOnly && unfinished.map(execution => <div key={execution.id} className={styles.recovery}>
+      {events.map(event => <EventBubble onOpenPart={onOpenPart} parts={replyParts.get(event.sequence) ?? []} key={`${event.thread_id}-${event.sequence}`} event={event} decide={decide} disabled={pending || watching || !restored || readOnly || (typeof event.data.execution_id === 'string' && !unfinished.some(item => item.id === event.data.execution_id && !item.cancellationRequested))} decision={approvalDecision(events, String(event.data.request_id))} />)}
+      {!readOnly && unfinished.map(execution => <div key={`cancel-${execution.id}`} className={styles.recovery}>
+        <span>{execution.cancellationRequested ? 'Cancellation requested. Waiting for the current stage and provider cleanup.' : 'Cancel stops later stages. Already committed inventory is kept.'}</span>
+        <button className={styles.inlineActionBtn} disabled={cancelling} onClick={() => void cancel(execution.id)}>{execution.cancellationRequested ? 'Retry cancellation' : 'Cancel request'}</button>
+      </div>)}
+      {!pending && !watching && !readOnly && unfinished.filter(execution => !execution.cancellationRequested).map(execution => <div key={execution.id} className={styles.recovery}>
         {execution.status === 'awaiting_approval' ? <span>Awaiting your approval above.</span> : <>
           <span>This request needs attention. Refresh history to check its saved state before explicitly resuming it.</span>
           {execution.needsPhoto && <span>Attach a fresh photo below to resume image analysis.</span>}
@@ -92,6 +96,7 @@ function EventBubble({ event, decide, disabled, decision, parts, onOpenPart }: {
   if (event.kind === 'approval_request') return <div className={styles.approval}><div><strong>{decision === undefined ? 'Approval required' : 'Review decision'}</strong><br />{String(data.effect ?? data.tool)}</div>{data.specification_review && typeof data.specification_review === 'object' && 'facts' in data.specification_review ? <SpecificationReview review={data.specification_review as Parameters<typeof SpecificationReview>[0]['review']} partId={String(data.target)} /> : null}{decision !== undefined ? <div className={styles.activity}>{decision ? 'Approved' : 'Declined'}</div> : <div className={styles.clarificationActions}><button className={styles.inlineActionBtn} disabled={disabled} onClick={() => void decide(String(data.request_id), true)}>Approve</button><button className={styles.inlineActionBtn} disabled={disabled} onClick={() => void decide(String(data.request_id), false)}>Decline</button></div>}</div>
   if (event.kind === 'approval_decision') return <div className={styles.activity}>You {data.approved ? 'approved' : 'declined'} {String(data.tool)}.</div>
   if (event.kind === 'completed' && data.status === 'busy') return <div className={styles.activity} role="status">{String(data.message)}</div>
+  if (event.kind === 'completed' && data.status === 'cancelled') return <div className={styles.activity}>Request cancelled. Committed inventory was kept.{data.provider_outcome === 'submission_uncertain' ? ' The model submission outcome is unknown; check provider usage before starting another request.' : data.provider_outcome === 'unavailable' ? ' The provider response was unavailable; cancellation could not be confirmed.' : ''}</div>
   if (event.kind === 'error') return <div className={`${styles.assistantBubble} ${styles.errorBubble}`}>{String(data.message ?? 'Unknown error')}</div>
   return null
 }

@@ -50,7 +50,7 @@ export const DISPLAY_PART_FIELDS: { key: keyof Part; label: string }[] = [
   { key: 'datasheet_url', label: 'Datasheet link' },
 ]
 
-export type AgentEventKind = 'user_message' | 'assistant_text' | 'tool_call' | 'tool_result' | 'approval_request' | 'approval_decision' | 'error' | 'completed'
+export type AgentEventKind = 'user_message' | 'assistant_text' | 'tool_call' | 'tool_result' | 'approval_request' | 'approval_decision' | 'cancellation_requested' | 'error' | 'completed'
 
 export interface AgentEvent {
   kind: AgentEventKind

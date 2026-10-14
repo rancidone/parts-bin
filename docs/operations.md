@@ -134,7 +134,7 @@ advance a different model round.
 
 Safe retrieval/stage delivery failures back off up to sixty seconds. Eight consecutive
 failures park the delivery and publish `dispatch_blocked`; inspect the worker error
-type, restore connectivity/configuration, then use **Resume request**. Lease conflicts
+type, restore connectivity/configuration, then use **Resume request** (or **Retry cancellation** for cancelled work awaiting provider cleanup). Lease conflicts
 defer without consuming that budget. Historical executions are enrolled only on an
 explicit resume, never by reconciliation. Approvals remain parked until a validated
 decision and wakeup commit together. Graceful worker stop finishes the current
@@ -162,6 +162,31 @@ before another submission. A lost approval acknowledgement reads the saved decis
 it never approves again automatically. Approval waits, blocked deliveries and
 unenrolled historical executions keep explicit approval/resume controls. Background
 polling for model collection is separate from these browser progress reads.
+
+Use **Cancel request** to stop later stages, including while chat is working or
+awaiting approval. Cancellation is durable and irreversible for that execution;
+disconnecting from chat still only stops observation. A stage authorized before
+cancellation may finish, including an inventory mutation or paid retrieval. Its
+committed stock, evidence and receipts are preserved. Later tools and model
+submissions are skipped, and pending approvals cannot revive cancelled work.
+
+The worker cancels a saved background response ID through OpenAI's idempotent
+cancel endpoint, discarding returned tool calls even if generation already completed.
+Transient cleanup failures use the ordinary dispatch retry budget. A blocked cleanup
+needs **Retry cancellation** after fixing its cause; **Resume request** is forbidden.
+Refresh history to confirm a lost cancellation acknowledgement. Cancellation does
+not guarantee avoidance of charges for already started work. If the submission ID
+was lost, the terminal event reports `submission_uncertain`; no replacement request
+is sent and provider usage needs inspection. A missing/expired response reports
+`unavailable`, without claiming confirmed provider cancellation.
+
+Before upgrading, explicitly initialize the additive cancellation table with
+`python -m db.postgres.setup --config /app/config.toml` using the candidate image,
+a protected configuration mount and the database network, following the backup
+procedure above. Never roll back HTTP or workers to a version preceding ADR 0032
+while cancellation records exist: old workers ignore the requests and can continue
+paid work. Keep the database and use a compatible repair release, or rehearse an
+explicit checkpoint migration on a restored copy before any older-image rollback.
 
 Background submission keeps `store=false`. OpenAI temporarily retains background
 results for roughly ten minutes; collect them promptly. `model_response_unavailable`
@@ -193,9 +218,9 @@ worker can prevent resume; after abrupt process loss its lease can take five
 minutes to expire. Do not resend the original message to recover a mutation.
 An active lease produces a temporary busy notice with a retry bound, preserving
 the request's resume controls. Refresh history first: the original worker may have
-finished meanwhile. Graceful forced cancellation releases its lease immediately;
-hard process or host loss still needs lease expiry. Cancellation retains committed
-stock and checkpoints, rather than automatically resending work.
+finished meanwhile. Graceful worker shutdown releases its lease after the current
+stage; hard process or host loss still needs lease expiry. Process shutdown and
+explicit application cancellation are separate operations.
 
 Use the original approval controls and request ID for a waiting decision.
 Duplicate delivery returns the saved outcome. A changed target or an unknown
