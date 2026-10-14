@@ -62,3 +62,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0034: Keep PostgreSQL as the only persistence adapter](0034-postgresql-only-persistence.md)
 
 - [0035: Narrow candidate searches with terms across committed fields](0035-multi-term-candidate-search.md)
+
+- [0036: Browse candidate inventory through the shared domain search](0036-direct-inventory-candidate-search.md)

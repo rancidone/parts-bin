@@ -2,10 +2,10 @@ import { useQuantities } from './quantityContext'
 import type { Part } from './types'
 import styles from './QuantityControl.module.css'
 
-export function QuantityControl({ part, disabled = false }: { part: Part; disabled?: boolean }) {
+export function QuantityControl({ part, disabled = false, authoritative = false }: { part: Part; disabled?: boolean; authoritative?: boolean }) {
   const { quantities, busy, errors, adjust } = useQuantities()
   const id = part.id
-  const quantity = id == null ? part.quantity : quantities.get(id) ?? part.quantity
+  const quantity = id == null || authoritative ? part.quantity : quantities.get(id) ?? part.quantity
   const saving = id != null && busy.has(id)
   const error = id != null ? errors.get(id) : undefined
   const label = `${part.part_number || [part.part_category, part.value].filter(Boolean).join(' ')}${id != null ? ` (#${id})` : ''}`

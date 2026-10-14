@@ -90,6 +90,15 @@ outside the image; see [backup and recovery](docs/operations.md#backup-and-recov
 
 ## Inventory lookup
 
+In Inventory, enter terms in **Filter inventory** to find candidates directly,
+without chat, model calls or supplier retrieval. Choose a **Category** and set
+**Minimum stock** to narrow the results; stock applies to each individual record.
+Category and stock filters work without a text query. **Clear filters** restores
+full browsing. Filtered results show totals and **Previous results** / **Next
+results** controls. Sorting and CSV export cover the visible page. Pending review
+text is excluded; candidates do not establish interchangeable parts or electrical
+suitability. After inventory changes, refresh or restart pagination.
+
 The UI uses hash routes: `/#/` for chat, `/#/inventory` for inventory, and
 `/#/inventory/42` for part 42. These links support browser Back, Forward,
 bookmarks, and reloads without colliding with the inventory API routes.

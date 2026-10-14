@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useInventorySearch } from './useInventorySearch'
 import { PartEditor } from './PartEditor'
 import { BulkEditor } from './BulkEditor'
 import { QuantityControl } from './QuantityControl'
@@ -19,6 +20,9 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
+  const [category, setCategory] = useState('')
+  const [minimumStock, setMinimumStock] = useState('0')
+  const [searchOffset, setSearchOffset] = useState(0)
   const [searchElectrical, setSearchElectrical] = useState(false)
   const electricalMode = searchElectrical && selectedPartId === null
   const [sortKey, setSortKey] = useState<SortKey>('part_category')
@@ -306,15 +310,15 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
     }
   }
 
+  const searching = selectedPartId === null && !electricalMode && Boolean(filter.trim() || category || minimumStock !== '0')
+  const search = useInventorySearch(active && searching, filter, category, minimumStock, searchOffset, parts, quantities)
+  const categories = [...new Set([...parts.map(part => part.part_category), ...(category ? [category] : [])])].sort()
+  function resetSearch() { setFilter(''); setCategory(''); setMinimumStock('0'); setSearchOffset(0) }
+
   const displayed = useMemo(() => {
-    const q = filter.toLowerCase()
-    const currentParts = parts.map(part => ({ ...part, quantity: (part.id != null ? quantities.get(part.id) : undefined) ?? part.quantity }))
-    const filtered = selectedPartId !== null ? currentParts.filter(p => p.id === selectedPartId) : q
-      ? currentParts.filter(p =>
-          [p.part_category, p.value, p.package, p.part_number, p.manufacturer, p.description]
-            .some(v => v?.toLowerCase().includes(q))
-        )
-      : currentParts
+    const source = searching ? (search.page?.candidates ?? []) : parts
+    const currentParts = source.map(part => ({ ...part, quantity: (!searching && part.id != null ? quantities.get(part.id) : undefined) ?? part.quantity }))
+    const filtered = selectedPartId !== null ? currentParts.filter(p => p.id === selectedPartId) : currentParts
 
     return [...filtered].sort((a, b) => {
       const av = String(a[sortKey] ?? '')
@@ -324,7 +328,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         : av.localeCompare(bv)
       return sortAsc ? cmp : -cmp
     })
-  }, [parts, filter, sortKey, sortAsc, selectedPartId, quantities])
+  }, [parts, searching, search.page, sortKey, sortAsc, selectedPartId, quantities])
 
   function SortHeader({ col, label }: { col: SortKey; label: string }) {
     const isActive = sortKey === col
@@ -397,7 +401,8 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
           disabled={electricalMode}
           aria-label="Filter inventory"
           value={filter}
-          onChange={e => { onClearSelection(); setFilter(e.target.value) }}
+          onChange={e => { onClearSelection(); setFilter(e.target.value); setSearchOffset(0) }}
+          maxLength={200}
           placeholder="Filter…"
         />
         <button className={styles.refreshBtn} onClick={load} disabled={loading}>
@@ -406,7 +411,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         <button
           className={styles.exportBtn}
           onClick={() => downloadCSV(displayed, 'inventory.csv')}
-          disabled={electricalMode || displayed.length === 0}
+          disabled={electricalMode || displayed.length === 0 || (searching && search.pending)}
         >
           Export CSV
         </button>
@@ -414,9 +419,23 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
 
       {electricalMode ? <SpecificationSearch key={loading ? 'loading' : 'ready'} /> : <>
 
+      {selectedPartId === null && <div className={styles.searchFilters}>
+        <label>Category<select aria-label="Search category" value={category} onChange={event => { setCategory(event.target.value); setSearchOffset(0) }}><option value="">All categories</option>{categories.map(name => <option key={name} value={name}>{name.replaceAll('_', ' ')}</option>)}</select></label>
+        <label>Minimum stock<input aria-label="Minimum stock" type="number" min="0" step="1" value={minimumStock} onChange={event => { setMinimumStock(event.target.value); setSearchOffset(0) }} /></label>
+        <button className={styles.refreshBtn} onClick={resetSearch}>Clear filters</button>
+        <span>Combine part, manufacturer and package terms. Stock applies to each record.</span>
+      </div>}
+      {searching && <div className={styles.selection} role="status">
+        {search.pending ? 'Searching inventory…' : search.error ? 'Search unavailable.' : `${search.page?.count ?? 0} ${filter.trim() ? 'candidate' : 'inventory'} record${search.page?.count === 1 ? '' : 's'} · showing ${displayed.length ? searchOffset + 1 : 0}–${searchOffset + displayed.length}`}
+        {!search.pending && !search.error && filter.trim() && <span>Candidates do not establish interchangeable parts or electrical suitability.</span>}
+        <button className={styles.refreshBtn} disabled={search.pending || searchOffset === 0} onClick={() => setSearchOffset(Math.max(0, searchOffset - 50))}>Previous results</button>
+        <button className={styles.refreshBtn} disabled={search.pending || search.error !== null || search.page?.next_offset == null} onClick={() => setSearchOffset(search.page!.next_offset!)}>Next results</button>
+      </div>}
+      {searching && search.error && <div className={styles.error} role="alert">{search.error} <button onClick={load}>Retry search</button></div>}
+
       {selectedPartId !== null && <div className={styles.selection}>
         <span>Viewing part #{selectedPartId}</span>
-        <button className={styles.refreshBtn} onClick={() => { setFilter(''); onClearSelection() }}>Show all parts</button>
+        <button className={styles.refreshBtn} onClick={() => { resetSearch(); onClearSelection() }}>Show all parts</button>
       </div>}
 
       {error && <div className={styles.error}>{error}</div>}
@@ -426,7 +445,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         <button className={styles.refreshBtn} disabled={savingEdit || adjustingQuantity.size > 0 || accepting.size > 0 || deleting.size > 0 || refreshing.size > 0} onClick={() => { cancelEdit(); setBulkEditing(true) }}>Edit selected</button>
         <button className={styles.refreshBtn} onClick={() => setBulkIds(new Set())}>Clear selection</button>
       </div>}
-      {bulkEditing && <BulkEditor parts={parts.filter(part => part.id != null && bulkIds.has(part.id))} onClose={() => setBulkEditing(false)} onSaved={updated => {
+      {bulkEditing && <BulkEditor parts={[...new Map([...parts, ...(search.page?.candidates ?? [])].map(part => [part.id, part])).values()].filter(part => part.id != null && bulkIds.has(part.id))} onClose={() => setBulkEditing(false)} onSaved={updated => {
         const changed = new Map(updated.map(part => [part.id!, part]))
         setParts(prev => prev.map(part => changed.get(part.id!) ?? part))
         remember(updated)
@@ -435,7 +454,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         setBulkIds(prev => new Set([...prev].filter(id => !changed.has(id))))
       }} />}
 
-      {!loading && displayed.length === 0 && !error && (
+      {!loading && displayed.length === 0 && !error && !(searching && (search.pending || search.error)) && (
         <div className={styles.empty}>{selectedPartId !== null ? 'This part is no longer in inventory.' : 'No parts found.'}</div>
       )}
 
@@ -444,11 +463,11 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
           <table className={styles.table}>
             <thead>
               <tr>
-                <th className={styles.th}><input type="checkbox" aria-label="Select visible parts" checked={displayed.length > 0 && displayed.every(part => part.id != null && bulkIds.has(part.id))} disabled={displayed.length > 100 || displayed.some(part => part.id == null) || new Set([...bulkIds, ...displayed.map(part => part.id!)]).size > 100} onChange={event => setBulkIds(prev => {
+                <th className={styles.th}><input type="checkbox" aria-label="Select visible parts" checked={displayed.length > 0 && displayed.every(part => part.id != null && bulkIds.has(part.id))} disabled={displayed.length > 100 || displayed.some(part => part.id == null) || new Set([...bulkIds, ...displayed.map(part => part.id!)]).size > 100} onChange={event => { if (event.target.checked && displayed.some(part => !parts.some(known => known.id === part.id))) setParts(prev => [...prev, ...displayed.filter(part => !prev.some(known => known.id === part.id))]); setBulkIds(prev => {
                   const next = new Set(prev)
                   for (const part of displayed) { if (event.target.checked) next.add(part.id!); else next.delete(part.id!) }
                   return next
-                })} title="Select up to 100 parts; filter inventory to narrow the selection" /></th>
+                }) }} title="Select up to 100 parts; filter inventory to narrow the selection" /></th>
                 <SortHeader col="part_category" label="Category" />
                 <SortHeader col="value" label="Value" />
                 <SortHeader col="package" label="Package" />
@@ -470,11 +489,11 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                 return (
                   <Fragment key={p.id ?? i}>
                     <tr key={p.id ?? i} className={`${styles.row} ${review ? styles.rowPending : ''}`}>
-                      <td className={styles.td}><input type="checkbox" aria-label={`Select part #${id}`} checked={bulkIds.has(id)} disabled={p.id == null || (!bulkIds.has(id) && bulkIds.size >= 100)} onChange={event => setBulkIds(prev => { const next = new Set(prev); if (event.target.checked) next.add(id); else next.delete(id); return next })} /></td>
+                      <td className={styles.td}><input type="checkbox" aria-label={`Select part #${id}`} checked={bulkIds.has(id)} disabled={p.id == null || (!bulkIds.has(id) && bulkIds.size >= 100)} onChange={event => { if (event.target.checked && !parts.some(part => part.id === id)) setParts(prev => [...prev, p]); setBulkIds(prev => { const next = new Set(prev); if (event.target.checked) next.add(id); else next.delete(id); return next }) }} /></td>
                       <td className={styles.td}>{p.part_category}</td>
                       <td className={styles.td}>{p.value ?? '—'}</td>
                       <td className={styles.td}>{p.package ?? '—'}</td>
-                      <td className={styles.td}><QuantityControl part={p} disabled={isEditing || deleting.has(id) || accepting.has(id)} /></td>
+                      <td className={styles.td}><QuantityControl part={p} authoritative={searching} disabled={isEditing || deleting.has(id) || accepting.has(id)} /></td>
                       <td className={styles.td}>{p.part_number ?? '—'}{p.datasheet_url && <div><a href={p.datasheet_url} target="_blank" rel="noreferrer">Datasheet</a></div>}</td>
                       <td className={styles.td}>{p.manufacturer ?? '—'}</td>
                       <td className={styles.td}>{p.description ?? '—'}</td>
