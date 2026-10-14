@@ -1,6 +1,6 @@
 # 0008: Target AWS and Terraform without selecting a cloud stack yet
 
-Status: Accepted; persistence selection superseded by [0029](0029-postgresql-and-dsql.md)
+Status: Superseded by [0033](0033-serverless-compatible-self-hosting.md); persistence selection superseded by [0029](0029-postgresql-and-dsql.md)
 
 Recorded: 2026-10-10 (existing project decision)
 
@@ -25,5 +25,5 @@ Resolve budget, access, region, downtime, and acceptable data loss first. Rehear
 migration on copies and distinguish code rollback from data restoration. Adding
 services requires a measured need, not an assumed serverless topology.
 
-[Upcoming cloud work](../../TODO.md#cloud-work) and
+[Current hosting direction](0033-serverless-compatible-self-hosting.md) and
 [storage boundaries](0001-domain-and-storage-boundaries.md).

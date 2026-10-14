@@ -10,7 +10,7 @@ status. Recording them does not select additional services or change behavior.
 - [0005: Keep photos ephemeral and caches separate from authoritative data](0005-storage-and-retention.md)
 - [0006: Normalize in the domain without rewriting or merging historical stock](0006-normalization-without-stock-merges.md)
 - [0007: Match electrical requirements against reviewed, qualified facts](0007-reviewed-electrical-facts.md)
-- [0008: Target AWS and Terraform without selecting a cloud stack yet](0008-deferred-aws-direction.md)
+- [0008: Target AWS and Terraform without selecting a cloud stack yet](0008-deferred-aws-direction.md) (superseded by 0033)
 
 - [0009: Bound model context independently of retained data](0009-bounded-model-context.md)
 - [0010: Cite supplied electrical evidence by server-owned passages](0010-supplied-electrical-passages.md)
@@ -56,3 +56,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0031: Reconnect chat progress through read-only event cursors](0031-read-only-chat-progress-reconnect.md)
 
 - [0032: Cancel executions at durable stage boundaries](0032-stage-boundary-cancellation.md)
+
+- [0033: Keep serverless-compatible execution on existing self-hosted infrastructure](0033-serverless-compatible-self-hosting.md)
