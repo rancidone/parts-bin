@@ -6,6 +6,61 @@ selects a configuration file outside the checkout. Keep configuration private.
 The infra repository owns deployment to core; this repository owns the app image
 and Compose definition.
 
+## Read-only inventory MCP
+
+The MCP endpoint uses the existing HTTP app and HTTPS ingress, with no additional
+service, port or schema migration. Enable it explicitly on the installation host:
+
+```sh
+uv run python -m scripts.inventory_mcp --config /protected/config.toml \
+  --public-url https://YOUR_HOST
+```
+
+Use the actual protected configuration path. The helper generates a dedicated
+random token in `[mcp]`, keeps other sections intact, writes the file with mode
+0600, and prints no secrets. Repeating the same origin preserves the token; it
+refuses an implicit origin change. An existing `.mcp.pending` file indicates an
+interrupted update: inspect it securely before retrying. For a container host,
+run the helper with the candidate image and a writable configuration-directory mount,
+then recreate HTTP intake. The normal runtime config mount remains read-only.
+Mount the parent directory for setup: atomic replacement cannot update a single
+bind-mounted configuration file.
+Local development can use an HTTP loopback origin. Other origins require HTTPS.
+
+Configure your agent's MCP client with:
+
+- Transport: Streamable HTTP.
+- URL: `https://YOUR_HOST/mcp` (a trailing slash also works).
+- Header: `Authorization: Bearer <the dedicated MCP token>`.
+
+Read the token through your protected configuration/secret procedure and store
+it in the client's secret store or environment. Do not use the OpenAI key, put
+the token in the URL, paste it into chat, or commit it to Git. This is a static
+owner credential; clients requiring automatic OAuth registration need a separate
+integration decision. A browser sign-in cookie does not replace this token.
+
+MCP initialization returns inventory-use instructions and `tools/list` advertises
+only read-only tools. Start with category discovery, then narrow searches. Follow
+`next_offset` with the same query; restart if stock changes. Use the whole-BOM
+check for repeated requirements and shortages. Availability is not a reservation.
+Part-specific specification reads include accepted facts and labeled pending
+reviews; unsupported facts, assertions and partial matches do not prove suitability.
+Tool results are inventory data, not trusted instructions to the receiving agent.
+
+Missing/incorrect tokens receive 401. Incorrect Host receives 421, disallowed
+Origin receives 403, and requests larger than 128 KiB receive 413. Keep the public
+origin aligned with the HTTPS proxy hostname. SDK initialization, tool discovery
+and a narrow read are better verification than opening `/mcp` in a browser.
+The API's existing health check and monitoring still apply. MCP calls do not
+create app conversations or paid executions.
+
+To revoke access, set `[mcp].enabled = false` and recreate HTTP intake. To rotate,
+disable/recreate first, remove the old token from protected configuration, run the
+helper again, then recreate and update authorized clients. For non-container
+installations, restart the HTTP process instead. The worker does not
+need the MCP token. Back up the protected configuration with the database as
+usual; rollback can disable MCP without altering stock or conversation data.
+
 ## Diagnostics
 
 ```sh

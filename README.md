@@ -189,6 +189,20 @@ after changing stock or accepting facts. Open a result's part link to inspect or
 edit it, or choose **Browse inventory** to return to the stock table. These filters
 read committed inventory without model or supplier calls.
 
+## External agent inventory access
+
+External agents can read stock through the optional MCP endpoint at
+`https://YOUR_HOST/mcp`. It uses Streamable HTTP with a dedicated bearer token.
+The endpoint supports category discovery, structured and text searches, whole-BOM
+availability checks, part details, provenance and stored electrical facts.
+Searches retain the shared inventory matching, evidence and pagination rules.
+Calls make no model or supplier requests and cannot modify stock.
+
+Follow [MCP setup and client connection](docs/operations.md#read-only-inventory-mcp)
+to enable it on your installation. MCP is disabled by default; clients must
+support an `Authorization: Bearer …` header. An MCP client does not need Parts
+Bin's OpenAI key.
+
 ## Development checks
 
 Python tests live in `tests/`, mirroring the source directories. Pytest discovers

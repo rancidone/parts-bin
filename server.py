@@ -24,6 +24,8 @@ from agent_runtime import (
 from application import ApplicationServices
 from inventory_export import export_csv
 from tools import PartsBinToolRegistry
+from tools.inventory_mcp import InventoryMCP, MCPConfig
+from starlette.routing import Route
 from domain import (
     AdjustStockRequest, ApplyReviewRequest, DeletePartRequest, DomainError, FetchSpecsRequest,
     ProvenanceRequest, RejectReviewRequest, UpdatePartRequest, GetPartRequest,
@@ -45,15 +47,21 @@ def _services(request: Request) -> ApplicationServices:
 
 
 def create_app(services: ApplicationServices, *, ui_dist_path: Path | None = None,
-               webhook_secret: str | None = None) -> FastAPI:
+               webhook_secret: str | None = None, mcp_config: MCPConfig | None = None) -> FastAPI:
     """Build an HTTP adapter from supplied application services."""
     if services.gateway.store.storage_id != services.domain.repository.storage_id:
         raise ValueError('HTTP progress, conversations and executions must share one transactional database')
 
+    mcp = InventoryMCP(services.domain, mcp_config) if mcp_config else None
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
-            yield
+            if mcp is None:
+                yield
+            else:
+                async with mcp.manager.run():
+                    yield
         finally:
             await services.close()
             if _app.state.webhook_client is not None:
@@ -66,6 +74,9 @@ def create_app(services: ApplicationServices, *, ui_dist_path: Path | None = Non
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
     if ui_dist_path is not None and (ui_dist_path / "assets").is_dir():
         app.mount("/assets", StaticFiles(directory=ui_dist_path / "assets"), name="ui-assets")
+    if mcp is not None:
+        for path in ('/mcp', '/mcp/'):
+            app.router.routes.append(Route(path, endpoint=mcp, methods=['GET', 'POST', 'DELETE']))
     app.include_router(router)
     return app
 
@@ -475,7 +486,7 @@ async def ui_root(request: Request):
 async def ui_catchall(request: Request, full_path: str):
     if not full_path:
         return await ui_root(request)
-    if full_path.startswith(("agent", "inventory", "health", "jlcparts")):
+    if full_path.startswith(("agent", "inventory", "health", "jlcparts", "mcp")):
         raise HTTPException(status_code=404, detail="Not found")
     asset_path = _resolve_ui_asset(request, full_path)
     if asset_path is not None:
