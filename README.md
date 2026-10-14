@@ -106,7 +106,11 @@ review after reloading. Review evidence and choose Accept electrical specs or
 Dismiss electrical review; refreshing does not change stock or accept facts.
 
 Ask the chat to find stock by description, manufacturer, or a fragment of a part
-number, such as `PBSS5350T`. Candidate search keeps distinct ordering suffixes
+number, such as `PBSS5350T`. Combine terms such as `Nexperia 5350 SOT23`
+to narrow a candidate search across the same part's manufacturer, number, package,
+category, value and description. Each whitespace-separated term must match that
+record; punctuation stays literal. Nominal-unit equivalence still uses structured
+value filters rather than text fragments. Candidate search keeps distinct ordering suffixes
 and quantities separate. Markings are discoverable when recorded in a description
 or part number; unrecorded markings need clarification. Partial matches identify
 candidates and do not establish interchangeable stock or electrical suitability.

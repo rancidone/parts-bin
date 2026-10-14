@@ -129,12 +129,14 @@ class PartsBinService:
         """
         if not isinstance(request.query, str) or not 1 <= len(request.query.strip()) <= 200:
             raise DomainError(ErrorCode.INVALID_INPUT, "Candidate query must contain one to two hundred characters")
-        query = request.query.strip().casefold()
+        terms = request.query.casefold().split()
         parts = self.search(SearchPartsRequest(request.filters, request.minimum_quantity))
-        return sorted((part for part in parts if any(
-            query in (text or "").casefold()
-            for text in (part.description, part.manufacturer, part.part_number)
-        )), key=lambda part: part.id)
+        def matches(part: Part) -> bool:
+            fields = tuple((text or "").casefold() for text in (
+                part.description, part.manufacturer, part.part_number,
+                part.part_category, part.value, part.package))
+            return all(any(term in text for text in fields) for term in terms)
+        return sorted((part for part in parts if matches(part)), key=lambda part: part.id)
 
     def _nominal_alternatives(self, request: SearchPartsRequest) -> list[tuple[Decimal, Part, dict[str, str]]]:
         # A category gives nominal notation its dimension; all other filters remain exact.

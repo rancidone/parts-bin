@@ -60,3 +60,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0033: Keep serverless-compatible execution on existing self-hosted infrastructure](0033-serverless-compatible-self-hosting.md)
 
 - [0034: Keep PostgreSQL as the only persistence adapter](0034-postgresql-only-persistence.md)
+
+- [0035: Narrow candidate searches with terms across committed fields](0035-multi-term-candidate-search.md)

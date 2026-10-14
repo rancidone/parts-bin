@@ -8,6 +8,12 @@ Prioritize finding parts and reliable operation on the existing Docker/PostgreSQ
 installation. Keep execution compatible with short-lived, replaceable workers;
 cloud deployment and provider-specific infrastructure are outside the roadmap.
 
+## Inventory search
+
+- Expose the shared candidate search directly in Inventory browsing, with stock
+  and category filters, so finding parts does not require a chat/model request.
+  Preserve ordering suffixes, candidate labels and the domain search semantics.
+
 ## Execution measurements
 
 - Evaluate background Responses submission and collection with the intended
