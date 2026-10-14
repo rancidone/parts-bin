@@ -1,4 +1,4 @@
-"""PostgreSQL persistence shared with Aurora DSQL; schema setup is an explicit operator action."""
+"""PostgreSQL persistence; schema setup is an explicit operator action."""
 
 from contextlib import contextmanager
 

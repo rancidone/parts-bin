@@ -58,3 +58,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0032: Cancel executions at durable stage boundaries](0032-stage-boundary-cancellation.md)
 
 - [0033: Keep serverless-compatible execution on existing self-hosted infrastructure](0033-serverless-compatible-self-hosting.md)
+
+- [0034: Keep PostgreSQL as the only persistence adapter](0034-postgresql-only-persistence.md)

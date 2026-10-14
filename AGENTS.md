@@ -79,7 +79,6 @@ implementations over speculative abstractions.
 - `local_app.py`: local configuration, PostgreSQL composition, and ASGI factory.
 - `domain/`: typed inventory rules and domain errors.
 - `db/postgres/`: PostgreSQL adapters for inventory, conversations, approvals, and executions.
-- `db/dsql/`: optional historical DSQL experiment; outside supported hosting scope.
 - `agent_runtime/`: gateway, OpenAI transport, approvals, conversation contracts,
   and telemetry.
 - `tools/`: typed inventory tool registry.

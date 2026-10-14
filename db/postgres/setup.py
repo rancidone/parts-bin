@@ -8,8 +8,7 @@ from .connection import PostgresConfig
 
 
 def initialize(connect):
-    # DSQL permits only one DDL statement per transaction. Autocommit executes
-    # each statement independently; rerunning an interrupted setup is safe.
+    # Execute schema statements independently so rerunning interrupted setup is safe.
     with connect() as connection:
         for statement in Path(__file__).with_name('schema.sql').read_text().split(';'):
             if statement.strip():

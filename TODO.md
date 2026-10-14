@@ -47,5 +47,5 @@ extraction and keep unsupported fields unknown.
   separate unnumbered physical groups and rehearse any migration on copies.
 
 Keep [hosting-independent execution](docs/adr/0033-serverless-compatible-self-hosting.md)
-and [PostgreSQL persistence](docs/adr/0029-postgresql-and-dsql.md) as architectural
+and [PostgreSQL persistence](docs/adr/0034-postgresql-only-persistence.md) as architectural
 constraints, rather than a cloud migration workstream.
