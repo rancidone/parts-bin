@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
+import { INVENTORY_PAGE_SIZE } from './inventorySearchUrl'
 import type { Part } from './types'
 
 type Page = { candidates: Part[]; count: number; next_offset: number | null; match_kind: string }
 export function useInventorySearch(enabled: boolean, query: string, category: string, minimumStock: string,
   offset: number, parts: Part[], quantities: Map<number, number>) {
   const request = useMemo(() => {
-    const params = new URLSearchParams({ query: query.trim(), minimum_quantity: minimumStock, limit: '50', offset: String(offset) })
+    const params = new URLSearchParams({ query: query.trim(), minimum_quantity: minimumStock, limit: String(INVENTORY_PAGE_SIZE), offset: String(offset) })
     if (category) params.set('category', category)
     return { enabled, url: `/inventory/search?${params}`, inventory: parts, stock: quantities }
   }, [enabled, query, category, minimumStock, offset, parts, quantities])
@@ -16,6 +17,7 @@ export function useInventorySearch(enabled: boolean, query: string, category: st
     const timer = setTimeout(() => {
       void (async () => {
         try {
+          if (query.length > 200) throw new Error('Search terms must contain at most 200 characters.')
           if (!/^\d+$/.test(minimumStock) || !Number.isSafeInteger(Number(minimumStock))) throw new Error('Minimum stock must be a whole number of zero or more.')
           const response = await fetch(request.url, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) })
           const data = await response.json()
@@ -29,7 +31,7 @@ export function useInventorySearch(enabled: boolean, query: string, category: st
       })()
     }, 250)
     return () => { clearTimeout(timer); controller.abort() }
-  }, [request, offset, minimumStock])
+  }, [request, offset, minimumStock, query])
   const current = result?.request === request ? result : undefined
   return { page: current?.page ?? null, error: current?.error ?? null, pending: enabled && !current }
 }

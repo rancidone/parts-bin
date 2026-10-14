@@ -64,3 +64,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0035: Narrow candidate searches with terms across committed fields](0035-multi-term-candidate-search.md)
 
 - [0036: Browse candidate inventory through the shared domain search](0036-direct-inventory-candidate-search.md)
+
+- [0037: Restore Inventory search criteria from bookmarkable URLs](0037-bookmarkable-inventory-search.md)

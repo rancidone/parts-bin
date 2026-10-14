@@ -6,6 +6,6 @@ import App from './App.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <HashRouter><App /></HashRouter>
+    <HashRouter useTransitions={false}><App /></HashRouter>
   </StrictMode>,
 )
