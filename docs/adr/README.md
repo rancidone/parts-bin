@@ -70,3 +70,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0038: Filter Inventory by nominal value and exact package](0038-direct-nominal-and-package-filters.md)
 
 - [0039: Suggest exact package spelling from committed inventory](0039-inventory-package-suggestions.md)
+
+- [0040: Suggest stored nominal values without changing unit matching](0040-inventory-nominal-value-suggestions.md)

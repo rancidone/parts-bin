@@ -343,3 +343,65 @@ test('suggested packages keep exact filtering, bookmarks and history without cha
   expect(f.requests.some(request => request.query.get('package') === 'SOT-23')).toBe(true)
   expect(f.requests.every(request => request.method === 'GET')).toBe(true)
 })
+
+
+test('nominal suggestions preserve distinct committed notation and narrow only by category', async ({ context, page }) => {
+  const f = await fixture(context, [
+    { ...resistor, id: 100, value: '10k', quantity: 0 },
+    { ...resistor, id: 101, value: '10 MΩ', quantity: 0 },
+    { ...resistor, id: 102, value: '10 mΩ', quantity: 0 },
+    { ...resistor, id: 103, value: '10000 Ω', quantity: 0 },
+    { ...resistor, id: 104, value: null },
+    { ...resistor, id: 105, value: '   ' },
+    { ...resistor, id: 106, part_category: 'capacitor', value: '100n' },
+  ], { '90': { fields: { value: { accepted: true, value: 'PendingValue' } } } })
+  await page.goto('/#/inventory?category=resistor&query=missing&package=missing&minimum_quantity=8&page=2')
+  const options = page.locator('#inventory-nominal-values option')
+  await expect(page.getByLabel('Nominal value', { exact: true })).toHaveAttribute('list', 'inventory-nominal-values')
+  await expect.poll(() => options.evaluateAll(nodes => nodes.map(node => node.getAttribute('value')))).toEqual(['10 MΩ', '10 mΩ', '10000 Ω', '10k'])
+  await expect(page.getByRole('button', { name: 'First results', exact: true })).toBeVisible()
+  await page.getByLabel('Search category').selectOption('capacitor')
+  await expect.poll(() => options.evaluateAll(nodes => nodes.map(node => node.getAttribute('value')))).toEqual(['100n'])
+  await page.getByLabel('Search category').selectOption('mosfet')
+  await expect(options).toHaveCount(0)
+  await page.getByLabel('Search category').selectOption('')
+  await expect.poll(() => options.evaluateAll(nodes => nodes.map(node => node.getAttribute('value')))).toEqual(['10 MΩ', '10 mΩ', '10000 Ω', '100n', '10k'])
+  expect(f.requests.every(request => request.method === 'GET')).toBe(true)
+})
+
+test('suggested nominal value and typed equivalents retain bookmarks, unit matching and history', async ({ context, page }) => {
+  const f = await fixture(context)
+  await page.goto('/#/inventory?category=resistor&package=0402&page=9')
+  const input = page.getByLabel('Nominal value', { exact: true })
+  const options = page.locator('#inventory-nominal-values option')
+  await expect(options).toHaveCount(1)
+  const suggested = await options.first().getAttribute('value')
+  await input.fill(suggested!)
+  await expect(page.getByRole('status')).toContainText('1 inventory record')
+  await expect(page).toHaveURL(/value=10k/)
+  await expect(page).not.toHaveURL(/page=9/)
+  await input.blur()
+  await input.fill('10000 Ω')
+  await expect(page.getByRole('status')).toContainText('1 inventory record')
+  await input.blur()
+  await page.reload()
+  await expect(input).toHaveValue('10000 Ω')
+  await expect(page.getByLabel('Exact package', { exact: true })).toHaveValue('0402')
+  await expect(page.getByRole('status')).toContainText('1 inventory record')
+  await page.getByLabel('Search category').selectOption('mosfet')
+  await expect(input).toHaveValue('10000 Ω')
+  await expect(options).toHaveCount(0)
+  await expect(page.getByText('No parts found.', { exact: true })).toBeVisible()
+  await page.goBack()
+  await expect(page.getByLabel('Search category')).toHaveValue('resistor')
+  await expect(options).toHaveCount(1)
+  await expect(page.getByRole('status')).toContainText('1 inventory record')
+  await page.goForward()
+  await expect(page.getByLabel('Search category')).toHaveValue('mosfet')
+  await expect(input).toHaveValue('10000 Ω')
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(input).toHaveValue('')
+  await expect(page).toHaveURL(/#\/inventory$/)
+  expect(f.requests.some(request => request.query.get('value') === '10000 Ω')).toBe(true)
+  expect(f.requests.every(request => request.method === 'GET')).toBe(true)
+})
