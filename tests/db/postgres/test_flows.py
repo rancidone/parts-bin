@@ -11,6 +11,12 @@ from domain import AddPartRequest, GetPartRequest, PartFields, PartsBinService, 
 from domain.repositories import ExecutionBusy, ExecutionUnavailable, RepositoryBusy
 from tools import PartsBinToolRegistry, ToolExecutionContext
 from evaluation.inventory_scale import seed, workloads
+from tests.storage import TestRepository
+
+
+@pytest.fixture
+def repository(tmp_path):
+    return TestRepository(tmp_path / 'flows')
 
 
 def service(repository):

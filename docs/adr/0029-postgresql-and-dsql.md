@@ -1,6 +1,6 @@
 # 0029: Use existing PostgreSQL and share SQL with the DSQL experiment
 
-Status: Accepted for PostgreSQL; DSQL experiment superseded by [0033](0033-serverless-compatible-self-hosting.md)
+Status: Superseded by [0034](0034-postgresql-only-persistence.md); cloud direction superseded by [0033](0033-serverless-compatible-self-hosting.md)
 
 Recorded: 2026-10-13
 

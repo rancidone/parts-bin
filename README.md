@@ -65,7 +65,9 @@ After upgrades, run `uv run python -m db.postgres.setup --config config.toml`
 before starting either process. Local development can reconcile by polling; public
 installations can also receive signed OpenAI webhooks.
 
-The local factory loads configuration and constructs PostgreSQL-backed services.
+PostgreSQL is the only runtime persistence adapter; installation requires no AWS
+SDK or IAM database login. The local factory loads configuration and constructs
+PostgreSQL-backed services.
 The HTTP adapter can also be constructed with injected services; see
 [application assembly](application.py) and [hosting boundaries](docs/adr/0001-domain-and-storage-boundaries.md).
 

@@ -1,6 +1,6 @@
 # 0033: Keep serverless-compatible execution on existing self-hosted infrastructure
 
-Status: Accepted
+Status: Accepted; DSQL connector retention superseded by [0034](0034-postgresql-only-persistence.md)
 
 ## Context
 
