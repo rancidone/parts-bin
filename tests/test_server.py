@@ -714,3 +714,32 @@ def test_inventory_suggestions_cross_filter_with_shared_units_and_per_record_sto
                                   {'value': 'x' * 201}, {'package': 'x' * 201}])
 def test_inventory_suggestions_validate_inputs(client, params):
     assert client[0].get('/inventory/search/suggestions', params=params).status_code == 422
+
+
+def test_inventory_suggestions_apply_shared_multi_term_candidate_rules(client):
+    from domain import AddPartRequest, PartFields, SearchPartsRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    parts = [service.add_part(AddPartRequest(PartFields('resistor', 'passive', stock, value, package,
+             part_number=number, manufacturer='ACME', description=description)))
+             for stock, value, package, number, description in [
+                 (7, '10k', '0402', 'ABC,215', 'Drawer Bay-B'), (3, '10k', '0603', 'ABC,216', 'Drawer C'),
+                 (2, '22k', '0402', 'DEF,215', 'Drawer Bay-B'), (0, '47k', '0805', 'XYZ,215', 'Drawer Bay-B')]]
+    service.repository.inventory.save_pending_review(parts[0].id, {'description': 'PendingOnly'}, [])
+    before, reviews = service.list(), service.list_pending_reviews()
+    filters = {'part_category': 'resistor', 'value': '10000 Ω'}
+    for query, expected in [
+        ('  acme  Drawer Bay-B  ', {'values': ['10k', '22k'], 'packages': ['0402']}),
+        ('ABC,216 Drawer', {'values': ['10k'], 'packages': ['0603']}),
+        ('acme ,215 0402', {'values': ['10k', '22k'], 'packages': ['0402']}),
+        ('10000r', {'values': [], 'packages': []}),
+        ('PendingOnly', {'values': [], 'packages': []}),
+        ('missing', {'values': [], 'packages': []}),
+        ('   ', {'values': ['10k', '22k'], 'packages': ['0402', '0603']}),
+    ]:
+        params = {'category': 'resistor', 'value': '10000 Ω', 'minimum_quantity': 1, 'query': query}
+        response = http.get('/inventory/search/suggestions', params=params)
+        assert response.status_code == 200 and response.json() == expected
+        assert service.search_suggestions(SearchPartsRequest(filters, 1), query=query) == expected
+    assert http.get('/inventory/search/suggestions', params={'query': 'x' * 201}).status_code == 422
+    assert service.list() == before and service.list_pending_reviews() == reviews

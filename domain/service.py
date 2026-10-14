@@ -121,12 +121,16 @@ class PartsBinService:
                 matches.append(part)
         return matches
 
-    def search_suggestions(self, request: SearchPartsRequest) -> dict[str, list[str]]:
-        """Suggest each field under the other filters, preserving committed spelling."""
-        values = self.search(SearchPartsRequest(
-            {key: value for key, value in request.filters.items() if key != "value"}, request.minimum_quantity))
-        packages = self.search(SearchPartsRequest(
-            {key: value for key, value in request.filters.items() if key != "package"}, request.minimum_quantity))
+    def search_suggestions(self, request: SearchPartsRequest, *, query: str = "") -> dict[str, list[str]]:
+        """Suggest each field under text and the other filters, retaining spelling."""
+        if not isinstance(query, str) or len(query.strip()) > 200:
+            raise DomainError(ErrorCode.INVALID_INPUT, "Candidate query must contain at most two hundred characters")
+        def matches(excluded: str) -> list[Part]:
+            filters = {key: value for key, value in request.filters.items() if key != excluded}
+            if query.strip():
+                return self.search_candidates(SearchCandidatesRequest(query, filters, request.minimum_quantity))
+            return self.search(SearchPartsRequest(filters, request.minimum_quantity))
+        values, packages = matches("value"), matches("package")
         return {"values": sorted({part.value for part in values if part.value and part.value.strip()}),
                 "packages": sorted({part.package for part in packages if part.package and part.package.strip()})}
 

@@ -100,9 +100,12 @@ a category to disambiguate bare values. Other categories compare values exactly.
 `SOT23` and `SOT-23` remain distinct. Both fields suggest distinct, nonempty
 committed values. Nominal-value suggestions respect the exact package filter;
 package suggestions respect the unit-aware nominal-value filter. Both respect
-category and minimum stock, applied to each record. Each list ignores its own
+text search, category and minimum stock, applied to each record. Text uses the
+same literal multi-term candidate rules as results, across committed description,
+manufacturer, part number, category, value and package. Each list ignores its own
 input so you can find alternatives, even when the current combination has no
-matches. Text terms and paging do not narrow suggestions.
+matches. Paging does not narrow suggestions. Text terms remain literal even
+when the separate nominal-value filter uses unit equivalence.
 
 Suggestions retain stored notation; you can also type an equivalent value in
 another supported unit. Changing category or stock keeps your current inputs.

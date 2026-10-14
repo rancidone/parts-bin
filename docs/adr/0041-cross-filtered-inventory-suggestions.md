@@ -1,6 +1,6 @@
 # 0041: Cross-filter Inventory suggestions through shared domain search
 
-**Status:** Accepted; supersedes suggestion-scoping decisions in [0039](0039-inventory-package-suggestions.md) and [0040](0040-inventory-nominal-value-suggestions.md).
+**Status:** Text-query scoping superseded by [0042](0042-text-aware-inventory-suggestions.md); other decisions retained; supersedes suggestion-scoping decisions in [0039](0039-inventory-package-suggestions.md) and [0040](0040-inventory-nominal-value-suggestions.md).
 
 ## Context
 

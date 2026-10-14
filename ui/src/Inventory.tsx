@@ -316,7 +316,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
   const search = useInventorySearch(active && searching, filter, category, minimumStock, nominalValue, packageFilter, searchOffset, parts, quantities)
   const categories = [...new Set([...parts.map(part => part.part_category), ...(category ? [category] : [])])].sort()
   const suggestions = useInventorySuggestions(active && selectedPartId === null && !electricalMode,
-    category, minimumStock, nominalValue, packageFilter, parts, quantities)
+    filter, category, minimumStock, nominalValue, packageFilter, parts, quantities)
   function resetSearch() { searchUrl.update({ query: '', category: '', minimumStock: '0', nominalValue: '', package: '', page: 1 }) }
 
   const displayed = useMemo(() => {
@@ -434,7 +434,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         {suggestions.pending && <span>Loading suggestions…</span>}
         {suggestions.error && !search.error && <span role="alert">Suggestions unavailable: {suggestions.error} <button onClick={suggestions.retry}>Retry suggestions</button></span>}
         <button className={styles.refreshBtn} onClick={resetSearch}>Clear filters</button>
-        <span>Combine part and manufacturer terms. Nominal values use each part’s category; choose a category to disambiguate bare values. Values respect the package filter; packages respect the nominal value. Both respect category and minimum stock. Packages match stored spelling exactly. Stock applies to each record.</span>
+        <span>Combine part and manufacturer terms. Nominal values use each part’s category; choose a category to disambiguate bare values. Values respect the package filter; packages respect the nominal value. Both respect text, category and minimum stock. Packages match stored spelling exactly. Stock applies to each record.</span>
       </div>}
       {searching && <div className={styles.selection} role="status">
         {search.pending ? 'Searching inventory…' : search.error ? 'Search unavailable.' : `${search.page?.count ?? 0} ${filter.trim() ? 'candidate' : 'inventory'} record${search.page?.count === 1 ? '' : 's'} · showing ${displayed.length ? searchOffset + 1 : 0}–${displayed.length ? searchOffset + displayed.length : 0}`}
