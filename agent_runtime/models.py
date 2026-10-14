@@ -9,7 +9,7 @@ from typing import Any, Literal
 RuntimeName = str  # Persisted provider identity, including historical read-only threads.
 EventKind = Literal[
     "user_message", "assistant_text", "tool_call", "tool_result",
-    "approval_request", "approval_decision", "error", "completed",
+    "approval_request", "approval_decision", "cancellation_requested", "error", "completed",
 ]
 
 
@@ -73,5 +73,5 @@ class ApprovalResponse:
 @dataclass(frozen=True)
 class RuntimeResult:
     events: tuple[ConversationEvent, ...]
-    status: Literal["ready", "waiting_model", "completed", "awaiting_approval", "failed"]
+    status: Literal["ready", "waiting_model", "completed", "awaiting_approval", "failed", "cancelled"]
     execution_id: str | None = None

@@ -45,7 +45,7 @@ class DispatchRepository(Protocol):
     def blocked_deliveries(self) -> list[Delivery]: ...
     def claim(self, execution_id: str | None = None, token: str | None = None) -> Delivery | None: ...
     def finish(self, delivery: Delivery, *, failure: str | None = None, retry_after: int = 0) -> bool: ...
-    def wake(self, thread_id: str, execution_id: str) -> None: ...
+    def wake(self, thread_id: str, execution_id: str, *, cancellation: bool = False) -> None: ...
     def notify(self, event_id: str, response_id: str, event_type: str) -> bool: ...
     def reconcile(self) -> int: ...
 
@@ -71,12 +71,18 @@ class DurableDispatch:
         self.gateway._runtime_name(thread_id)
         self.repository.dispatch.wake(thread_id, execution_id)
 
+    def cancel(self, thread_id: str, execution_id: str):
+        self.gateway._runtime_name(thread_id)
+        return self.repository.executions.request_cancellation(thread_id, execution_id)
+
     def decide(self, thread_id: str, response: ApprovalResponse):
         self.gateway._runtime_name(thread_id)
         with self.repository.transaction() as unit:
             record = unit.executions.for_approval(thread_id, response.request_id)
             if record is None:
                 raise ValueError('Unknown approval execution for this conversation')
+            if unit.executions.cancellation_requested(record.execution_id):
+                raise ValueError('This execution was cancelled; start a new request')
             ApprovalEngine(unit).decide(thread_id, response.request_id, response.approved)
             unit.dispatch.wake(thread_id, record.execution_id)
         return record.execution_id
@@ -114,8 +120,9 @@ class DurableDispatch:
 
     def publish_blocked(self):
         for delivery in self.repository.dispatch.blocked_deliveries():
+            recovery = 'retry cancellation' if self.repository.executions.cancellation_requested(delivery.execution_id) else 'resume this request'
             for kind, data in [('error', {'code': 'dispatch_blocked', 'message':
-                'Repeated worker failures. Check worker logs, then resume this request; do not resend it.'}),
+                f'Repeated worker failures. Check worker logs, then {recovery}; do not resend it.'}),
                 ('completed', {'status': 'busy', 'code': 'dispatch_blocked'})]:
                 self.gateway.store.append_once(ConversationEvent(kind, delivery.thread_id, 'openai',
                     {**data, 'execution_id': delivery.execution_id}),
@@ -136,7 +143,7 @@ class DurableDispatch:
                 yield event
                 if event.kind != 'completed':
                     continue
-                if event.data.get('status') in {'completed', 'failed'}:
+                if event.data.get('status') in {'completed', 'failed', 'cancelled'}:
                     return
                 if event.data.get('status') == 'awaiting_approval':
                     record = self.repository.executions.get(thread_id, execution_id)

@@ -78,3 +78,7 @@ CREATE TABLE IF NOT EXISTS agent_webhook_inbox (
 CREATE TABLE IF NOT EXISTS agent_worker_heartbeat (
     worker_name TEXT PRIMARY KEY, seen_at DOUBLE PRECISION NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agent_cancellations (
+    execution_id TEXT PRIMARY KEY REFERENCES agent_executions(execution_id),
+    requested_at DOUBLE PRECISION NOT NULL
+);

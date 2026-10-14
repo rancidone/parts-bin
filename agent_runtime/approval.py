@@ -86,6 +86,9 @@ class ApprovalEngine:
                 raise ValueError("Unknown approval request")
             if record.decision is not None and record.decision != approved:
                 raise ValueError("Approval decision has already been recorded")
+            execution = repository.executions.for_approval(thread_id, request_id)
+            if execution and repository.executions.cancellation_requested(execution.execution_id):
+                raise ValueError("This execution was cancelled; start a new request")
             repository.approvals.set_decision(request_id, approved)
             return self._request(record)
 

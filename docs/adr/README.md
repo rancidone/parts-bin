@@ -54,3 +54,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0030: Dispatch durable stages through PostgreSQL and signed OpenAI notifications](0030-durable-dispatch-and-openai-webhooks.md)
 
 - [0031: Reconnect chat progress through read-only event cursors](0031-read-only-chat-progress-reconnect.md)
+
+- [0032: Cancel executions at durable stage boundaries](0032-stage-boundary-cancellation.md)

@@ -69,7 +69,7 @@ class PostgresExecutionRepository(Adapter):
             self.execute("INSERT INTO agent_executions VALUES (%s, %s, %s, 'ready', %s, %s)",
                          (execution_id, thread_id, encode(context), worker_id, now + LEASE_SECONDS))
             return StoredExecution(execution_id, thread_id, context, "ready")
-        if row["status"] in {"completed", "failed"}:
+        if row["status"] in {"completed", "failed", "cancelled"}:
             return self.record(row)
         if row["worker_id"] is not None and row["lease_until"] > now:
             raise ExecutionBusy(max(1, math.ceil(row["lease_until"] - now)))
@@ -108,6 +108,32 @@ class PostgresExecutionRepository(Adapter):
                          (context["approval_id"], execution_id))
 
         self.owner.dispatch.checkpoint(execution_id, context, status)
+
+    @access()
+    def cancellation_requested(self, execution_id: str) -> bool:
+        return self.execute("SELECT 1 FROM agent_cancellations WHERE execution_id = %s",
+                            (execution_id,)).fetchone() is not None
+
+    @access(write=True)
+    def begin_stage(self, execution_id: str, worker_id: str) -> bool:
+        """Serialize stage authorization with cancellation intake; never hold over I/O."""
+        self.assert_owned(execution_id, worker_id)
+        return not self.cancellation_requested(execution_id)
+
+    @access(write=True)
+    def request_cancellation(self, thread_id: str, execution_id: str) -> str:
+        from agent_runtime.models import ConversationEvent
+        record = self.get(thread_id, execution_id)
+        if record is None:
+            raise KeyError(execution_id)
+        if record.status in {"completed", "failed", "cancelled"}:
+            return record.status
+        self.execute("INSERT INTO agent_cancellations VALUES (%s, %s) ON CONFLICT(execution_id) DO NOTHING",
+                     (execution_id, time.time()))
+        self.owner.conversations.append_once(ConversationEvent("cancellation_requested", thread_id, "openai",
+            {"execution_id": execution_id}), f"{execution_id}:cancel-request")
+        self.owner.dispatch.wake(thread_id, execution_id, cancellation=True)
+        return "cancelling"
 
     @access(write=True)
     def release(self, execution_id: str, worker_id: str) -> None:

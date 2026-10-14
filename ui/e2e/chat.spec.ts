@@ -509,3 +509,26 @@ test('reload retries unavailable progress automatically and recovers without wri
   await expect(page.getByRole('status')).toHaveText('Ready')
   expect(f.posts).toHaveLength(0)
 })
+
+test('cancel stops active progress and leaves approval history disabled after reload', async ({ context, page }) => {
+  const f = await fixture(context, [user, proposal, waiting])
+  f.active.add('current')
+  await f.open(page)
+  f.respond(route => {
+    expect(new URL(route.request().url()).pathname).toBe('/agent/threads/current/executions/work/cancel')
+    f.histories.set('current', [user, proposal, waiting,
+      event(4, 'cancellation_requested', { execution_id: 'work' }),
+      event(5, 'completed', { execution_id: 'work', status: 'cancelled', provider_outcome: 'cancelled' })])
+    f.active.delete('current')
+    return route.fulfill({ json: { execution_id: 'work', status: 'cancelling' } })
+  })
+  await page.getByRole('button', { name: 'Cancel request', exact: true }).click()
+  await expect(page.getByText('Request cancelled. Committed inventory was kept.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Resume request', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'Message' })).toBeEnabled()
+  await page.reload()
+  await expect(page.getByText('Request cancelled. Committed inventory was kept.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled()
+  expect(f.posts).toHaveLength(1)
+})

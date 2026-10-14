@@ -56,6 +56,19 @@ class OpenAIResponsesTransport:
             raise ModelBudgetError("model_response_invalid", "The provider returned an unknown response status")
         return self._turn(payload)
 
+    async def cancel(self, response_id: str) -> str:
+        """Idempotent cleanup of a known background response; discard all output."""
+        response = await self.client.post(f"{self.base_url}/responses/{quote(response_id, safe='')}/cancel",
+                                          headers=self._headers())
+        if response.status_code in {404, 410}:
+            return "unavailable"
+        response.raise_for_status()
+        payload = response.json()
+        status = payload.get("status")
+        if payload.get("id") != response_id or status not in {"completed", "cancelled", "failed", "incomplete"}:
+            raise ValueError("Provider cancellation did not confirm a terminal response")
+        return status
+
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.api_key}"}
 

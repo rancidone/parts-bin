@@ -17,7 +17,7 @@ const pause = (milliseconds: number, signal: AbortSignal) => new Promise<void>((
 })
 
 const THREAD_KEY = 'parts-bin.current-thread'
-const kinds = new Set(['user_message', 'assistant_text', 'tool_call', 'tool_result', 'approval_request', 'approval_decision', 'error', 'completed'])
+const kinds = new Set(['user_message', 'assistant_text', 'tool_call', 'tool_result', 'approval_request', 'approval_decision', 'cancellation_requested', 'error', 'completed'])
 
 export async function readEventStream(response: Response, receive: (event: AgentEvent) => void, idleTimeout = 15000) {
   const reader = response.body?.getReader()
@@ -68,11 +68,12 @@ export function approvalDecision(events: AgentEvent[], requestId: string): boole
 }
 
 export function unfinishedExecutions(events: AgentEvent[]) {
-  const executions = new Map<string, { id: string; status: string; photo: boolean; needsPhoto: boolean }>()
+  const executions = new Map<string, { id: string; status: string; photo: boolean; needsPhoto: boolean; cancellationRequested: boolean }>()
   for (const event of events) {
     const id = event.data.execution_id
     if (typeof id !== 'string') continue
-    const execution = executions.get(id) ?? { id, status: 'unfinished', photo: false, needsPhoto: false }
+    const execution = executions.get(id) ?? { id, status: 'unfinished', photo: false, needsPhoto: false, cancellationRequested: false }
+    if (event.kind === 'cancellation_requested') execution.cancellationRequested = true
     if (event.kind === 'user_message') execution.photo = Boolean(event.data.image)
     if (event.kind === 'assistant_text' || event.kind === 'tool_call') execution.needsPhoto = false
     else if (event.kind === 'user_message') execution.needsPhoto = execution.photo
@@ -81,7 +82,7 @@ export function unfinishedExecutions(events: AgentEvent[]) {
     else if (event.kind !== 'error') execution.status = 'unfinished'
     executions.set(id, execution)
   }
-  return [...executions.values()].filter(execution => !['completed', 'failed'].includes(execution.status))
+  return [...executions.values()].filter(execution => !['completed', 'failed', 'cancelled'].includes(execution.status))
 }
 
 export interface AgentSnapshot {
@@ -89,6 +90,7 @@ export interface AgentSnapshot {
   conversations: ConversationSummary[]
   threadId: string | null
   pending: boolean
+  cancelling: boolean
   watching: boolean
   reconnecting: boolean
   error: string | null
@@ -115,7 +117,7 @@ export class AgentSession {
     this.storage = storage
     let threadId = null
     try { threadId = storage?.getItem(THREAD_KEY) || null } catch { /* Browser storage may be disabled. */ }
-    this.state = { events: [], conversations: [], threadId, pending: false, watching: false, reconnecting: false, error: null, restored: !threadId }
+    this.state = { events: [], conversations: [], threadId, pending: false, cancelling: false, watching: false, reconnecting: false, error: null, restored: !threadId }
   }
 
   getSnapshot = () => this.state
@@ -394,6 +396,32 @@ export class AgentSession {
       throw new Error('The message was not acknowledged. Refresh history before sending it again.')
     }
   })
+  cancel = async (executionId: string): Promise<boolean> => {
+    if (this.state.cancelling || !this.state.threadId) return false
+    const threadId = this.state.threadId
+    this.update({ cancelling: true, error: null })
+    let failure: unknown
+    try {
+      this.assertWritable()
+      await this.request(`/agent/threads/${encodeURIComponent(threadId)}/executions/${encodeURIComponent(executionId)}/cancel`,
+        { method: 'POST', signal: AbortSignal.timeout(15000) })
+    } catch (error) { failure = error }
+    try {
+      // A lost acknowledgement is resolved through stored events; never replay intake.
+      const snapshot = await this.loadEvents(threadId, this.cursor(), executionId)
+      if (this.state.threadId !== threadId) return false
+      snapshot.events.forEach(event => this.receive(event))
+      this.active = snapshot.active
+      const confirmed = this.state.events.some(event => event.data.execution_id === executionId
+        && (event.kind === 'cancellation_requested' || event.kind === 'completed' && ['completed', 'failed', 'cancelled'].includes(String(event.data.status))))
+      if (!confirmed) throw failure ?? new Error('Cancellation was not acknowledged. Refresh history or retry Cancel.')
+      this.update({ restored: true })
+      return true
+    } catch (error) {
+      if (this.state.threadId === threadId) this.update({ error: error instanceof Error ? error.message : 'Could not confirm cancellation. Refresh history or retry Cancel.' })
+      return false
+    } finally { this.update({ cancelling: false }); this.startWatching() }
+  }
   decide = (requestId: string, approved: boolean) => this.exclusive(async () => {
     if (!this.state.restored || !this.state.threadId) throw new Error('Refresh history before deciding.')
     this.assertWritable()
@@ -410,6 +438,7 @@ export class AgentSession {
     this.assertWritable()
     const execution = unfinishedExecutions(this.state.events).find(item => item.id === executionId)
     if (!execution) return
+    if (execution.cancellationRequested) throw new Error('Cancellation is irreversible. Retry Cancel to recover cleanup.')
     if (execution.status === 'awaiting_approval') throw new Error('Approve or decline the pending proposal to continue.')
     if (execution.needsPhoto && !photo) throw new Error('Attach a fresh photo before resuming this image request.')
     const form = new FormData()

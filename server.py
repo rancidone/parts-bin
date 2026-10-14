@@ -160,6 +160,17 @@ async def submit_agent_message(request: Request, thread_id: str, message: str = 
     return StreamingResponse(_agent_sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@router.post("/agent/threads/{thread_id}/executions/{execution_id}/cancel")
+async def cancel_agent_execution(request: Request, thread_id: str, execution_id: str) -> dict:
+    try:
+        status = _services(request).dispatch.cancel(thread_id, execution_id)
+        return {"execution_id": execution_id, "status": status}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown conversation or execution") from exc
+    except (UnsupportedRuntimeError, ExecutionUnavailable, RepositoryBusy, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("/agent/threads/{thread_id}/resume")
 async def resume_agent_execution(request: Request, thread_id: str, execution_id: str = Form(...),
                                  photo: UploadFile | None = File(default=None)) -> StreamingResponse:

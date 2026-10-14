@@ -19,8 +19,7 @@ constraints and measured tradeoffs.
   provider's temporary polling window. Keep uncertain submissions distinct from
   safe retrieval retries; do not silently extend provider retention.
 - Validate authenticated progress delivery and cursor recovery through the chosen
-  AWS ingress during the cloud experiment. Add explicit application cancellation
-  with stage-boundary semantics before offering a cancel control.
+  AWS ingress during the cloud experiment.
 
 ## Deferred enrichment measurements
 
