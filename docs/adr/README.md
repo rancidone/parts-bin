@@ -78,3 +78,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0042: Apply candidate text search to Inventory suggestions](0042-text-aware-inventory-suggestions.md)
 
 - [0043: Derive Inventory category options from matching inventory](0043-filtered-inventory-category-options.md)
+
+- [0044: Expose stored inventory through read-only MCP](0044-read-only-inventory-mcp.md)

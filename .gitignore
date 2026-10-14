@@ -3,6 +3,7 @@ clauderfall.db
 
 # parts-bin
 config.toml
+*.mcp.pending
 .env
 compose.override.yaml
 parts.db

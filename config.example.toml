@@ -22,3 +22,10 @@ sslmode = "prefer"
 [digikey]
 client_id = ""
 client_secret = ""
+
+[mcp]
+# Read-only Streamable HTTP at /mcp. Disabled until explicitly configured.
+enabled = false
+public_url = "https://parts.example.com"
+# Use a dedicated random token; never reuse the OpenAI key or commit this value.
+token = ""

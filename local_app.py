@@ -11,6 +11,7 @@ from db.postgres import PostgresPartsBinRepository, PostgresConfig
 from ingestion.datasheet import DatasheetFetcher
 from ingestion.lookup import fetch_specs_detailed
 from server import create_app as create_http_app
+from tools.inventory_mcp import MCPConfig
 
 
 def create_local_services():
@@ -45,10 +46,13 @@ def create_local_services():
                                datasheet_fetcher=DatasheetFetcher(api_key=openai.get('api_key', ''),
                                    model=openai.get('model', 'gpt-5.6'), cache=repository.cache),
                                agent_configured=bool(openai.get("api_key")))
-    return services, openai
+    return services, config
 
 
 def create_app():
-    services, openai = create_local_services()
+    services, config = create_local_services()
+    openai = config.get('agent', {}).get('openai', {})
+    mcp = config.get('mcp', {})
+    mcp_config = MCPConfig(token=mcp['token'], public_url=mcp['public_url']) if mcp.get('enabled', False) else None
     return create_http_app(services, ui_dist_path=Path(__file__).parent / "ui" / "dist",
-                           webhook_secret=openai.get('webhook_secret'))
+                           webhook_secret=openai.get('webhook_secret'), mcp_config=mcp_config)
