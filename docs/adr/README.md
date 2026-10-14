@@ -74,3 +74,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0040: Suggest stored nominal values without changing unit matching](0040-inventory-nominal-value-suggestions.md)
 
 - [0041: Cross-filter Inventory suggestions through shared domain search](0041-cross-filtered-inventory-suggestions.md)
+
+- [0042: Apply candidate text search to Inventory suggestions](0042-text-aware-inventory-suggestions.md)
