@@ -252,14 +252,15 @@ async def health(request: Request) -> dict:
 
 @router.get('/inventory/search')
 async def search_inventory(request: Request, query: str = Query(default='', max_length=200),
-                           category: str | None = None, minimum_quantity: int = Query(default=0, ge=0),
+                           category: str | None = None, value: str | None = Query(default=None, max_length=200),
+                           package: str | None = Query(default=None, max_length=200), minimum_quantity: int = Query(default=0, ge=0),
                            limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0)) -> dict:
     service = _services(request).domain
-    filters = {'part_category': category} if category else {}
+    filters = {key: item for key, item in {'part_category': category, 'value': value, 'package': package}.items() if item is not None}
     try:
         if query.strip():
             return service.candidate_page(SearchCandidatesRequest(query, filters, minimum_quantity), limit=limit, offset=offset)
-        page = service.search_page(SearchPartsRequest(filters, minimum_quantity), limit=limit, offset=offset)
+        page = service.exact_search_page(SearchPartsRequest(filters, minimum_quantity), limit=limit, offset=offset)
         return {'candidates': page['parts'], 'count': page['count'], 'next_offset': page['next_offset'],
                 'truncated': page['truncated'], 'match_kind': 'inventory'}
     except DomainError as exc:

@@ -151,6 +151,14 @@ class PartsBinService:
                 alternatives.append((mismatch.relative_difference, part, mismatch.as_record()))
         return sorted(alternatives, key=lambda item: (item[0], item[1].id))
 
+    def exact_search_page(self, request: SearchPartsRequest, *, limit: int = 20, offset: int = 0) -> dict:
+        """Page matches to supplied filters without offering nominal alternatives."""
+        validate_page(limit, offset)
+        rows = sorted(self.search(request), key=lambda part: part.id)
+        following = next_offset(len(rows), limit, offset)
+        return {"parts": rows[offset:offset + limit], "count": len(rows),
+                "truncated": following is not None, "next_offset": following}
+
     def search_page(self, request: SearchPartsRequest, *, limit: int = 20, offset: int = 0) -> dict:
         validate_page(limit, offset)
         rows = sorted(self.search(request), key=lambda part: part.id)
