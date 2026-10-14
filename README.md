@@ -99,6 +99,17 @@ results** controls. Sorting and CSV export cover the visible page. Pending revie
 text is excluded; candidates do not establish interchangeable parts or electrical
 suitability. After inventory changes, refresh or restart pagination.
 
+Bookmark or copy the Inventory URL to save its query, category, minimum stock,
+and page. Reload and browser Back/Forward restore those controls and read current
+inventory. For example, `/#/inventory?query=SOT23&category=mosfet&minimum_quantity=1&page=2`
+opens the second page of that search. Pages start at 1, with 50 records per filtered
+page; defaults are omitted from links. Changing a filter returns to the first page.
+Typing in one field creates one history step; category changes, paging and clearing
+filters create separate steps. If a saved page no longer has results, choose
+**First results**. Invalid page values fall back to the first page; invalid stock
+or oversized query values show validation errors. Direct part links remain separate.
+These URLs save search criteria, not a snapshot of stock or electrical filters.
+
 The UI uses hash routes: `/#/` for chat, `/#/inventory` for inventory, and
 `/#/inventory/42` for part 42. These links support browser Back, Forward,
 bookmarks, and reloads without colliding with the inventory API routes.

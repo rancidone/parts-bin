@@ -1,4 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { INVENTORY_PAGE_SIZE } from './inventorySearchUrl'
+import { useInventorySearchUrl } from './useInventorySearchUrl'
 import { useInventorySearch } from './useInventorySearch'
 import { PartEditor } from './PartEditor'
 import { BulkEditor } from './BulkEditor'
@@ -19,10 +21,9 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
   const [parts, setParts] = useState<Part[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState('')
-  const [category, setCategory] = useState('')
-  const [minimumStock, setMinimumStock] = useState('0')
-  const [searchOffset, setSearchOffset] = useState(0)
+  const searchUrl = useInventorySearchUrl()
+  const { query: filter, category, minimumStock, page: searchPage } = searchUrl
+  const searchOffset = (searchPage - 1) * INVENTORY_PAGE_SIZE
   const [searchElectrical, setSearchElectrical] = useState(false)
   const electricalMode = searchElectrical && selectedPartId === null
   const [sortKey, setSortKey] = useState<SortKey>('part_category')
@@ -310,10 +311,10 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
     }
   }
 
-  const searching = selectedPartId === null && !electricalMode && Boolean(filter.trim() || category || minimumStock !== '0')
+  const searching = selectedPartId === null && !electricalMode && Boolean(filter.trim() || category || minimumStock !== '0' || searchPage > 1)
   const search = useInventorySearch(active && searching, filter, category, minimumStock, searchOffset, parts, quantities)
   const categories = [...new Set([...parts.map(part => part.part_category), ...(category ? [category] : [])])].sort()
-  function resetSearch() { setFilter(''); setCategory(''); setMinimumStock('0'); setSearchOffset(0) }
+  function resetSearch() { searchUrl.update({ query: '', category: '', minimumStock: '0', page: 1 }) }
 
   const displayed = useMemo(() => {
     const source = searching ? (search.page?.candidates ?? []) : parts
@@ -395,13 +396,14 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
   return (
     <div className={styles.container}>
       <div className={styles.toolbar}>
-        <button className={styles.refreshBtn} aria-pressed={electricalMode} onClick={() => { onClearSelection(); setSearchElectrical(!electricalMode) }}>{electricalMode ? 'Browse inventory' : 'Filter electrical specs'}</button>
+        <button className={styles.refreshBtn} aria-pressed={electricalMode} onClick={() => { if (selectedPartId !== null) onClearSelection(); setSearchElectrical(!electricalMode) }}>{electricalMode ? 'Browse inventory' : 'Filter electrical specs'}</button>
         <input
           className={styles.search}
           disabled={electricalMode}
           aria-label="Filter inventory"
           value={filter}
-          onChange={e => { onClearSelection(); setFilter(e.target.value); setSearchOffset(0) }}
+          onChange={e => searchUrl.update({ query: e.target.value, page: 1 }, 'query')}
+          onBlur={searchUrl.finishTyping}
           maxLength={200}
           placeholder="Filter…"
         />
@@ -420,22 +422,26 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
       {electricalMode ? <SpecificationSearch key={loading ? 'loading' : 'ready'} /> : <>
 
       {selectedPartId === null && <div className={styles.searchFilters}>
-        <label>Category<select aria-label="Search category" value={category} onChange={event => { setCategory(event.target.value); setSearchOffset(0) }}><option value="">All categories</option>{categories.map(name => <option key={name} value={name}>{name.replaceAll('_', ' ')}</option>)}</select></label>
-        <label>Minimum stock<input aria-label="Minimum stock" type="number" min="0" step="1" value={minimumStock} onChange={event => { setMinimumStock(event.target.value); setSearchOffset(0) }} /></label>
+        <label>Category<select aria-label="Search category" value={category} onChange={event => searchUrl.update({ category: event.target.value, page: 1 })}><option value="">All categories</option>{categories.map(name => <option key={name} value={name}>{name.replaceAll('_', ' ')}</option>)}</select></label>
+        <label>Minimum stock<input aria-label="Minimum stock" type="number" min="0" step="1" value={minimumStock} onChange={event => searchUrl.update({ minimumStock: event.target.value, page: 1 }, 'stock')} onBlur={searchUrl.finishTyping} /></label>
         <button className={styles.refreshBtn} onClick={resetSearch}>Clear filters</button>
         <span>Combine part, manufacturer and package terms. Stock applies to each record.</span>
       </div>}
       {searching && <div className={styles.selection} role="status">
-        {search.pending ? 'Searching inventory…' : search.error ? 'Search unavailable.' : `${search.page?.count ?? 0} ${filter.trim() ? 'candidate' : 'inventory'} record${search.page?.count === 1 ? '' : 's'} · showing ${displayed.length ? searchOffset + 1 : 0}–${searchOffset + displayed.length}`}
+        {search.pending ? 'Searching inventory…' : search.error ? 'Search unavailable.' : `${search.page?.count ?? 0} ${filter.trim() ? 'candidate' : 'inventory'} record${search.page?.count === 1 ? '' : 's'} · showing ${displayed.length ? searchOffset + 1 : 0}–${displayed.length ? searchOffset + displayed.length : 0}`}
         {!search.pending && !search.error && filter.trim() && <span>Candidates do not establish interchangeable parts or electrical suitability.</span>}
-        <button className={styles.refreshBtn} disabled={search.pending || searchOffset === 0} onClick={() => setSearchOffset(Math.max(0, searchOffset - 50))}>Previous results</button>
-        <button className={styles.refreshBtn} disabled={search.pending || search.error !== null || search.page?.next_offset == null} onClick={() => setSearchOffset(search.page!.next_offset!)}>Next results</button>
+        <button className={styles.refreshBtn} disabled={search.pending || searchOffset === 0} onClick={() => searchUrl.update({ page: Math.max(1, searchPage - 1) })}>Previous results</button>
+        <button className={styles.refreshBtn} disabled={search.pending || search.error !== null || search.page?.next_offset == null} onClick={() => searchUrl.update({ page: search.page!.next_offset! / INVENTORY_PAGE_SIZE + 1 })}>Next results</button>
+      </div>}
+      {searching && !search.pending && !search.error && search.page && searchOffset > 0 && searchOffset >= search.page.count && <div className={styles.selection}>
+        <span>Page {searchPage} is no longer available for these results.</span>
+        <button className={styles.refreshBtn} onClick={() => searchUrl.update({ page: 1 })}>First results</button>
       </div>}
       {searching && search.error && <div className={styles.error} role="alert">{search.error} <button onClick={load}>Retry search</button></div>}
 
       {selectedPartId !== null && <div className={styles.selection}>
         <span>Viewing part #{selectedPartId}</span>
-        <button className={styles.refreshBtn} onClick={() => { resetSearch(); onClearSelection() }}>Show all parts</button>
+        <button className={styles.refreshBtn} onClick={resetSearch}>Show all parts</button>
       </div>}
 
       {error && <div className={styles.error}>{error}</div>}

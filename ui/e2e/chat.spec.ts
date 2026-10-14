@@ -152,7 +152,7 @@ for (const restored of [false, true]) {
     const history = [user, result, reply, completed]
     const f = await fixture(context, restored ? history : [])
     const writes: string[] = []
-    await context.route('**/inventory**', route => {
+    await context.route(/\/inventory(?:\/|\?|$)/, route => {
       if (route.request().method() !== 'GET') writes.push(route.request().method())
       return route.fulfill({ json: new URL(route.request().url()).pathname === '/inventory/pending' ? { reviews: {} } : [part, other] })
     })
@@ -187,7 +187,7 @@ test('ambiguous part numbers are not linked and deleted records show a clear mes
   const result = event(2, 'tool_result', { name: 'search_parts', result: { ok: true, result: { parts: [first, second, unique] } } })
   const reply = event(3, 'assistant_text', { text: '| Part |\n|---|\n| LM358 |\n| UA741CN |' })
   const f = await fixture(context, [user, result, reply, done])
-  await context.route('**/inventory**', route => route.fulfill({ json: new URL(route.request().url()).pathname === '/inventory/pending' ? { reviews: {} } : [] }))
+  await context.route(/\/inventory(?:\/|\?|$)/, route => route.fulfill({ json: new URL(route.request().url()).pathname === '/inventory/pending' ? { reviews: {} } : [] }))
   await f.open(page)
   await expect(page.getByRole('button', { name: 'View LM358 in inventory' })).toHaveCount(0)
   await page.getByRole('button', { name: 'View part #2 in inventory', exact: true }).click()
@@ -423,7 +423,7 @@ test('inventory routes restore parts and chat drafts with Back, Forward, and rel
   const other = { ...part, id: 43, package: 'DIP' }
   const result = event(2, 'tool_result', { name: 'search_parts', result: { ok: true, result: { parts: [part] } } })
   const f = await fixture(context, [user, result, done])
-  await context.route('**/inventory**', route => route.fulfill({
+  await context.route(/\/inventory(?:\/|\?|$)/, route => route.fulfill({
     json: new URL(route.request().url()).pathname === '/inventory/pending' ? { reviews: {} } : [part, other],
   }))
   await f.open(page)
@@ -458,7 +458,7 @@ test('inventory routes restore parts and chat drafts with Back, Forward, and rel
 
 test('direct inventory links survive reload and malformed part routes are rejected', async ({ context, page }) => {
   await fixture(context, [])
-  await context.route('**/inventory**', route => route.fulfill({
+  await context.route(/\/inventory(?:\/|\?|$)/, route => route.fulfill({
     json: new URL(route.request().url()).pathname === '/inventory/pending' ? { reviews: {} } : [],
   }))
   await page.goto('/#/inventory/99')

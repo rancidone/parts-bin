@@ -8,6 +8,12 @@ Prioritize finding parts and reliable operation on the existing Docker/PostgreSQ
 installation. Keep execution compatible with short-lived, replaceable workers;
 cloud deployment and provider-specific infrastructure are outside the roadmap.
 
+## Inventory search
+
+- Expose structured nominal-value and package filters in direct Inventory search,
+  sharing the domain's unit-aware value matching and exact package rules. Keep
+  these filters in the search URL so equivalent values can be found without chat.
+
 ## Execution measurements
 
 - Evaluate background Responses submission and collection with the intended

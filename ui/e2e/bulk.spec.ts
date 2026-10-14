@@ -8,7 +8,7 @@ const parts = [
 test('bulk selection includes hidden rows and applies only checked fields after approval', async ({ context, page }) => {
   const writes: Record<string, unknown>[] = []
   let current = parts.map(part => ({ ...part }))
-  await context.route('**/inventory**', route => {
+  await context.route(/\/inventory(?:\/|\?|$)/, route => {
     const path = new URL(route.request().url()).pathname
     if (path === '/inventory/search') {
       const query = new URL(route.request().url()).searchParams.get('query') ?? ''
@@ -54,7 +54,7 @@ test('bulk selection includes hidden rows and applies only checked fields after 
 test('bulk cancel never writes and stale approval returns to editing for a fresh review', async ({ context, page }) => {
   const decisions: unknown[] = []
   let previews = 0
-  await context.route('**/inventory**', route => {
+  await context.route(/\/inventory(?:\/|\?|$)/, route => {
     const path = new URL(route.request().url()).pathname
     if (path === '/inventory/bulk/preview') {
       previews += 1
@@ -92,7 +92,7 @@ test('bulk cancel never writes and stale approval returns to editing for a fresh
 
 test('partial bulk save reports failures and retains failed selection', async ({ context, page }) => {
   let current = parts.map(part => ({ ...part }))
-  await context.route('**/inventory**', route => {
+  await context.route(/\/inventory(?:\/|\?|$)/, route => {
     const path = new URL(route.request().url()).pathname
     if (path === '/inventory/bulk/preview') return route.fulfill({ json: {
       request_id: 'partial', changes: current.map(before => ({ before, after: { ...before, package: '0603' } })), cleared_reviews: [],
