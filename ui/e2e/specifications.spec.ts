@@ -6,7 +6,7 @@ const review = { snapshot: { metadata: part, facts: [] }, facts: [fact] }
 
 test('dark-mode extraction assessment keeps diagnostics collapsed and PDF links readable', async ({ context, page }) => {
   await page.emulateMedia({ colorScheme: 'dark' })
-  await context.route(/\/inventory(?:\/|\?|$)/, route => {
+  await context.route(/\/inventory(?:\/(?!search\/suggestions)|\?|$)/, route => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/refresh')) return route.fulfill({ json: {
       part, proposed_updates: {}, provenance: [], outcome: 'source_refresh', electrical: {
@@ -44,7 +44,7 @@ test('dark-mode extraction assessment keeps diagnostics collapsed and PDF links 
 test('inventory refresh shows electrical facts and evidence, restores review after reload, and explicitly approves', async ({ context, page }) => {
   let state = { part_id: 42, facts: [] as typeof fact[], pending_review: null as typeof review | null }
   const decisions: unknown[] = []
-  await context.route(/\/inventory(?:\/|\?|$)/, route => {
+  await context.route(/\/inventory(?:\/(?!search\/suggestions)|\?|$)/, route => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/refresh')) {
       state = { ...state, pending_review: review }
@@ -80,7 +80,7 @@ test('inventory refresh shows electrical facts and evidence, restores review aft
 
 test('every category has an editable datasheet link without changing quantity', async ({ context, page }) => {
   let stock = { ...part, part_category: 'connector', part_number: null, datasheet_url: null as string | null }
-  await context.route(/\/inventory(?:\/|\?|$)/, route => {
+  await context.route(/\/inventory(?:\/(?!search\/suggestions)|\?|$)/, route => {
     const path = new URL(route.request().url()).pathname
     if (route.request().method() === 'PATCH') {
       const body = route.request().postDataJSON()
@@ -103,7 +103,7 @@ test('every category has an editable datasheet link without changing quantity', 
 
 test('electrical filters send qualified requirements and page confirmed and incomplete groups', async ({ context, page }) => {
   const searches: Record<string, unknown>[] = []
-  await context.route(/\/inventory(?:\/|\?|$)/, route => {
+  await context.route(/\/inventory(?:\/(?!search\/suggestions)|\?|$)/, route => {
     const path = new URL(route.request().url()).pathname
     if (path === '/inventory/specification-contracts') return route.fulfill({ json: { categories: [{
       category: 'operational amplifier', fields: { minimum_supply_voltage: { unit: 'V', basis: 'operating_minimum', choices: [] } },
@@ -146,7 +146,7 @@ test('partial matches explain electrical and nominal differences and keep pagina
   const searches: Record<string, unknown>[] = []
   const resistor = { ...part, part_category: 'resistor', profile: 'passive', value: '9.1k', package: '0603' }
   const power = { ...fact, name: 'rated_power', value: '250 mW', basis: 'rated', conditions: { ambient_temperature: '25 °C' } }
-  await context.route(/\/inventory(?:\/|\?|$)/, route => {
+  await context.route(/\/inventory(?:\/(?!search\/suggestions)|\?|$)/, route => {
     const path = new URL(route.request().url()).pathname
     if (path === '/inventory/specification-contracts') return route.fulfill({ json: { categories: [{
       category: 'resistor', fields: { rated_power: { unit: 'W', basis: 'rated', choices: [] } },
@@ -183,4 +183,8 @@ test('partial matches explain electrical and nominal differences and keep pagina
   await page.getByRole('button', { name: 'Next results', exact: true }).click()
   await expect(page.getByRole('article', { name: 'Part 44: partial match', exact: true })).toBeVisible()
   expect(searches[1].offset).toBe(20)
+})
+
+test.beforeEach(async ({ context }) => {
+  await context.route('**/inventory/search/suggestions?**', route => route.fulfill({ json: { values: [], packages: [] } }))
 })
