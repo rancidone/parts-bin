@@ -704,9 +704,9 @@ def test_inventory_suggestions_cross_filter_with_shared_units_and_per_record_sto
         ({'package': 'sot23'}, {'values': [], 'packages': ['0402', '0603', '0805', 'SOT-23', 'SOT23']}),
     ]:
         response = http.get('/inventory/search/suggestions', params=params)
-        assert response.status_code == 200 and response.json() == expected
+        assert response.status_code == 200 and {key: response.json()[key] for key in expected} == expected
         filters = {('part_category' if key == 'category' else key): value for key, value in params.items() if key != 'minimum_quantity'}
-        assert service.search_suggestions(SearchPartsRequest(filters, params.get('minimum_quantity', 0))) == expected
+        assert {key: service.search_suggestions(SearchPartsRequest(filters, params.get('minimum_quantity', 0)))[key] for key in expected} == expected
     assert service.list() == before and service.list_pending_reviews() == reviews
 
 
@@ -739,7 +739,37 @@ def test_inventory_suggestions_apply_shared_multi_term_candidate_rules(client):
     ]:
         params = {'category': 'resistor', 'value': '10000 Ω', 'minimum_quantity': 1, 'query': query}
         response = http.get('/inventory/search/suggestions', params=params)
-        assert response.status_code == 200 and response.json() == expected
-        assert service.search_suggestions(SearchPartsRequest(filters, 1), query=query) == expected
+        assert response.status_code == 200 and {key: response.json()[key] for key in expected} == expected
+        assert {key: service.search_suggestions(SearchPartsRequest(filters, 1), query=query)[key] for key in expected} == expected
     assert http.get('/inventory/search/suggestions', params={'query': 'x' * 201}).status_code == 422
+    assert service.list() == before and service.list_pending_reviews() == reviews
+
+
+def test_category_suggestions_ignore_selected_category_and_apply_shared_filters(client):
+    from domain import AddPartRequest, PartFields, SearchPartsRequest
+    http, _ = client
+    service = http.app.state.services.domain
+    rows = [('resistor', '10k', '0402', 7), ('resistor', '10k', '0603', 3),
+            ('capacitor', '100n', '0402', 6), ('inductor', '10u', '0603', 0)]
+    parts = [service.add_part(AddPartRequest(PartFields(cat, 'passive', stock, value, package,
+                 description='Drawer A'))) for cat, value, package, stock in rows]
+    service.repository.inventory.save_pending_review(parts[0].id, {'part_category': 'PendingCategory'}, [])
+    before, reviews = service.list(), service.list_pending_reviews()
+    for params, expected in [
+        ({}, ['capacitor', 'inductor', 'resistor']),
+        ({'category': 'missing'}, ['capacitor', 'inductor', 'resistor']),
+        ({'package': '0402', 'minimum_quantity': 1}, ['capacitor', 'resistor']),
+        ({'package': '0402', 'minimum_quantity': 7}, ['resistor']),
+        ({'value': '10000 Ω', 'package': '0603', 'minimum_quantity': 4}, []),
+        ({'category': 'capacitor', 'value': '10000 Ω'}, ['resistor']),
+        ({'value': '0.1 µF'}, ['capacitor']),
+        ({'query': 'Drawer resistor', 'minimum_quantity': 1}, ['resistor']),
+        ({'query': 'PendingCategory'}, []), ({'package': '040'}, []),
+    ]:
+        response = http.get('/inventory/search/suggestions', params=params)
+        assert response.status_code == 200 and response.json()['categories'] == expected
+        filters = {('part_category' if key == 'category' else key): value for key, value in params.items()
+                   if key not in {'minimum_quantity', 'query'}}
+        assert service.search_suggestions(SearchPartsRequest(filters, params.get('minimum_quantity', 0)),
+                                          query=params.get('query', ''))['categories'] == expected
     assert service.list() == before and service.list_pending_reviews() == reviews

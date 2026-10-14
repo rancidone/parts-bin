@@ -186,5 +186,5 @@ test('partial matches explain electrical and nominal differences and keep pagina
 })
 
 test.beforeEach(async ({ context }) => {
-  await context.route('**/inventory/search/suggestions?**', route => route.fulfill({ json: { values: [], packages: [] } }))
+  await context.route('**/inventory/search/suggestions?**', route => route.fulfill({ json: { values: [], packages: [], categories: [] } }))
 })

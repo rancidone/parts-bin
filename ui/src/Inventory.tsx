@@ -314,9 +314,9 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
 
   const searching = selectedPartId === null && !electricalMode && Boolean(filter.trim() || category || minimumStock !== '0' || nominalValue.trim() || packageFilter.trim() || searchPage > 1)
   const search = useInventorySearch(active && searching, filter, category, minimumStock, nominalValue, packageFilter, searchOffset, parts, quantities)
-  const categories = [...new Set([...parts.map(part => part.part_category), ...(category ? [category] : [])])].sort()
   const suggestions = useInventorySuggestions(active && selectedPartId === null && !electricalMode,
     filter, category, minimumStock, nominalValue, packageFilter, parts, quantities)
+  const categories = [...new Set([...suggestions.categories, ...(category ? [category] : [])])].sort()
   function resetSearch() { searchUrl.update({ query: '', category: '', minimumStock: '0', nominalValue: '', package: '', page: 1 }) }
 
   const displayed = useMemo(() => {
@@ -425,7 +425,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
       {electricalMode ? <SpecificationSearch key={loading ? 'loading' : 'ready'} /> : <>
 
       {selectedPartId === null && <div className={styles.searchFilters}>
-        <label>Category<select aria-label="Search category" value={category} onChange={event => searchUrl.update({ category: event.target.value, page: 1 })}><option value="">All categories</option>{categories.map(name => <option key={name} value={name}>{name.replaceAll('_', ' ')}</option>)}</select></label>
+        <label>Category<select aria-label="Search category" value={category} onChange={event => searchUrl.update({ category: event.target.value, page: 1 })}><option value="">All categories</option>{categories.map(name => <option key={name} value={name}>{name.replaceAll('_', ' ')}{name === category && !suggestions.pending && !suggestions.error && !suggestions.categories.includes(name) ? ' (no matching records)' : ''}</option>)}</select></label>
         <label>Minimum stock<input aria-label="Minimum stock" type="number" min="0" step="1" value={minimumStock} onChange={event => searchUrl.update({ minimumStock: event.target.value, page: 1 }, 'stock')} onBlur={searchUrl.finishTyping} /></label>
         <label>Nominal value<input aria-label="Nominal value" list="inventory-nominal-values" value={nominalValue} maxLength={200} placeholder="e.g. 10 kΩ, 100 nF" onChange={event => searchUrl.update({ nominalValue: event.target.value, page: 1 }, 'value')} onBlur={searchUrl.finishTyping} /></label>
         <label>Exact package<input aria-label="Exact package" list="inventory-packages" value={packageFilter} maxLength={200} placeholder="e.g. 0402, SOT23" onChange={event => searchUrl.update({ package: event.target.value, page: 1 }, 'package')} onBlur={searchUrl.finishTyping} /></label>
@@ -434,7 +434,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         {suggestions.pending && <span>Loading suggestions…</span>}
         {suggestions.error && !search.error && <span role="alert">Suggestions unavailable: {suggestions.error} <button onClick={suggestions.retry}>Retry suggestions</button></span>}
         <button className={styles.refreshBtn} onClick={resetSearch}>Clear filters</button>
-        <span>Combine part and manufacturer terms. Nominal values use each part’s category; choose a category to disambiguate bare values. Values respect the package filter; packages respect the nominal value. Both respect text, category and minimum stock. Packages match stored spelling exactly. Stock applies to each record.</span>
+        <span>Combine part and manufacturer terms. Nominal values use each part’s category; choose a category to disambiguate bare values. Values respect the package filter; packages respect the nominal value. Categories respect text, nominal value, package and minimum stock. Value and package suggestions respect text, category and minimum stock. Packages match stored spelling exactly. Stock applies to each record.</span>
       </div>}
       {searching && <div className={styles.selection} role="status">
         {search.pending ? 'Searching inventory…' : search.error ? 'Search unavailable.' : `${search.page?.count ?? 0} ${filter.trim() ? 'candidate' : 'inventory'} record${search.page?.count === 1 ? '' : 's'} · showing ${displayed.length ? searchOffset + 1 : 0}–${displayed.length ? searchOffset + displayed.length : 0}`}

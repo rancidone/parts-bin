@@ -28,11 +28,14 @@ async function fixture(context: BrowserContext, extraParts: Part[] = [], reviews
       const value = url.searchParams.get('value')
       const packageFilter = url.searchParams.get('package')
       const terms = (url.searchParams.get('query') ?? '').toLowerCase().split(/\s+/).filter(Boolean)
-      const eligible = parts.filter(part => (!category || part.part_category === category) && part.quantity >= minimum
+      const textAndStock = parts.filter(part => part.quantity >= minimum
         && terms.every(term => [part.description, part.manufacturer, part.part_number, part.part_category, part.value, part.package].some(field => field?.toLowerCase().includes(term))))
+      const eligible = textAndStock.filter(part => !category || part.part_category === category)
+      const categories = [...new Set(textAndStock.filter(part => (!packageFilter || part.package === packageFilter)
+        && (!value || part.value === value || part.part_category === 'resistor' && part.value === '10k' && value === '10000 Ω')).map(part => part.part_category))].sort()
       const values = [...new Set(eligible.filter(part => !packageFilter || part.package === packageFilter).map(part => part.value).filter(value => value?.trim()))].sort()
       const packages = [...new Set(eligible.filter(part => !value || part.value === value || part.part_category === 'resistor' && part.value === '10k' && value === '10000 Ω').map(part => part.package).filter(value => value?.trim()))].sort()
-      return route.fulfill({ json: { values, packages } })
+      return route.fulfill({ json: { values, packages, categories } })
     }
     if (url.pathname !== '/inventory/search') return route.fulfill({ json: parts })
     if (fail) return route.fulfill({ status: 503, json: { detail: 'Search temporarily unavailable' } })
@@ -63,7 +66,12 @@ test('direct candidate terms, category and per-record stock use read-only API', 
   await expect(page.getByRole('status')).toContainText('1 candidate record')
   await expect(page.getByRole('cell', { name: 'PBSS5350T,100', exact: true })).toBeVisible()
   await expect(page.getByRole('cell', { name: 'PBSS5350T,101', exact: true })).toHaveCount(0)
-  await page.getByLabel('Search category').selectOption('resistor')
+  await page.evaluate(() => {
+    const params = new URLSearchParams(location.hash.split('?')[1])
+    params.set('category', 'resistor')
+    params.delete('page')
+    location.hash = `/inventory?${params}`
+  })
   await expect(page.getByText('No parts found.', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters' }).click()
   await page.getByLabel('Search category').selectOption('resistor')
@@ -187,7 +195,12 @@ test('Back and Forward restore query, category, stock and page after edits and c
   await page.goForward()
   await expect(page.getByLabel('Minimum stock', { exact: true })).toHaveValue('1')
   await expect(page.getByRole('status')).toContainText('showing 1–1')
-  await page.getByLabel('Search category').selectOption('resistor')
+  await page.evaluate(() => {
+    const params = new URLSearchParams(location.hash.split('?')[1])
+    params.set('category', 'resistor')
+    params.delete('page')
+    location.hash = `/inventory?${params}`
+  })
   await expect(page.getByText('No parts found.', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters' }).click()
   await expect(page).toHaveURL(/#\/inventory$/)
@@ -339,7 +352,12 @@ test('suggested packages keep exact filtering, bookmarks and history without cha
   await page.reload()
   await expect(input).toHaveValue('SOT-23')
   await expect(page.getByRole('status')).toContainText('1 inventory record')
-  await page.getByLabel('Search category').selectOption('resistor')
+  await page.evaluate(() => {
+    const params = new URLSearchParams(location.hash.split('?')[1])
+    params.set('category', 'resistor')
+    params.delete('page')
+    location.hash = `/inventory?${params}`
+  })
   await expect(input).toHaveValue('SOT-23')
   await expect(options).toHaveCount(1)
   await expect(page.getByText('No parts found.', { exact: true })).toBeVisible()
@@ -374,7 +392,12 @@ test('nominal suggestions preserve distinct committed notation and category filt
   await expect(page.getByRole('button', { name: 'First results', exact: true })).toBeVisible()
   await page.getByLabel('Search category').selectOption('capacitor')
   await expect.poll(() => options.evaluateAll(nodes => nodes.map(node => node.getAttribute('value')))).toEqual(['100n'])
-  await page.getByLabel('Search category').selectOption('mosfet')
+  await page.evaluate(() => {
+    const params = new URLSearchParams(location.hash.split('?')[1])
+    params.set('category', 'mosfet')
+    params.delete('page')
+    location.hash = `/inventory?${params}`
+  })
   await expect(options).toHaveCount(0)
   await page.getByLabel('Search category').selectOption('')
   await expect.poll(() => options.evaluateAll(nodes => nodes.map(node => node.getAttribute('value')))).toEqual(['10 MΩ', '10 mΩ', '10000 Ω', '100n', '10k'])
@@ -400,7 +423,12 @@ test('suggested nominal value and typed equivalents retain bookmarks, unit match
   await expect(input).toHaveValue('10000 Ω')
   await expect(page.getByLabel('Exact package', { exact: true })).toHaveValue('0402')
   await expect(page.getByRole('status')).toContainText('1 inventory record')
-  await page.getByLabel('Search category').selectOption('mosfet')
+  await page.evaluate(() => {
+    const params = new URLSearchParams(location.hash.split('?')[1])
+    params.set('category', 'mosfet')
+    params.delete('page')
+    location.hash = `/inventory?${params}`
+  })
   await expect(input).toHaveValue('10000 Ω')
   await expect(options).toHaveCount(0)
   await expect(page.getByText('No parts found.', { exact: true })).toBeVisible()
@@ -478,13 +506,18 @@ test('late suggestion responses cannot restore options from a previous category 
     if (new URL(route.request().url()).searchParams.get('category') === 'resistor') {
       held = true
       await new Promise<void>(resolve => { release = resolve })
-      return route.fulfill({ json: { values: ['stale'], packages: ['stale'] } }).catch(() => {})
+      return route.fulfill({ json: { values: ['stale'], packages: ['stale'], categories: ['stale'] } }).catch(() => {})
     }
     await route.fallback()
   })
   await page.goto('/#/inventory?category=resistor')
   await expect.poll(() => held).toBe(true)
-  await page.getByLabel('Search category').selectOption('mosfet')
+  await page.evaluate(() => {
+    const params = new URLSearchParams(location.hash.split('?')[1])
+    params.set('category', 'mosfet')
+    params.delete('page')
+    location.hash = `/inventory?${params}`
+  })
   const packages = page.locator('#inventory-packages option')
   await expect(packages).toHaveAttribute('value', 'SOT23')
   release?.()
@@ -538,7 +571,7 @@ test('late text suggestion response cannot overwrite a newer query', async ({ co
     if (new URL(route.request().url()).searchParams.get('query') === 'old') {
       held = true
       await new Promise<void>(resolve => { release = resolve })
-      return route.fulfill({ json: { values: ['stale'], packages: ['stale'] } }).catch(() => {})
+      return route.fulfill({ json: { values: ['stale'], packages: ['stale'], categories: ['stale'] } }).catch(() => {})
     }
     await route.fallback()
   })
@@ -548,4 +581,38 @@ test('late text suggestion response cannot overwrite a newer query', async ({ co
   await expect(page.locator('#inventory-packages option')).toHaveAttribute('value', '0402')
   release?.()
   await expect(page.locator('#inventory-packages option')).toHaveAttribute('value', '0402')
+})
+
+
+test('category options reflect other filters and preserve a nonmatching bookmarked selection', async ({ context, page }) => {
+  const f = await fixture(context, [
+    { ...resistor, id: 100, part_category: 'capacitor', value: '100n', quantity: 6 },
+    { ...resistor, id: 101, package: '0603', quantity: 3 },
+  ])
+  await page.goto('/#/inventory?category=mosfet&query=Drawer&value=10000+%CE%A9&package=0402&minimum_quantity=1')
+  const category = page.getByLabel('Search category')
+  const options = category.locator('option')
+  await expect(category).toHaveValue('mosfet')
+  await expect(category.getByRole('option', { name: 'mosfet (no matching records)', exact: true })).toBeAttached()
+  await expect.poll(() => options.evaluateAll(nodes => nodes.map(node => (node as HTMLOptionElement).value))).toEqual(['', 'mosfet', 'resistor'])
+  await category.selectOption('resistor')
+  await expect(page.getByRole('status')).toContainText('1 candidate record')
+  await page.getByLabel('Nominal value', { exact: true }).fill('')
+  await expect(category.getByRole('option', { name: 'capacitor', exact: true })).toBeAttached()
+  await page.getByLabel('Minimum stock', { exact: true }).fill('8')
+  await page.getByLabel('Minimum stock', { exact: true }).blur()
+  await expect(category.getByRole('option', { name: 'resistor (no matching records)', exact: true })).toBeAttached()
+  await expect(options).toHaveCount(2)
+  await page.reload()
+  await expect(category).toHaveValue('resistor')
+  await expect(category.getByRole('option', { name: 'resistor (no matching records)', exact: true })).toBeAttached()
+  await page.goBack()
+  await expect(page.getByLabel('Minimum stock', { exact: true })).toHaveValue('1')
+  await expect(category.getByRole('option', { name: 'capacitor', exact: true })).toBeAttached()
+  await page.goForward()
+  await expect(category.getByRole('option', { name: 'resistor (no matching records)', exact: true })).toBeAttached()
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(category).toHaveValue('')
+  await expect(options).toHaveCount(4)
+  expect(f.requests.every(request => request.method === 'GET')).toBe(true)
 })

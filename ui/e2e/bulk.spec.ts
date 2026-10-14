@@ -122,5 +122,5 @@ test('partial bulk save reports failures and retains failed selection', async ({
 })
 
 test.beforeEach(async ({ context }) => {
-  await context.route('**/inventory/search/suggestions?**', route => route.fulfill({ json: { values: [], packages: [] } }))
+  await context.route('**/inventory/search/suggestions?**', route => route.fulfill({ json: { values: [], packages: [], categories: [] } }))
 })

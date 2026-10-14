@@ -130,9 +130,10 @@ class PartsBinService:
             if query.strip():
                 return self.search_candidates(SearchCandidatesRequest(query, filters, request.minimum_quantity))
             return self.search(SearchPartsRequest(filters, request.minimum_quantity))
-        values, packages = matches("value"), matches("package")
+        values, packages, categories = matches("value"), matches("package"), matches("part_category")
         return {"values": sorted({part.value for part in values if part.value and part.value.strip()}),
-                "packages": sorted({part.package for part in packages if part.package and part.package.strip()})}
+                "packages": sorted({part.package for part in packages if part.package and part.package.strip()}),
+                "categories": sorted({part.part_category for part in categories if part.part_category.strip()})}
 
     def search_candidates(self, request: SearchCandidatesRequest) -> list[Part]:
         """Literal text discovery only; candidates do not establish stock identity.
