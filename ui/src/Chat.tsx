@@ -12,7 +12,7 @@ import styles from './Chat.module.css'
 
 export function Chat({ onOpenPart }: { onOpenPart: (id: number) => void }) {
   const { events, conversations, threadId, pending, submit, decide, refresh, resume, newChat,
-    selectConversation, error, restored } = useAgent()
+    selectConversation, error, restored, watching, reconnecting } = useAgent()
   const unfinished = unfinishedExecutions(events)
   const replyParts = partsByReply(events)
   const selected = conversations.find(item => item.thread_id === threadId)
@@ -39,7 +39,7 @@ export function Chat({ onOpenPart }: { onOpenPart: (id: number) => void }) {
   }
   function send(event: React.FormEvent) {
     event.preventDefault()
-    if (pending || !restored || readOnly || (!text.trim() && !photo)) return
+    if (pending || watching || !restored || readOnly || (!text.trim() && !photo)) return
     const message = text.trim()
     void submit(message, photo).then(accepted => { if (accepted) { setText(''); clearPhoto() } })
   }
@@ -50,7 +50,7 @@ export function Chat({ onOpenPart }: { onOpenPart: (id: number) => void }) {
         if (!next) { newChat(); setText(''); clearPhoto(); return }
         void selectConversation(next).then(accepted => { if (accepted) { setText(''); clearPhoto() } })
       }} />
-      <span className={styles.status} role="status">{!restored && !pending ? 'Refresh history to reconnect' : pending ? (restored ? 'Working…' : 'Restoring conversation…') : readOnly ? 'Read-only conversation' : unfinished.some(item => item.status === 'awaiting_approval') ? 'Awaiting approval' : unfinished.length ? 'Unfinished work' : events.length ? 'Ready' : 'New conversation'}</span>
+      <span className={styles.status} role="status">{reconnecting ? 'Reconnecting to progress…' : watching && !pending ? 'Working…' : !restored && !pending ? 'Refresh history to reconnect' : pending ? (restored ? 'Working…' : 'Restoring conversation…') : readOnly ? 'Read-only conversation' : unfinished.some(item => item.status === 'awaiting_approval') ? 'Awaiting approval' : unfinished.length ? 'Unfinished work' : events.length ? 'Ready' : 'New conversation'}</span>
       <button className={styles.inlineActionBtn} disabled={pending} onClick={() => void refresh()}>Refresh history</button>
       <button className={styles.inlineActionBtn} disabled={pending} onClick={() => { newChat(); setText(''); clearPhoto() }}>New chat</button>
     </div>
@@ -58,17 +58,17 @@ export function Chat({ onOpenPart }: { onOpenPart: (id: number) => void }) {
     {readOnly && <div className={styles.notice}>This conversation uses a retired provider. Start a new chat to continue.</div>}
     <div className={styles.thread}>
       {events.length === 0 && <div className={styles.empty}>Ask about your inventory, add a part, or attach a photo.</div>}
-      {events.map(event => <EventBubble onOpenPart={onOpenPart} parts={replyParts.get(event.sequence) ?? []} key={`${event.thread_id}-${event.sequence}`} event={event} decide={decide} disabled={pending || !restored || readOnly || (typeof event.data.execution_id === 'string' && !unfinished.some(item => item.id === event.data.execution_id))} decision={approvalDecision(events, String(event.data.request_id))} />)}
-      {!pending && !readOnly && unfinished.map(execution => <div key={execution.id} className={styles.recovery}>
+      {events.map(event => <EventBubble onOpenPart={onOpenPart} parts={replyParts.get(event.sequence) ?? []} key={`${event.thread_id}-${event.sequence}`} event={event} decide={decide} disabled={pending || watching || !restored || readOnly || (typeof event.data.execution_id === 'string' && !unfinished.some(item => item.id === event.data.execution_id))} decision={approvalDecision(events, String(event.data.request_id))} />)}
+      {!pending && !watching && !readOnly && unfinished.map(execution => <div key={execution.id} className={styles.recovery}>
         {execution.status === 'awaiting_approval' ? <span>Awaiting your approval above.</span> : <>
-          <span>This request may still be running or was interrupted. Refresh history to check. Resuming may repeat a model call and incur another charge.</span>
+          <span>This request needs attention. Refresh history to check its saved state before explicitly resuming it.</span>
           {execution.needsPhoto && <span>Attach a fresh photo below to resume image analysis.</span>}
           <button className={styles.inlineActionBtn} disabled={!restored || (execution.needsPhoto && !photo)} onClick={() => {
             void resume(execution.id, photo).then(accepted => { if (accepted) clearPhoto() })
           }}>Resume request</button>
         </>}
       </div>)}
-      {pending && <div className={styles.thinkingBubble}><span className={styles.dot} /><span className={styles.dot} /><span className={styles.dot} /></div>}
+      {(pending || watching) && <div className={styles.thinkingBubble}><span className={styles.dot} /><span className={styles.dot} /><span className={styles.dot} /></div>}
       <div ref={bottomRef} />
     </div>
     <form className={styles.inputBar} onSubmit={send}>
@@ -76,8 +76,8 @@ export function Chat({ onOpenPart }: { onOpenPart: (id: number) => void }) {
       <div className={styles.inputRow}>
         <button type="button" className={styles.attachBtn} disabled={pending || readOnly} onClick={() => fileRef.current?.click()} aria-label="Attach photo" title="Attach photo">📎</button>
         <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={choosePhoto} hidden />
-        <textarea className={styles.textInput} disabled={pending || !restored || readOnly} aria-label="Message" value={text} onChange={event => setText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(event as unknown as React.FormEvent) } }} placeholder="Add a part or ask a question…" rows={1} />
-        <button type="submit" className={styles.sendBtn} aria-label="Send message" disabled={pending || !restored || readOnly || (!text.trim() && !photo)}>▶</button>
+        <textarea className={styles.textInput} disabled={pending || watching || !restored || readOnly} aria-label="Message" value={text} onChange={event => setText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(event as unknown as React.FormEvent) } }} placeholder="Add a part or ask a question…" rows={1} />
+        <button type="submit" className={styles.sendBtn} aria-label="Send message" disabled={pending || watching || !restored || readOnly || (!text.trim() && !photo)}>▶</button>
       </div>
     </form>
   </div>

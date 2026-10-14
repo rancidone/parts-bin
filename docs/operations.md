@@ -140,6 +140,29 @@ explicit resume, never by reconciliation. Approvals remain parked until a valida
 decision and wakeup commit together. Graceful worker stop finishes the current
 bounded stage; abrupt loss is recovered after its five-minute lease expires.
 
+Chat progress reconnects automatically after a dropped or stalled stream. The
+browser reads events after its last contiguous stored sequence, removes duplicate
+events, and follows active durable deliveries. Reloading first restores the selected
+conversation's history, then follows any active work. It does not resubmit messages,
+photos, approvals or resume commands. Only the conversation pointer is saved in
+browser storage; photos and model context remain outside it.
+
+During temporary outages the UI shows **Reconnecting to progress…** and retries
+read-only observation with backoff up to ten seconds. A progress body that stays
+silent for fifteen seconds is closed and recovered through replay; accepted worker
+stages continue independently. Switching conversations or opening a new chat stops
+that browser's observer without cancelling server work. Authentication failures,
+missing conversations and malformed progress state stop automatic retries and
+require sign-in or **Refresh history** after the underlying problem is fixed.
+
+If a message acknowledgement is lost, the browser checks the original execution
+identity through read-only history. A confirmed intake clears its draft and continues
+observation. An unconfirmed intake retains the draft and requires checking history
+before another submission. A lost approval acknowledgement reads the saved decision;
+it never approves again automatically. Approval waits, blocked deliveries and
+unenrolled historical executions keep explicit approval/resume controls. Background
+polling for model collection is separate from these browser progress reads.
+
 Background submission keeps `store=false`. OpenAI temporarily retains background
 results for roughly ten minutes; collect them promptly. `model_response_unavailable`
 means the result is missing or expired and is not automatically resubmitted.

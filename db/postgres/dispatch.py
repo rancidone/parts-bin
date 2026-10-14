@@ -3,7 +3,7 @@
 import time
 from uuid import uuid4
 
-from agent_runtime.dispatch import Delivery, LEASE_SECONDS, MAX_FAILURES, POLL_SECONDS
+from agent_runtime.dispatch import Delivery, ProgressSnapshot, ProgressState, LEASE_SECONDS, MAX_FAILURES, POLL_SECONDS
 from domain.repositories import ExecutionUnavailable
 from .connection import Adapter, access
 
@@ -18,6 +18,24 @@ class PostgresDispatchRepository(Adapter):
             ON CONFLICT(execution_id) DO NOTHING''',
             (execution_id, time.time(), reservation, time.time() + LEASE_SECONDS if reservation else 0))
         return record
+
+    @access()
+    def progress_snapshot(self, thread_id, after=0, execution_id=None):
+        if self.owner.conversations.runtime_for(thread_id) is None:
+            raise KeyError(thread_id)
+        state = self.progress_state(thread_id, execution_id)
+        events = tuple(self.owner.conversations.events(thread_id, after=after))
+        return ProgressSnapshot(events, state)
+
+    @access()
+    def progress_state(self, thread_id, execution_id=None):
+        active = self.execute('''SELECT 1 FROM agent_dispatch d JOIN agent_executions e
+            ON e.execution_id = d.execution_id WHERE e.thread_id = %s AND d.blocked = 0
+            AND (d.settled = 0 OR e.status IN ('ready', 'waiting_model')) LIMIT 1''', (thread_id,)).fetchone() is not None
+        accepted = None if execution_id is None else self.execute(
+            'SELECT 1 FROM agent_executions WHERE thread_id = %s AND execution_id = %s',
+            (thread_id, execution_id)).fetchone() is not None
+        return ProgressState(active, accepted)
 
     @access()
     def has_due(self):

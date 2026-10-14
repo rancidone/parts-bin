@@ -18,9 +18,9 @@ constraints and measured tradeoffs.
   latency, collection cadence, costs and result-expiry behavior within the
   provider's temporary polling window. Keep uncertain submissions distinct from
   safe retrieval retries; do not silently extend provider retention.
-- Validate authenticated progress delivery and automatic browser reconnect using
-  stored event cursors during the cloud experiment. Add explicit application
-  cancellation with stage-boundary semantics before offering a cancel control.
+- Validate authenticated progress delivery and cursor recovery through the chosen
+  AWS ingress during the cloud experiment. Add explicit application cancellation
+  with stage-boundary semantics before offering a cancel control.
 
 ## Deferred enrichment measurements
 

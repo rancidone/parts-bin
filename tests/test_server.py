@@ -131,6 +131,8 @@ async def test_resume_endpoint_replays_completed_execution_without_model_call(tm
     from tests.agent_runtime.test_runtime import build_runtime
 
     runtime, transport, store = build_runtime(tmp_path, [ModelTurn("done")])
+    store = runtime.registry.service.repository.conversations
+    runtime.store = store
     gateway = AgentGateway(store, lambda: runtime)
     app = server.create_app(ApplicationServices(runtime.registry.service, gateway, True))
     request = Request({"type": "http", "app": app})

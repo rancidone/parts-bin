@@ -17,6 +17,18 @@ TERMINAL_EVENTS = frozenset({'response.completed', 'response.failed', 'response.
 
 
 @dataclass(frozen=True)
+class ProgressState:
+    active: bool
+    accepted: bool | None = None
+
+
+@dataclass(frozen=True)
+class ProgressSnapshot:
+    events: tuple[ConversationEvent, ...]
+    state: ProgressState
+
+
+@dataclass(frozen=True)
 class Delivery:
     execution_id: str
     thread_id: str
@@ -27,6 +39,8 @@ class Delivery:
 
 class DispatchRepository(Protocol):
     def accept(self, thread_id: str, execution_id: str, context: dict, reservation: str | None = None): ...
+    def progress_snapshot(self, thread_id: str, after: int = 0, execution_id: str | None = None) -> ProgressSnapshot: ...
+    def progress_state(self, thread_id: str, execution_id: str | None = None) -> ProgressState: ...
     def has_due(self) -> bool: ...
     def blocked_deliveries(self) -> list[Delivery]: ...
     def claim(self, execution_id: str | None = None, token: str | None = None) -> Delivery | None: ...

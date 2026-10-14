@@ -52,13 +52,13 @@ def factory():
     worker_code = '''
 import asyncio
 from shutdown_app import services
+import db.postgres.dispatch as persistence
+persistence.POLL_SECONDS = 0
 async def work():
     app = services()
     try:
         for _ in range(500):
             app.dispatch.reconcile()
-            with app.domain.repository.transaction() as unit:
-                unit.connection.execute('UPDATE agent_dispatch SET available_at = 0 WHERE settled = 0')
             await app.dispatch.run_once()
             await asyncio.sleep(.02)
     finally:

@@ -41,6 +41,7 @@ notification. Periodic collection and reconciliation recover missed callbacks,
 expired worker leases and publication gaps. Expire inbox receipts after seven days.
 
 HTTP chat streams read persisted progress independently of execution. Browser
+reconnection is defined by [0031](0031-read-only-chat-progress-reconnect.md). Browser
 submission includes a stable execution identity. Photos remain ephemeral: intake
 reserves and submits the initial stage while bytes exist in HTTP memory; subsequent
 workers only need the provider ID and derived context. Losing an unsubmitted photo
