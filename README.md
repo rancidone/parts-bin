@@ -97,12 +97,17 @@ Add **Nominal value** for category-aware matching (for example, `10 kΩ` finds
 resistors stored as `10k`, and `0.1 µF` finds capacitors stored as `100n`). Choose
 a category to disambiguate bare values. Other categories compare values exactly.
 **Exact package** matches stored spelling, including case and punctuation:
-`SOT23` and `SOT-23` remain distinct. Both fields suggest distinct, nonempty
-committed values. Nominal-value suggestions respect the exact package filter;
+`SOT23` and `SOT-23` remain distinct. Category options match the text,
+unit-aware nominal value, exact package and per-record minimum stock, ignoring
+the category selection itself. A selected category stays in the dropdown even
+when it has no matches, labelled **no matching records**; it is never silently
+cleared from the bookmark. All categories remains available.
+
+Nominal value and package suggest distinct, nonempty committed values. Nominal-value suggestions respect the exact package filter;
 package suggestions respect the unit-aware nominal-value filter. Both respect
 text search, category and minimum stock, applied to each record. Text uses the
 same literal multi-term candidate rules as results, across committed description,
-manufacturer, part number, category, value and package. Each list ignores its own
+manufacturer, part number, category, value and package. Each suggestion list ignores its own
 input so you can find alternatives, even when the current combination has no
 matches. Paging does not narrow suggestions. Text terms remain literal even
 when the separate nominal-value filter uses unit equivalence.

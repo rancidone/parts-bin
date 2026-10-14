@@ -104,5 +104,5 @@ test('editor supports exact counts, validation, cancellation, and retry after fa
 })
 
 test.beforeEach(async ({ context }) => {
-  await context.route('**/inventory/search/suggestions?**', route => route.fulfill({ json: { values: [], packages: [] } }))
+  await context.route('**/inventory/search/suggestions?**', route => route.fulfill({ json: { values: [], packages: [], categories: [] } }))
 })

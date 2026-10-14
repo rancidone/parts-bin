@@ -534,5 +534,5 @@ test('cancel stops active progress and leaves approval history disabled after re
 })
 
 test.beforeEach(async ({ context }) => {
-  await context.route('**/inventory/search/suggestions?**', route => route.fulfill({ json: { values: [], packages: [] } }))
+  await context.route('**/inventory/search/suggestions?**', route => route.fulfill({ json: { values: [], packages: [], categories: [] } }))
 })
