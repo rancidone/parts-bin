@@ -11,11 +11,13 @@ cloud deployment and provider-specific infrastructure are outside the roadmap.
 
 ## Execution measurements
 
-- Evaluate background Responses submission and collection with the intended
-  model and workloads on real inventory/photo workloads. Measure submission
-  latency, collection cadence, costs and result-expiry behavior within the
-  provider's temporary polling window. Keep uncertain submissions distinct from
-  safe retrieval retries; do not silently extend provider retention.
+- Measure representative photo workloads with the
+  [background measurement runner](evaluation/README.md) when a real stock photo
+  is available. Use reviewed captures in disposable storage and the deployed
+  model; independently inspect identification, useful completion latency, usage
+  and result availability. Text lookup measurements do not establish photo
+  performance. Keep uncertain submissions distinct from retrieval failures;
+  never extend retention or resubmit an expired result to make a measurement pass.
 
 ## Deferred enrichment measurements
 

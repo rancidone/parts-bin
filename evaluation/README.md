@@ -102,6 +102,44 @@ cases after an instruction change. This follows the [official OpenAI evaluation
 guidance](https://developers.openai.com/api/docs/guides/evaluation-best-practices)
 to combine task-specific checks with human judgment.
 
+For submission/collection measurements, use the same runner in background mode:
+
+```sh
+PARTS_BIN_LIVE_EVAL=1 uv run --env-file .env python -m evaluation.live_lookup \
+  --model YOUR_DEPLOYED_MODEL --background \
+  --scenario inventory_lookup_value_notation \
+  --workspace /private/tmp/parts-bin-background-measurements \
+  --probe-after-seconds 660
+```
+
+Each stage reconstructs the runtime over its persisted checkpoint. The default
+poll interval is thirty seconds; `--poll-seconds` selects a different cadence.
+Each case is bounded by eight submissions, 256 stages and a nine-minute deadline.
+Reports distinguish submission attempts from read-only collection attempts and
+retain queued/completed status, latency, usage and stage timing. Network failures
+leave an uncertain submission or retrieval failure record and stop the paid run;
+there is no automatic resubmission or retrieval retry in this measurement runner.
+Ordinary deployment retry behavior is covered separately by worker tests.
+
+The optional retention probe reads the first confirmed response again at the
+requested age, without another submission or a change to `store=false`. An
+unavailable response does not establish its exact expiry time; an available one
+does not establish guaranteed retention. The provider's temporary polling window
+is approximate; see [background mode](https://developers.openai.com/api/docs/guides/background).
+Do not count repeated collection usage as additional generation when estimating
+cost. Use one terminal usage record per submission, account for cached input and
+cache writes, and leave missing usage or account pricing unknown.
+
+The default cases are synthetic stock. For representative captured workloads,
+prepare an independently reviewed scenario file using the existing runner format
+and pass `--scenarios /protected/workloads.json`. Only its `starting_database` is
+seeded in disposable PostgreSQL schemas; application configuration and databases
+are never loaded. Photo scenarios must set `image: true` on the relevant turn and
+provide `--photo /protected/stock.jpg` with `--background`. Photos use the normal
+upload preprocessing and are not written into reports. Keep private inputs and
+reports outside Git. Inspect answers and state preservation independently before
+treating synthetic or captured runs as evidence about production workloads.
+
 Deterministic tests and recorded turns check rules and orchestration; live runs
 measure model and retrieval behavior. Source review is needed to establish factual
 correctness. Keep synthetic scenarios separate from private captured content.
