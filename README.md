@@ -96,6 +96,11 @@ without chat, model calls or supplier retrieval. Choose a **Category** and set
 Add **Nominal value** for category-aware matching (for example, `10 kΩ` finds
 resistors stored as `10k`, and `0.1 µF` finds capacitors stored as `100n`). Choose
 a category to disambiguate bare values. Other categories compare values exactly.
+The nominal-value field suggests distinct, nonempty values from committed
+inventory, narrowed by category. Suggestions retain stored notation; you can
+also type an equivalent value in another supported unit. Text, package, stock
+and page do not narrow these suggestions. Changing category keeps your current
+value, and pending value proposals are excluded.
 **Exact package** matches stored spelling, including case and punctuation:
 `SOT23` and `SOT-23` remain distinct. The package field suggests distinct, nonempty
 package names from committed inventory, narrowed by the selected category. With
