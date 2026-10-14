@@ -8,7 +8,7 @@ supplier descriptions need clarification, not invented facts.
 
 One owner operates each independent installation and controls its data. Local
 hosting remains supported; OpenAI requests still send bounded inputs to an
-external provider. Cloud hosting requires authenticated access to UI and API.
+external provider. Network-accessible hosting requires authenticated access to UI and API.
 Shared tenancy and synchronization across installations are outside scope.
 
 ## Inventory trust

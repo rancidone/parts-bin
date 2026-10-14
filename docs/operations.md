@@ -84,8 +84,9 @@ streams only follow persisted progress; closing them does not cancel execution.
 The `parts-bin-worker` container claims due PostgreSQL deliveries, advances one
 submission, collection or tool stage, then releases ownership. It polls known
 response IDs every thirty seconds when notifications are missing and reconciles
-inbox entries and unscheduled checkpoints every fifteen seconds. No AWS resources
-or broker are required for this deployment.
+inbox entries and unscheduled checkpoints every fifteen seconds. The deployment
+uses the existing Docker host and PostgreSQL database. Polling remains the default;
+webhook activation is an optional operator action.
 
 Before upgrading either service, take a PostgreSQL dump and protect the current
 configuration and image IDs using the backup procedure below. Run the explicit,
@@ -382,28 +383,7 @@ empty dedicated database, switch the protected app configuration to PostgreSQL,
 and start the new image. Check search and history before accepting writes. Retain
 the SQLite originals as recovery artifacts. After PostgreSQL receives new writes,
 returning to the old SQLite files loses those writes; use PostgreSQL recovery or a
-compatible application rollback instead. This importer targets PostgreSQL. A live
-DSQL data copy needs a separate limit-aware procedure and rehearsal.
-
-## DSQL operator experiment
-
-The operator provisions the AWS cluster. The DSQL adapter shares domain rules and
-SQL with PostgreSQL, but IAM authentication, concurrency, service limits and
-DDL need live verification before cloud deployment. Initialize using an authorized
-AWS identity (no static database password):
-
-```sh
-uv run python -m db.dsql.setup --endpoint CLUSTER_ENDPOINT --region AWS_REGION --user admin
-```
-
-Compose injected services with `DSQLPartsBinRepository(DSQLConfig(...))`; the local
-factory intentionally selects PostgreSQL. Use the cluster's normal app login for
-runtime access. Tokens are generated per connection and TLS verifies the endpoint.
-Run the optional adapter scenarios against an isolated schema using the environment
-settings documented in [the test fixture](../tests/db/dsql/conftest.py). They create
-and remove test tables; use a dedicated test cluster/login, never production stock.
-Do not infer live DSQL compatibility from PostgreSQL test results. Cloud auth,
-Terraform, orchestration and recovery remain in [TODO](../TODO.md).
+compatible application rollback instead. This importer targets PostgreSQL.
 
 ## Electrical fact review
 

@@ -2,7 +2,8 @@
 
 Parts Bin is an electronics-inventory application with a Python/FastAPI backend,
 using PostgreSQL persistence, and a React/Vite UI. Support local-first
-operation and reproducible cloud deployment into an operator's own account.
+operation and reproducible self-hosted deployment on the operator's existing
+infrastructure.
 Preserve existing inventory, conversations, and provenance.
 
 Its core workflows are inventory management, natural-language or photo-based
@@ -13,7 +14,7 @@ implementations over speculative abstractions.
 ## Architecture direction
 
 - Use the OpenAI Responses API as the single agent interface in both local and
-  cloud deployments. Local-first refers to application/data ownership, not a
+  hosted deployments. Local-first refers to application/data ownership, not a
   separate local-model backend. Do not add provider adapters or runtime pickers
   without an explicit architecture decision.
 - Keep inventory rules in a typed domain service. HTTP handlers, agent runtimes,
@@ -50,19 +51,24 @@ implementations over speculative abstractions.
 - Evaluate representative successes, failures, and ambiguous inputs. Structural
   checks and recorded fixtures are not evidence of live enrichment quality.
 
-## Cloud deployment
+## Hosting and execution
 
-- Target AWS serverless infrastructure provisioned with Terraform. Validate
-  service choices against application constraints and official documentation;
-  record decisions and tradeoffs in numbered ADRs under `docs/adr/`.
+- Keep Docker and PostgreSQL as the supported deployment baseline. AWS/cloud
+  migration, Terraform provisioning, and DSQL deployment are outside scope unless
+  the user explicitly changes direction.
+- Keep execution compatible with short-lived, replaceable workers: durable intake,
+  bounded stages, separate model submission/collection, checkpointed effects,
+  idempotent delivery, cursor replay, and stage-boundary cancellation. Do not add
+  platform-specific infrastructure or constrain domain rules to an unselected host.
+- Record hosting and persistence decisions in numbered ADRs under `docs/adr/`.
 - Keeping costs down is a project goal. Use only necessary services; prefer
   existing capabilities and add infrastructure when measured requirements
   justify its recurring cost and operational burden.
 - Keep deployments independent, with one owner per installation. Do not introduce
   tenancy or shared multi-user access control without an explicit scope change.
-- Cloud deployments require HTTPS, authentication, secure configuration,
-  automated deployment, monitoring, and tested backup/restore.
-- Maintain operator documentation for fresh-account setup, expected costs,
+- Network-accessible deployments require HTTPS, authentication, secure
+  configuration, automated deployment, monitoring, and tested backup/restore.
+- Maintain operator documentation for installation setup, expected costs,
   upgrades, rollback, recovery, and teardown. Verify data preservation across
   upgrades and recovery, and measure application performance.
 
@@ -73,7 +79,7 @@ implementations over speculative abstractions.
 - `local_app.py`: local configuration, PostgreSQL composition, and ASGI factory.
 - `domain/`: typed inventory rules and domain errors.
 - `db/postgres/`: PostgreSQL adapters for inventory, conversations, approvals, and executions.
-- `db/dsql/`: IAM-authenticated DSQL connection and shared PostgreSQL adapters.
+- `db/dsql/`: optional historical DSQL experiment; outside supported hosting scope.
 - `agent_runtime/`: gateway, OpenAI transport, approvals, conversation contracts,
   and telemetry.
 - `tools/`: typed inventory tool registry.

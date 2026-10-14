@@ -4,8 +4,9 @@ Parts Bin helps an electronics hobbyist identify parts, manage stock, and find
 what they already have through text, photos, and an inventory UI.
 
 The project favors local-first operation and independent deployments owned by
-the operator. The cloud direction is AWS serverless with Terraform; see the
-[cloud direction](docs/adr/0008-deferred-aws-direction.md) for rationale and open choices.
+the operator, using Docker and PostgreSQL on existing infrastructure. Execution
+should remain compatible with short-lived, replaceable workers, while cloud
+deployment is outside the roadmap. See [the hosting direction](docs/adr/0033-serverless-compatible-self-hosting.md).
 
 ## Local setup
 
@@ -171,5 +172,5 @@ limitations.
 ## Project understanding
 
 Start with the [documentation guide](docs/README.md) for product intent,
-architecture decisions, enrichment, and cloud tradeoffs. [TODO.md](TODO.md)
+architecture decisions, enrichment, and deployment boundaries. [TODO.md](TODO.md)
 contains upcoming work, not a record of completed implementation.
