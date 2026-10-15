@@ -15,7 +15,7 @@ def assess_tool_efficiency(events: list[dict]) -> dict:
     counts, errors = Counter(), Counter()
     seen, repeats = set(), []
     turn, result_bytes = 0, 0
-    mutating = {'add_part', 'add_stock', 'update_part', 'bulk_update_parts', 'delete_part',
+    mutating = {'add_parts', 'add_stock_batch', 'update_parts', 'add_part', 'add_stock', 'update_part', 'bulk_update_parts', 'delete_part',
                 'lookup_part_specs', 'ingest_datasheet', 'stage_specification_review',
                 'apply_review', 'reject_review', 'apply_specification_review', 'reject_specification_review'}
     for event in events:

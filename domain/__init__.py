@@ -2,6 +2,7 @@
 
 from .errors import DomainError, ErrorCode
 from .models import (
+    CreatePartsRequest, UpdatePartsRequest, AddStockBatchRequest,
     AddPartRequest,
     AddPartsRequest,
     AddStockRequest,
@@ -27,6 +28,7 @@ from .models import (
 from .service import PartsBinService, update_fields_with_provenance
 
 __all__ = [
+    "CreatePartsRequest", "UpdatePartsRequest", "AddStockBatchRequest",
     "AdjustStockRequest",
     "AddPartRequest", "AddPartsRequest", "AddStockRequest", "ApplyReviewRequest",
     "BulkUpdateRequest", "DeletePartRequest", "DomainError", "ErrorCode",

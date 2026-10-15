@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Mapping
 
 from domain import (
+    CreatePartsRequest, UpdatePartsRequest, AddStockBatchRequest,
     AddPartRequest, AddStockRequest, ApplyReviewRequest, BulkUpdateRequest,
     DeletePartRequest, DomainError, FetchSpecsRequest, GetPartRequest,
     PartFields, PartsBinService, ProvenanceRequest, RejectReviewRequest,
@@ -97,19 +98,32 @@ class PartsBinToolRegistry:
     def approval_targets(name: str, arguments: dict[str, Any]) -> tuple[int, ...]:
         if name not in _APPROVAL_REQUIRED:
             raise ValueError("Tool does not require approval")
-        return tuple(arguments["part_ids"]) if name == "bulk_update_parts" else (arguments["part_id"],)
+        if name == "bulk_update_parts":
+            return tuple(arguments["part_ids"])
+        if name == "update_parts":
+            return tuple(item["part_id"] for item in arguments["items"])
+        return (arguments["part_id"],)
 
     async def execute(self, name: str, arguments: Mapping[str, Any] | None = None, *, context: ToolExecutionContext | None = None) -> ToolResult:
         args = dict(arguments or {})
         if name not in self._tools:
             return _error("invalid_input", "Unknown tool", {"tool": name})
         try:
+            if name == "search_parts" and args.get("expression") is not None:
+                self.service._search_expression(args["expression"])
             _validate(name, args, self._tools[name]["inputSchema"])
             if name == "add_part":
                 _validate_add_part_completeness(args)
+            if name == "add_parts":
+                for item in args["items"]:
+                    _validate_add_part_completeness(item)
+            if name == "update_parts":
+                self.service._validate_batch(args["items"], part_ids=tuple(item["part_id"] for item in args["items"]))
+                if any(not item["fields"] for item in args["items"]):
+                    raise DomainError(ErrorCode.INVALID_INPUT, "Each update needs fields")
             if name in _APPROVAL_REQUIRED and not await self._approved(name, args, context):
                 return _error(str(ErrorCode.APPROVAL_REQUIRED), "Explicit user approval is required for this mutation", {"tool": name})
-            if name in {"add_part", "add_stock"} and context is not None and context.operation_id:
+            if name in {"add_part", "add_stock", "add_parts", "add_stock_batch"} and context is not None and context.operation_id:
                 result = await self._execute_addition(name, args, context)
             else:
                 result = await self._dispatch(name, args)
@@ -168,7 +182,7 @@ class PartsBinToolRegistry:
             return {"categories": [vars(category) for category in self.service.list_categories()]}
         if name == "search_parts":
             limit = args.get("limit", 20)
-            request = SearchPartsRequest(args.get("filters", {}), args.get("minimum_quantity", 0))
+            request = SearchPartsRequest(args.get("filters", {}), args.get("minimum_quantity", 0), args.get("expression"))
             offset = args.get("offset", 0)
             if 'requirements' in args:
                 return self.service.search_specifications(request, args['requirements'], limit=limit, offset=offset)
@@ -209,6 +223,15 @@ class PartsBinToolRegistry:
             return {'part_id': args['part_id'], 'rejected': True}
         if name == "get_part":
             return _compact_part(self.service.get(GetPartRequest(args["part_id"])))
+        if name == "add_parts":
+            parts = self.service.create_parts(CreatePartsRequest(tuple(PartFields.from_mapping(item) for item in args["items"])))
+            return {"parts": [_compact_part(part) for part in parts], "count": len(parts)}
+        if name == "add_stock_batch":
+            parts = self.service.add_stock_batch(AddStockBatchRequest(tuple(AddStockRequest(**item) for item in args["items"])))
+            return {"parts": [_compact_part(part) for part in parts], "count": len(parts)}
+        if name == "update_parts":
+            parts = self.service.update_parts(UpdatePartsRequest(tuple(UpdatePartRequest(**item) for item in args["items"])))
+            return {"parts": [_compact_part(part) for part in parts], "count": len(parts)}
         if name == "add_part":
             fields = {key: args.get(key) for key in _FIELDS}
             part = self.service.add_part(AddPartRequest(PartFields(**fields)))
@@ -301,6 +324,8 @@ def _validate_object(value: dict[str, Any], schema: dict[str, Any]) -> None:
 
 
 def _matches(value: Any, rule: dict[str, Any]) -> bool:
+    if rule.get("$ref") == "#/$defs/search_expression":
+        rule = _EXPRESSION_SCHEMA
     types = rule.get("type", [])
     if isinstance(types, str):
         types = [types]
@@ -348,9 +373,17 @@ _FACTS_SCHEMA = {'type': 'array', 'minItems': 1, 'maxItems': 20, 'items': {
     }}, 'required': [*_SPEC_PROPERTIES, 'evidence'],
 }}
 
+_SEARCH_FILTER_SCHEMA = {"type": "object", "additionalProperties": False, "properties": {
+    key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}}
+_EXPRESSION_SCHEMA = {"type": "object", "additionalProperties": False, "properties": {
+    "filters": _SEARCH_FILTER_SCHEMA,
+    "all": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/$defs/search_expression"}},
+    "any": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/$defs/search_expression"}},
+}, "description": "Exactly one key: filters (ANDed fields), all (AND children), or any (OR children). Maximum depth 4 and 100 total nodes. Leaves must have nonempty filters."}
+
 _TOOL_DEFINITIONS = [
     _tool("list_categories", "Discover exact category names in committed inventory before choosing category filters for search_parts. Returns part_category, part_count (distinct stock records), and total_quantity (sum of stored quantities). Includes categories whose stock is zero. Pending reviews are excluded. These counts do not establish electrical suitability; search_parts retrieves the relevant stock.", {}),
-    _tool("search_parts", "Search committed inventory. Exact and incomplete pages are ordered by part id; partial matches are ranked by most confirmed requirements, fewer unqualified requirements, fewer mismatches, then normalized numeric shortfall and part id. Start with offset 0; when next_offset is non-null, reuse the same filters, requirements, minimum_quantity, and limit with that offset. Counts cover all results. For specification searches, limit and offset apply separately to matches, incomplete candidates and partial matches (at most 3 * limit records per page). next_offset is null when all groups are exhausted. If inventory or accepted facts change, restart pagination. Known category synonyms (opamp, LDO/linear_regulator, buck_converter, LEDs) match without rewriting stock identity. Passive values compare equivalent nominal units (10 kΩ = 10000r, 0.1 µF = 100nF). Package and full part number match exactly; omit an uncertain package and ask for clarification. minimum_quantity is available stock per record. Discover supported specification requirements with get_specification_contract before querying requirements. Returns confirmed matches with supporting source evidence separately from incomplete candidates and explicitly labeled partial_matches. Partial matches retain every failed requirement with its requested value, actual fact and source evidence, plus unresolved qualifiers. With an explicit passive category and value filter, nearby nominal values also appear as partial matches with filter_mismatches; package, full ordering code and minimum stock remain exact. Always call these partial matches and explain each mismatch; never claim they meet all requirements, are interchangeable, or allocate them in a BOM without the user choosing to relax requirements. All qualifiers and conditions must match the specification contract: accepted operating minimum/maximum facts can cover contained requested condition intervals; other bases require equal conditions. Test points, typical values and stress ratings do not establish operating coverage.", {"filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}}, "requirements": _REQUIREMENTS_SCHEMA, "minimum_quantity": {"type": "integer", "minimum": 0}, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},),
+    _tool("search_parts", "Search committed inventory. Use expression for nested all (AND) / any (OR) groups of filters, combined with top-level filters and minimum_quantity. Check many values in one expression; results contain each matching record once. Expression searches return exact filter matches only, without nearby nominal alternatives. Exact and incomplete pages are ordered by part id; partial matches are ranked by most confirmed requirements, fewer unqualified requirements, fewer mismatches, then normalized numeric shortfall and part id. Start with offset 0; when next_offset is non-null, reuse the same filters, requirements, minimum_quantity, and limit with that offset. Counts cover all results. For specification searches, limit and offset apply separately to matches, incomplete candidates and partial matches (at most 3 * limit records per page). next_offset is null when all groups are exhausted. If inventory or accepted facts change, restart pagination. Known category synonyms (opamp, LDO/linear_regulator, buck_converter, LEDs) match without rewriting stock identity. Passive values compare equivalent nominal units (10 kΩ = 10000r, 0.1 µF = 100nF). Package and full part number match exactly; omit an uncertain package and ask for clarification. minimum_quantity is available stock per record. Discover supported specification requirements with get_specification_contract before querying requirements. Returns confirmed matches with supporting source evidence separately from incomplete candidates and explicitly labeled partial_matches. Partial matches retain every failed requirement with its requested value, actual fact and source evidence, plus unresolved qualifiers. With an explicit passive category and value filter, nearby nominal values also appear as partial matches with filter_mismatches; package, full ordering code and minimum stock remain exact. Always call these partial matches and explain each mismatch; never claim they meet all requirements, are interchangeable, or allocate them in a BOM without the user choosing to relax requirements. All qualifiers and conditions must match the specification contract: accepted operating minimum/maximum facts can cover contained requested condition intervals; other bases require equal conditions. Test points, typical values and stress ratings do not establish operating coverage.", {"filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}}, "expression": {"$ref": "#/$defs/search_expression"}, "requirements": _REQUIREMENTS_SCHEMA, "minimum_quantity": {"type": "integer", "minimum": 0}, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},),
     _tool("search_candidates", "Find candidate stock by whitespace-separated, case-insensitive literal terms across committed descriptions, manufacturers, part numbers, categories, values, and packages. Every term must match the same stock record, possibly in different fields. For example, Nexperia 5350 SOT23 combines manufacturer, part fragment and package. Markings can be found only if recorded. Use search terms, not a natural-language question; punctuation is literal, with no wildcard or quotation operators. Text candidates do not establish nominal-unit equivalence or electrical suitability. Optional filters use search_parts exact identity and nominal-value rules; minimum_quantity applies per record. Results are candidates, not verified identities, interchangeable stock, or evidence of electrical suitability. Preserve every returned ordering suffix and quantity; clarify ambiguous markings before adding or merging stock. Pending proposals are excluded. Results are ordered by id and bounded by limit. Start with offset 0 and follow next_offset with the same query, filters, minimum_quantity, and limit until null. Counts cover all candidates. Restart if inventory changes.", {
         "query": {"type": "string", "minLength": 1},
         "filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}},
@@ -368,6 +401,18 @@ _TOOL_DEFINITIONS = [
     }, required=["items"]),
     _tool("get_part", "Get one committed part by id.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
     _tool("add_part", "Add one distinct part. Unnumbered stock outside resistor/capacitor/inductor categories always creates a separate record; shared descriptions and packages do not establish identity. Use an explicit add_stock part_id for more of an existing physical group; never invent an ordering code to force merging. Set enrich=false for assortment/kit contents, generic stock, or when the user requests no manufacturer lookup. Omitted or true uses automatic enrichment for eligible discrete/IC parts; passive parts skip automatic lookup. Skipping preserves supplied fields and allows an explicit lookup_part_specs request later.", {**_FIELDS, "enrich": {"type": "boolean"}}, required=["part_category", "profile", "quantity"]),
+    _tool("add_parts", "Create 1–100 distinct parts in one atomic call. Each item has its own value, package, quantity and metadata. Use this for multi-value assortments instead of repeated add_part calls. Check all identities together using search_parts expression or check_inventory first. Existing duplicates or any invalid item reject the whole batch; nothing is incremented or overwritten. Return parts in input order. This bulk tool performs no supplier lookup; only use lookup_part_specs separately when the user requests it. Preserve exact codes and user-supplied descriptions; do not invent ratings or counts.", {
+        "items": {"type": "array", "minItems": 1, "maxItems": 100, "items": _fields_schema(required=["part_category", "profile", "quantity"])}}, required=["items"]),
+    _tool("add_stock_batch", "Increment stock for 1–100 distinct explicit part_ids in one atomic, replay-safe call. Each item has its own positive quantity. Use only for additional physical stock the user wants counted; existing records do not imply new stock. Invalid or missing targets reject the whole batch.", {
+        "items": {"type": "array", "minItems": 1, "maxItems": 100, "items": {
+            "type": "object", "additionalProperties": False, "properties": {
+                "part_id": {"type": "integer", "minimum": 1}, "quantity": {"type": "integer", "minimum": 1}},
+            "required": ["part_id", "quantity"]}}}, required=["items"]),
+    _tool("update_parts", "Modify 1–100 distinct explicit part_ids with separate fields for each item in one atomic call and one server approval. Omitted fields remain unchanged. Any invalid item, identity conflict or changed approval target rejects the entire batch. Use this for different quantities or metadata across multiple parts.", {
+        "items": {"type": "array", "minItems": 1, "maxItems": 100, "items": {
+            "type": "object", "additionalProperties": False, "properties": {
+                "part_id": {"type": "integer", "minimum": 1}, "fields": _fields_schema(min_properties=1)},
+            "required": ["part_id", "fields"]}}}, required=["items"]),
     _tool("add_stock", "Add positive stock to one part.", {"part_id": {"type": "integer", "minimum": 1}, "quantity": {"type": "integer", "minimum": 1}}, required=["part_id", "quantity"]),
     _tool("update_part", "Update explicit fields on one part.", {"part_id": {"type": "integer", "minimum": 1}, "fields": _fields_schema(min_properties=1)}, required=["part_id", "fields"]),
     _tool("bulk_update_parts", "Edit selected parts independently. Returns successful parts and per-part errors; a batch can partially succeed.", {"part_ids": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "integer", "minimum": 1}}, "fields": _fields_schema(min_properties=1)}, required=["part_ids", "fields"]),
@@ -386,4 +431,8 @@ _TOOL_DEFINITIONS = [
     _tool('reject_specification_review', 'Discard a pending electrical specification review without changing accepted facts.', {'part_id': {'type': 'integer', 'minimum': 1}}, required=['part_id']),
 ]
 
-_APPROVAL_REQUIRED = {"update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review", "apply_specification_review", "reject_specification_review"}
+# Definitions live at the tool root so standard JSON Schema references resolve.
+next(tool for tool in _TOOL_DEFINITIONS if tool["name"] == "search_parts")["inputSchema"]["$defs"] = {
+    "search_expression": _EXPRESSION_SCHEMA}
+
+_APPROVAL_REQUIRED = {"update_parts", "update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review", "apply_specification_review", "reject_specification_review"}

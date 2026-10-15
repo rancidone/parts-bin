@@ -93,7 +93,7 @@ async def test_initial_model_request_never_contains_a_full_inventory_snapshot(tm
     request = transport.requests[0]
     assert request.exchanges == ()
     assert "0000" not in request.system
-    assert len(request.tools) == 22
+    assert len(request.tools) == len(instance.registry.list_tools())
 
 
 def test_canonical_contract_exposes_no_generic_or_direct_database_tool():

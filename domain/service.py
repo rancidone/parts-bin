@@ -9,6 +9,7 @@ from .repositories import PartsBinRepository, RepositoryConflict, RepositoryBusy
 
 from .errors import DomainError, ErrorCode
 from .models import (
+    CreatePartsRequest, UpdatePartsRequest, AddStockBatchRequest,
     AddPartRequest, AddPartsRequest, AddStockRequest, AdjustStockRequest, ApplyReviewRequest, BulkUpdateRequest,
     CategorySummary, DeletePartRequest, FetchSpecsRequest, GetPartRequest, Part, PartFields,
     ProvenanceRequest, RejectReviewRequest, SearchPartsRequest, SearchCandidatesRequest,
@@ -84,6 +85,38 @@ class PartsBinService:
         return self.repository.inventory.list_categories()
 
     def search(self, request: SearchPartsRequest) -> list[Part]:
+        if request.expression is not None:
+            predicate = self._search_expression(request.expression)
+            candidates = self._search_filters(SearchPartsRequest(request.filters, request.minimum_quantity))
+            return [part for part in candidates if predicate(part)]
+        return self._search_filters(request)
+
+    def _search_expression(self, expression):
+        """Compile bounded AND/OR trees before reading inventory, including every leaf."""
+        nodes = 0
+
+        def compile_node(node, depth):
+            nonlocal nodes
+            nodes += 1
+            if depth > 4 or nodes > 100 or not isinstance(node, dict) or len(node) != 1:
+                raise DomainError(ErrorCode.INVALID_INPUT, "Search expression needs one filters/all/any key per node, at most 100 nodes and depth 4")
+            if 'filters' in node:
+                filters = node['filters']
+                if not isinstance(filters, dict) or not filters:
+                    raise DomainError(ErrorCode.INVALID_INPUT, "Expression filters must be non-empty")
+                request = SearchPartsRequest(filters)
+                self._search_filters(request, candidates=[])
+                return lambda part: bool(self._search_filters(request, candidates=[part]))
+            operator = next(iter(node))
+            if operator not in {'all', 'any'} or not isinstance(node[operator], list) or not 1 <= len(node[operator]) <= 100:
+                raise DomainError(ErrorCode.INVALID_INPUT, "Search groups need 1–100 children and all/any")
+            children = [compile_node(child, depth + 1) for child in node[operator]]
+            combine = all if operator == 'all' else any
+            return lambda part: combine(child(part) for child in children)
+
+        return compile_node(expression, 0)
+
+    def _search_filters(self, request: SearchPartsRequest, *, candidates=None) -> list[Part]:
         if (not isinstance(request.minimum_quantity, int) or isinstance(request.minimum_quantity, bool)
                 or request.minimum_quantity < 0):
             raise DomainError(ErrorCode.INVALID_INPUT, "minimum_quantity must be a non-negative integer")
@@ -102,7 +135,11 @@ class PartsBinService:
         if category_alias:
             filters.pop("part_category")
         value = filters.pop("value", None)
-        candidates = self.repository.inventory.search(filters)
+        if candidates is None:
+            candidates = self.repository.inventory.search(filters)
+        else:
+            candidates = [part for part in candidates if all(
+                value is None or getattr(part, name) == value for name, value in filters.items())]
         if category_alias:
             candidates = [part for part in candidates
                           if search_category(part.part_category) == search_category(category)]
@@ -176,7 +213,7 @@ class PartsBinService:
     def search_page(self, request: SearchPartsRequest, *, limit: int = 20, offset: int = 0) -> dict:
         validate_page(limit, offset)
         rows = sorted(self.search(request), key=lambda part: part.id)
-        alternatives = self._nominal_alternatives(request)
+        alternatives = [] if request.expression is not None else self._nominal_alternatives(request)
         following = next_offset(max(len(rows), len(alternatives)), limit, offset)
         return {"parts": rows[offset:offset + limit], "count": len(rows),
                 "partial_matches": [{'part': part, 'filter_mismatches': [mismatch], 'match_kind': 'partial'}
@@ -216,10 +253,14 @@ class PartsBinService:
             raise DomainError(ErrorCode.INVALID_INPUT,
                               "Each item needs a part number or a category and value",
                               details={"input_indices": unidentified})
+        # Validate every row before reading one committed inventory snapshot.
+        for group in groups.values():
+            self._search_filters(SearchPartsRequest(group['filters']), candidates=[])
+        stock = self.repository.inventory.search({})
         results, stock_groups = [], {}
         for group in groups.values():
             filters = group['filters']
-            parts = self.search(SearchPartsRequest(filters))
+            parts = self._search_filters(SearchPartsRequest(filters), candidates=stock)
             available = max((part.quantity for part in parts), default=0)
             requested = None if group['unknown_quantity'] else group['quantity']
             if not parts:
@@ -252,7 +293,8 @@ class PartsBinService:
         checked = specifications.validate_requirements(category, requirements)
         matches, incomplete, partial = [], [], []
         candidates = [(part, [], Decimal(0)) for part in sorted(self.search(request), key=lambda part: part.id)]
-        candidates.extend((part, [mismatch], distance) for distance, part, mismatch in self._nominal_alternatives(request))
+        if request.expression is None:
+            candidates.extend((part, [mismatch], distance) for distance, part, mismatch in self._nominal_alternatives(request))
         accepted = self.repository.inventory.specifications_for_parts([part.id for part, _, _ in candidates])
         for part, filter_mismatches, nominal_distance in candidates:
             assessment = specifications.evaluate(category, accepted.get(part.id, []), checked)
@@ -423,6 +465,32 @@ class PartsBinService:
             else:
                 merged[key] = fields
         return [self.add_or_increment(AddPartRequest(PartFields.from_mapping(fields))) for fields in merged.values()]
+
+    @staticmethod
+    def _validate_batch(items, *, part_ids=()):
+        if not 1 <= len(items) <= 100:
+            raise DomainError(ErrorCode.INVALID_INPUT, "Batch must contain 1–100 items")
+        if any(type(identifier) is not int or identifier < 1 for identifier in part_ids) or len(set(part_ids)) != len(part_ids):
+            raise DomainError(ErrorCode.INVALID_INPUT, "Batch targets must be distinct positive part ids")
+
+    @_mutation
+    def create_parts(self, request: CreatePartsRequest) -> list[Part]:
+        """Create distinct records together; duplicates or invalid rows roll back all effects."""
+        self._validate_batch(request.items)
+        fields = [PartFields.from_mapping(validate_fields(vars(item))) for item in request.items]
+        return [self.add_part(AddPartRequest(item)) for item in fields]
+
+    @_mutation
+    def update_parts(self, request: UpdatePartsRequest) -> list[Part]:
+        self._validate_batch(request.items, part_ids=tuple(item.part_id for item in request.items))
+        if any(not item.fields for item in request.items):
+            raise DomainError(ErrorCode.INVALID_INPUT, "Each update needs fields")
+        return [self._update_part(item) for item in request.items]
+
+    @_mutation
+    def add_stock_batch(self, request: AddStockBatchRequest) -> list[Part]:
+        self._validate_batch(request.items, part_ids=tuple(item.part_id for item in request.items))
+        return [self.add_stock(item) for item in request.items]
 
     def duplicate_for_add(self, fields: Mapping[str, Any]) -> Part | None:
         candidate = normalize_part_payload(dict(fields))
