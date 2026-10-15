@@ -120,6 +120,36 @@
       "expected_final_state": {"parts_count": 6, "part_assertions": {"1": {"quantity": 100, "value": "1000"}, "2": {"quantity": 20, "value": "2.2", "package": "0603"}, "3": {"quantity": 20, "value": "100"}, "4": {"quantity": 20, "value": "5100", "package": "0603"}, "5": {"quantity": 20, "value": "47000"}, "6": {"quantity": 20, "value": "100000"}}, "reviews": {}},
       "answer_assertions": {"contains_all": ["20", "0603", "1%"], "contains_any": ["skipped", "already counted"]},
       "recorded_turns": [{"tool_calls": [{"name": "add_parts", "arguments": {"items": [{"part_category": "resistor", "profile": "passive", "package": "0603", "quantity": 20, "value": "2r2", "description": "1% tolerance, supplied by user"}, {"part_category": "resistor", "profile": "passive", "package": "0603", "quantity": 20, "value": "100r", "description": "1% tolerance, supplied by user"}, {"part_category": "resistor", "profile": "passive", "package": "0603", "quantity": 20, "value": "1k", "description": "1% tolerance, supplied by user"}]}}]}, {"text": "Added 20 each of 2R2 and 100R, 0603 1%. Skipped the already counted 1k record."}, {"tool_calls": [{"name": "add_parts", "arguments": {"items": [{"part_category": "resistor", "profile": "passive", "package": "0603", "quantity": 20, "value": "5k1", "description": "1% tolerance, supplied by user"}, {"part_category": "resistor", "profile": "passive", "package": "0603", "quantity": 20, "value": "47k", "description": "1% tolerance, supplied by user"}, {"part_category": "resistor", "profile": "passive", "package": "0603", "quantity": 20, "value": "100k", "description": "1% tolerance, supplied by user"}]}}]}, {"text": "Added 20 each of 5k1, 47k and 100k with the same 0603 package and 1% tolerance."}]
+    },
+    {
+      "id": "single_part_direct_deduplication",
+      "starting_database": {"parts": []},
+      "conversation": [{"user": "Add 20 of 10k 0603 1% resistors. Skip stock already counted."}, {"user": "Add 20 of 10000r 0603 1% resistors, skipping anything already counted."}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": ["add_parts", "add_parts"], "allowed_mutations": ["add_parts"], "forbidden": ["list_categories", "search_parts", "check_inventory", "get_part", "search_candidates", "add_part", "add_stock", "add_stock_batch", "lookup_part_specs", "ingest_datasheet"], "max_calls": 2},
+      "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"quantity": 20, "value": "10000", "package": "0603"}}, "reviews": {}},
+      "answer_assertions": {"contains_all": ["20", "skipped"]},
+      "recorded_turns": [{"tool_calls": [{"name": "add_parts", "arguments": {"items": [{"part_category": "resistor", "profile": "passive", "quantity": 20, "value": "10k", "package": "0603", "description": "1% per user"}]}}]}, {"text": "Added 20 of 10k 0603 1%."}, {"tool_calls": [{"name": "add_parts", "arguments": {"items": [{"part_category": "resistor", "profile": "passive", "quantity": 20, "value": "10000r", "package": "0603", "description": "1% per user"}]}}]}, {"text": "Skipped the already counted 10k resistor record; quantity remains 20."}]
+    },
+    {
+      "id": "single_exact_code_direct_deduplication",
+      "starting_database": {"parts": [{"part_category": "TVS diode", "profile": "discrete_ic", "quantity": 0, "part_number": "PESD5V0L1BA", "package": "SOD-323"}]},
+      "conversation": [{"user": "Add 50 PESD5V0L1BA TVS diodes, SOD-323. Skip anything already counted."}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": ["add_parts"], "allowed_mutations": ["add_parts"], "forbidden": ["list_categories", "search_parts", "check_inventory", "get_part", "search_candidates", "add_part", "add_stock", "add_stock_batch", "lookup_part_specs", "ingest_datasheet"], "max_calls": 1},
+      "expected_final_state": {"parts_count": 1, "part_assertions": {"1": {"quantity": 0, "part_number": "PESD5V0L1BA", "package": "SOD-323"}}, "reviews": {}},
+      "answer_assertions": {"contains_all": ["skipped", "0"]},
+      "recorded_turns": [{"tool_calls": [{"name": "add_parts", "arguments": {"items": [{"part_category": "TVS diode", "profile": "discrete_ic", "quantity": 50, "part_number": "PESD5V0L1BA", "package": "SOD-323"}]}}]}, {"text": "Skipped the existing PESD5V0L1BA record. Its quantity remains 0; no additional stock was counted."}]
+    },
+    {
+      "id": "multi_category_combined_query",
+      "starting_database": {"parts": [{"part_category": "bjt", "profile": "discrete_ic", "quantity": 10, "part_number": "BD139", "package": "TO-126"}, {"part_category": "mosfet", "profile": "discrete_ic", "quantity": 2, "part_number": "IRF640N", "package": "TO-220"}, {"part_category": "operational amplifier", "profile": "discrete_ic", "quantity": 6, "part_number": "UA741CN", "package": "DIP8"}, {"part_category": "audio amplifier", "profile": "discrete_ic", "quantity": 4, "part_number": "LM386", "package": "DIP8"}, {"part_category": "operational amplifier", "profile": "discrete_ic", "quantity": 0, "part_number": "LM358", "package": "DIP8"}]},
+      "conversation": [{"user": "Which BJTs, MOSFETs and op amps do I have in stock? List the full part numbers, packages and quantities. Do not look up electrical ratings."}],
+      "allowed_approvals": {},
+      "tool_constraints": {"required_sequence": ["list_categories", "search_parts"], "allowed_mutations": [], "forbidden": ["get_part", "search_candidates", "check_inventory", "lookup_part_specs", "get_specification_contract", "get_specifications"], "max_calls": 2, "expected_search_results": [{"part_ids": [1, 2, 3], "count": 3, "truncated": false}]},
+      "expected_final_state": {"parts_count": 5, "part_assertions": {"1": {"quantity": 10}, "2": {"quantity": 2}, "3": {"quantity": 6}, "4": {"quantity": 4}, "5": {"quantity": 0}}, "reviews": {}},
+      "answer_assertions": {"contains_all": ["BD139", "IRF640N", "UA741CN"]},
+      "recorded_turns": [{"tool_calls": [{"name": "list_categories", "arguments": {}}]}, {"tool_calls": [{"name": "search_parts", "arguments": {"expression": {"any": [{"filters": {"part_category": "bjt"}}, {"filters": {"part_category": "mosfet"}}, {"filters": {"part_category": "operational amplifier"}}]}, "minimum_quantity": 1}}]}, {"text": "In stock: BD139, TO-126, 10; IRF640N, TO-220, 2; UA741CN, DIP8, 6. Electrical ratings have not been verified."}]
     }
   ]
 }

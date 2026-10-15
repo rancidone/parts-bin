@@ -26,9 +26,10 @@ the entire batch. Preserve operation receipts in that transaction so delivery
 replays return the original outcomes. Explicit additional physical stock still
 uses stock increments at identified records through the shared policy.
 
-Agent instructions submit confirmed batches directly to `add_parts` and report
-its outcomes. Availability checks remain separate read-only operations when
-requested by the user. Bulk creation performs no implicit enrichment.
+Agent instructions submit confirmed additions directly to `add_parts` and report
+its outcomes, using a one-item array for a single part. This includes identified
+ICs; supplier enrichment is a separate, explicitly requested action. Availability
+checks remain separate read-only operations when requested by the user. Bulk creation performs no implicit enrichment.
 
 ## Consequences
 

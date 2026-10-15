@@ -228,3 +228,49 @@ async def test_boolean_search_keeps_suffix_package_stock_and_pending_fields_exac
     result = await registry.execute('search_parts', {'expression': {'filters': {'part_number': 'PBSS5350T,215'}}})
     assert [row['id'] for row in result['result']['parts']] == [1]
     assert registry.service.list_pending_reviews()[3]['fields']['part_number']['value'] == 'PBSS5350T,215'
+
+
+@pytest.mark.parametrize('existing_quantity', [None, 0, 7])
+@pytest.mark.parametrize('item', [
+    items()[3],
+    {'part_category': 'TVS diode', 'profile': 'discrete_ic', 'quantity': 50,
+     'part_number': 'PESD5V0L1BA', 'package': 'SOD-323'},
+])
+async def test_single_part_addition_uses_one_deduplicating_call(registry, item, existing_quantity):
+    if existing_quantity is not None:
+        await registry.execute('add_parts', {'items': [{**item, 'quantity': existing_quantity}]})
+    transport = ScriptedTransport([
+        ModelTurn(tool_calls=(ToolCall('add_parts', {'items': [item]}, 'single'),)),
+        ModelTurn('Added or skipped the supplied part.'),
+    ])
+    repository = registry.service.repository
+    runtime = OpenAIResponsesRuntime(transport, registry=registry, store=repository.conversations,
+                                     approvals=ApprovalEngine(repository))
+    result = await runtime.run('single', 'Add this part, skipping anything already counted.')
+    assert result.status == 'completed' and len(transport.requests) == 2
+    assert [e.data['name'] for e in result.events if e.kind == 'tool_call'] == ['add_parts']
+    report = next(e.data['result']['result'] for e in result.events if e.kind == 'tool_result')
+    assert report['items'][0]['status'] == ('added' if existing_quantity is None else 'skipped')
+    assert registry.service.list()[0].quantity == (item['quantity'] if existing_quantity is None else existing_quantity)
+    assert len(registry.service.list()) == 1
+
+
+async def test_category_or_query_reads_once_and_paginates_all_categories(registry):
+    batch = [
+        {'part_category': 'bjt', 'profile': 'discrete_ic', 'quantity': 10, 'part_number': 'BD139'},
+        {'part_category': 'mosfet', 'profile': 'discrete_ic', 'quantity': 2, 'part_number': 'IRF640N'},
+        {'part_category': 'operational amplifier', 'profile': 'discrete_ic', 'quantity': 6, 'part_number': 'UA741CN'},
+        {'part_category': 'audio amplifier', 'profile': 'discrete_ic', 'quantity': 4, 'part_number': 'LM386'},
+        {'part_category': 'operational amplifier', 'profile': 'discrete_ic', 'quantity': 0, 'part_number': 'LM358'},
+    ]
+    await registry.execute('add_parts', {'items': batch})
+    args = {'expression': {'any': [{'filters': {'part_category': category}}
+                                  for category in ['bjt', 'mosfet', 'opamp']]},
+            'minimum_quantity': 1, 'limit': 2}
+    with patch.object(registry.service.repository.inventory, 'search', wraps=registry.service.repository.inventory.search) as read:
+        first = (await registry.execute('search_parts', args))['result']
+    assert read.call_count == 1 and first['count'] == 3 and first['next_offset'] == 2
+    final = (await registry.execute('search_parts', {**args, 'offset': first['next_offset']}))['result']
+    assert final['next_offset'] is None
+    assert [p['part_number'] for p in first['parts'] + final['parts']] == ['BD139', 'IRF640N', 'UA741CN']
+    assert len(registry.service.list()) == 5
