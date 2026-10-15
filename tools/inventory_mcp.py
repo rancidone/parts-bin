@@ -26,8 +26,9 @@ READ_TOOLS = frozenset({
 _logger = log.get_logger('parts_bin.inventory_mcp')
 
 INSTRUCTIONS = (
-    "Read-only access to this owner's current Parts Bin inventory. Discover categories, "
-    "then use narrow searches and follow next_offset with the same query. Preserve full "
+    "Read-only access to this owner's current Parts Bin inventory. Discover unfamiliar categories when needed; "
+    "use known resistor/capacitor/inductor categories or exact ordering codes directly. "
+    "Use narrow searches and follow next_offset with the same query. Preserve full "
     "ordering codes, packages and per-record quantities. Use check_inventory for a whole "
     "BOM; checks do not reserve stock, and overlapping requirements need clarification. "
     "Discover the specification contract before searching electrical requirements. Only "

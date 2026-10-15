@@ -38,8 +38,11 @@ nominal-value equivalence and `minimum_quantity` per committed record; it does n
 combine separate stock records or inspect pending reviews. Deterministic domain
 and tool tests verify matching independently of live model interpretation.
 
-Category lookups first use `list_categories` to discover exact committed names
-and summary counts, then retrieve relevant records with `search_parts`.
+Broad category discovery uses `list_categories` for exact committed names and
+summary counts, then retrieves relevant records with `search_parts`. Explicit
+resistor/capacitor/inductor requests and exact ordering-code lookups go directly
+to their inventory check. Consecutive confirmed batches reuse visible category,
+package, tolerance and per-value quantity while rechecking current stock.
 Discovery includes out-of-stock categories and excludes pending category changes.
 The op-amp scenario checks discovery of “operational amplifier” while keeping
 “audio amplifier” separate; live runs measure whether the model makes that choice.
@@ -391,3 +394,10 @@ page limits and repetitions for comparisons, retain both reports outside Git,
 and review latency and output size separately. A bounded result page can still
 read many candidates. These synthetic timings do not establish production
 latency or justify a new index by themselves.
+
+The `consecutive_resistor_batches` scenario checks two batches in one conversation:
+inherit supplied context, check each batch once, add only missing identities, and
+preserve previously counted quantities. It forbids category discovery and
+per-record reads and permits at most four tool calls across the two batches.
+The recording exercises the contract; live measurements must additionally verify
+that the configured model chooses that sequence without being given recorded turns.
