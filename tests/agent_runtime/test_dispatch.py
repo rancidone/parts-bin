@@ -26,7 +26,8 @@ def build(path, provider):
     repository = TestRepository(path)
     transport = OpenAIResponsesTransport(api_key='test-only', model='test-model',
         client=httpx.AsyncClient(transport=httpx.MockTransport(provider.handle)))
-    return create_services(repository, repository.conversations, transport_factory=lambda: transport)
+    return create_services(repository, repository.conversations, transport_factory=lambda: transport,
+                           background_responses=True)
 
 
 def due(repository, *, expire=False):
