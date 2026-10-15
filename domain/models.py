@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 
 EDITABLE_PART_FIELDS = frozenset({
@@ -180,3 +180,12 @@ class AddStockBatchRequest:
 @dataclass(frozen=True)
 class CreatePartsRequest:
     items: tuple[PartFields, ...]
+
+
+@dataclass(frozen=True)
+class CreatePartOutcome:
+    index: int
+    part: Part
+    status: Literal["added", "skipped"]
+    reason: Literal["existing", "duplicate_input"] | None = None
+    duplicate_of: int | None = None

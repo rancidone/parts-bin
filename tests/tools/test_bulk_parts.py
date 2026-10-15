@@ -35,18 +35,58 @@ async def test_ten_resistors_are_added_in_one_call_and_replayed_once(registry):
     assert changed['error']['code'] == 'conflict'
 
 
-@pytest.mark.parametrize('failure', ['duplicate', 'invalid', 'existing'])
-async def test_add_batch_rolls_back_every_row_on_failure(registry, failure):
+async def test_add_batch_rolls_back_every_row_on_invalid_input(registry):
     batch = items()
-    if failure == 'duplicate':
-        batch[-1] = batch[0]
-    elif failure == 'invalid':
-        batch[-1]['value'] = ''
-    else:
-        assert (await registry.execute('add_part', batch[-1]))['ok']
-    before = registry.service.list()
+    batch[-1]['quantity'] = -1
     assert not (await registry.execute('add_parts', {'items': batch}))['ok']
-    assert registry.service.list() == before
+    assert registry.service.list() == []
+
+
+async def test_bulk_add_skips_normalized_existing_and_repeated_rows_without_changing_stock(registry):
+    existing = (await registry.execute('add_part', {**items()[3], 'quantity': 0}))['result']
+    before = registry.service.get(GetPartRequest(existing['id']))
+    batch = [items()[3], {**items()[3], 'value': '1000 Ω', 'quantity': 99, 'description': 'replacement'},
+             items()[0], {**items()[0], 'value': '1 Ω', 'quantity': 50}]
+    context = ToolExecutionContext(operation_id='dedupe')
+    result = await registry.execute('add_parts', {'items': batch}, context=context)
+    assert result['ok']
+    report = result['result']
+    assert report['count'] == 1 and report['skipped_count'] == 3
+    assert [row['status'] for row in report['items']] == ['skipped', 'skipped', 'added', 'skipped']
+    assert [row['reason'] for row in report['items']] == ['existing', 'duplicate_input', None, 'duplicate_input']
+    assert [row['duplicate_of'] for row in report['items']] == [None, 0, None, 2]
+    assert [row['index'] for row in report['items']] == list(range(4))
+    assert registry.service.get(GetPartRequest(existing['id'])) == before
+    assert report['parts'][0]['quantity'] == 20
+    assert await registry.execute('add_parts', {'items': batch}, context=context) == result
+    again = await registry.execute('add_parts', {'items': batch})
+    assert again['result']['count'] == 0 and again['result']['skipped_count'] == 4
+    assert len(registry.service.list()) == 2
+
+
+async def test_bulk_add_keeps_distinct_packages_suffixes_and_unidentified_groups(registry):
+    batch = [items()[3], {**items()[3], 'package': '0805'},
+             {'part_category': 'bjt', 'profile': 'discrete_ic', 'quantity': 3, 'part_number': 'PBSS5350T,215'},
+             {'part_category': 'bjt', 'profile': 'discrete_ic', 'quantity': 4, 'part_number': 'PBSS5350T,115'},
+             {'part_category': 'connector', 'profile': 'discrete_ic', 'quantity': 5, 'description': 'unmarked connector'}]
+    batch.append(batch[-1].copy())
+    result = await registry.execute('add_parts', {'items': batch})
+    assert result['ok'] and result['result']['count'] == 6
+    assert result['result']['skipped_count'] == 0
+
+
+async def test_bulk_add_rolls_back_insertions_when_later_identity_check_fails(registry):
+    from domain import DomainError, ErrorCode
+    duplicate = PartsBinService.duplicate_for_add
+    def check(self, fields):
+        if fields['value'] == '10':
+            raise DomainError(ErrorCode.CONFLICT, 'Ambiguous stored identity')
+        return duplicate(self, fields)
+    # Bound transaction services inherit the same domain rule, rather than a tool-only check.
+    with patch.object(PartsBinService, 'duplicate_for_add', check):
+        result = await registry.execute('add_parts', {'items': items()[:2]})
+    assert result['error']['code'] == 'conflict'
+    assert registry.service.list() == []
 
 
 async def test_stock_batch_is_atomic_and_idempotent(registry):
@@ -130,11 +170,8 @@ async def test_batch_shape_bounds(registry, name, batch):
     assert (await registry.execute(name, {'items': batch}))['error']['code'] == 'invalid_input'
 
 
-async def test_add_and_dedupe_completes_ten_values_with_two_tool_calls(registry):
-    expression = {'any': [{'filters': {'value': value}} for value in VALUES]}
+async def test_add_and_dedupe_completes_ten_values_with_one_tool_call(registry):
     transport = ScriptedTransport([
-        ModelTurn(tool_calls=(ToolCall('search_parts', {
-            'filters': {'part_category': 'resistor', 'package': '0603'}, 'expression': expression}, 'check'),)),
         ModelTurn(tool_calls=(ToolCall('add_parts', {'items': items()}, 'add'),)),
         ModelTurn('Added all ten values, 20 each.'),
     ])
@@ -143,9 +180,9 @@ async def test_add_and_dedupe_completes_ten_values_with_two_tool_calls(registry)
                                      approvals=ApprovalEngine(repository))
     result = await runtime.run('bulk', 'Add and dedupe ten resistor values, 20 each, 0603 1%.')
     assert result.status == 'completed'
-    assert len(transport.requests) == 3
+    assert len(transport.requests) == 2
     assert len(registry.service.list()) == 10
-    assert [event.data['name'] for event in result.events if event.kind == 'tool_call'] == ['search_parts', 'add_parts']
+    assert [event.data['name'] for event in result.events if event.kind == 'tool_call'] == ['add_parts']
 
 
 async def test_check_inventory_reads_stock_once(registry):

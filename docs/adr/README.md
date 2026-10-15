@@ -80,3 +80,5 @@ Keep unresolved proposals in [TODO](../../TODO.md), commands in
 - [0043: Derive Inventory category options from matching inventory](0043-filtered-inventory-category-options.md)
 
 - [0044: Expose stored inventory through read-only MCP](0044-read-only-inventory-mcp.md)
+
+- [0048: Deduplicate bulk creation in the domain transaction](0048-domain-deduplication-for-bulk-creation.md)

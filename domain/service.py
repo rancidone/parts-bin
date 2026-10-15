@@ -9,7 +9,7 @@ from .repositories import PartsBinRepository, RepositoryConflict, RepositoryBusy
 
 from .errors import DomainError, ErrorCode
 from .models import (
-    CreatePartsRequest, UpdatePartsRequest, AddStockBatchRequest,
+    CreatePartsRequest, CreatePartOutcome, UpdatePartsRequest, AddStockBatchRequest,
     AddPartRequest, AddPartsRequest, AddStockRequest, AdjustStockRequest, ApplyReviewRequest, BulkUpdateRequest,
     CategorySummary, DeletePartRequest, FetchSpecsRequest, GetPartRequest, Part, PartFields,
     ProvenanceRequest, RejectReviewRequest, SearchPartsRequest, SearchCandidatesRequest,
@@ -473,11 +473,28 @@ class PartsBinService:
             raise DomainError(ErrorCode.INVALID_INPUT, "Batch targets must be distinct positive part ids")
 
     @_mutation
-    def create_parts(self, request: CreatePartsRequest) -> list[Part]:
-        """Create distinct records together; duplicates or invalid rows roll back all effects."""
+    def create_parts(self, request: CreatePartsRequest) -> tuple[CreatePartOutcome, ...]:
+        """Atomically add missing identities without changing already counted stock."""
         self._validate_batch(request.items)
-        fields = [PartFields.from_mapping(validate_fields(vars(item))) for item in request.items]
-        return [self.add_part(AddPartRequest(item)) for item in fields]
+        fields = [validate_fields(vars(item)) for item in request.items]
+        outcomes: list[CreatePartOutcome] = []
+        seen: dict[tuple[Any, ...], tuple[int, Part]] = {}
+        for index, item in enumerate(fields):
+            identity = part_identity(item)
+            if identity is not None and identity in seen:
+                previous_index, part = seen[identity]
+                outcome = CreatePartOutcome(index, part, 'skipped', 'duplicate_input', previous_index)
+            else:
+                existing = self.duplicate_for_add(item)
+                if existing is not None:
+                    outcome = CreatePartOutcome(index, existing, 'skipped', 'existing')
+                else:
+                    part = self.add_part(AddPartRequest(PartFields.from_mapping(item)))
+                    outcome = CreatePartOutcome(index, part, 'added')
+                if identity is not None:
+                    seen[identity] = (index, outcome.part)
+            outcomes.append(outcome)
+        return tuple(outcomes)
 
     @_mutation
     def update_parts(self, request: UpdatePartsRequest) -> list[Part]:
