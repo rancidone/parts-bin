@@ -17,6 +17,8 @@ services:
     restart: unless-stopped
   postgres-test:
     profiles: [test]
+    # Keep WAL headroom within the small disposable tmpfs during repeated suites.
+    command: [postgres, -c, max_wal_size=128MB, -c, min_wal_size=32MB, -c, checkpoint_timeout=1min]
     image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
     environment:
       POSTGRES_USER: parts_bin_test

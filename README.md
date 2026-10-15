@@ -223,8 +223,10 @@ npm run test --prefix ui
 npm run build --prefix ui
 ```
 
-Tests also create and remove isolated schemas per session. You can supply your
-own dedicated disposable database through the same environment setting; its
+Tests remove their isolated schemas after each test, including failures, rather
+than retaining the entire suite until process exit. The test container uses a
+small WAL budget and frequent checkpoints so repeated suites fit its tmpfs.
+You can supply your own dedicated disposable database through the same environment setting; its
 login needs schema creation privileges. Never use a production database.
 
 Browser regression tests run the UI against synthetic API responses in Chromium.

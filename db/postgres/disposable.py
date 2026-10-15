@@ -13,6 +13,7 @@ from .setup import initialize
 
 
 _initialized = set()
+_created = set()
 
 
 def isolated_repository(key):
@@ -35,6 +36,8 @@ def isolated_repository(key):
     if schema not in _initialized:
         with base() as connection:
             connection.execute(sql.SQL('CREATE SCHEMA IF NOT EXISTS {}').format(sql.Identifier(schema)))
+        # Track creation before initialization so failed setup is also removable.
+        _created.add(schema)
         initialize(connect)
         _initialized.add(schema)
     repository = PostgresPartsBinRepository(PostgresConfig('isolated', 'test', 'test'), connect=connect,
@@ -46,10 +49,11 @@ def isolated_repository(key):
 
 
 def cleanup():
-    if not _initialized:
+    if not _created:
         return
     dsn = os.environ['PARTS_BIN_TEST_POSTGRES_DSN']
     with psycopg.connect(dsn, autocommit=True) as connection:
-        for schema in _initialized:
+        for schema in tuple(_created):
             connection.execute(sql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(sql.Identifier(schema)))
-    _initialized.clear()
+            _initialized.discard(schema)
+            _created.discard(schema)

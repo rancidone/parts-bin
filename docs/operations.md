@@ -409,7 +409,14 @@ docker compose -f compose.postgres.yaml stop postgres
 The development volume survives container removal. Do not use `down --volumes`
 unless deliberately discarding local inventory. The optional `test` profile uses
 a different port/login and tmpfs instead of a persistent volume. Remove only its
-container after tests using the README command. Both ports bind to loopback.
+container after tests using the README command. Test schemas are released after
+each test, including failures and partially initialized schemas. The test service
+uses a 128 MB WAL checkpoint target, 32 MB minimum WAL and one-minute checkpoints
+to leave tmpfs headroom during repeated runs. WAL limits are soft targets; see
+[PostgreSQL WAL settings](https://www.postgresql.org/docs/16/runtime-config-wal.html).
+After changing the test service configuration, apply it with
+`docker compose -f compose.postgres.yaml --profile test up -d --wait postgres-test`.
+These settings apply only to disposable tests. Both ports bind to loopback.
 Password files in ignored `data/` must remain private. Initialization passwords
 apply only to empty databases; changing a file does not rotate an existing login.
 The [official image documentation](https://hub.docker.com/_/postgres) describes
