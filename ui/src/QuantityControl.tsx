@@ -8,7 +8,7 @@ export function QuantityControl({ part, disabled = false, authoritative = false 
   const quantity = id == null || authoritative ? part.quantity : quantities.get(id) ?? part.quantity
   const saving = id != null && busy.has(id)
   const error = id != null ? errors.get(id) : undefined
-  const label = `${part.part_number || [part.part_category, part.value].filter(Boolean).join(' ')}${id != null ? ` (#${id})` : ''}`
+  const label = `${part.part_number || [part.part_category, part.display_value ?? part.value].filter(Boolean).join(' ')}${id != null ? ` (#${id})` : ''}`
 
   return <div className={styles.container}>
     <div className={styles.control} role="group" aria-label={`Quantity for ${label}`} aria-busy={saving}>

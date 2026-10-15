@@ -23,6 +23,7 @@ from domain import (
 )
 from domain.repositories import StoredOperation
 from domain.specifications import contract
+from domain.nominal import BASE_UNITS
 
 ToolResult = dict[str, Any]
 ApprovalChecker = Callable[[str, dict[str, Any]], bool | Awaitable[bool]]
@@ -32,6 +33,7 @@ _FIELDS = {
     "profile": {"type": "string", "enum": ["passive", "discrete_ic"]},
     "quantity": {"type": "integer", "minimum": 0},
     "value": {"type": ["string", "null"]},
+    "value_unit": {"type": ["string", "null"], "enum": [None, *BASE_UNITS], "description": "Base unit of a decimal nominal value: Ω, F, H, A, V, W, Hz, s, m, cd, VA, %, ratio or V/s. Explicit units in value are also accepted. Known passive categories imply their unit."},
     "package": {"type": ["string", "null"]},
     "part_number": {"type": ["string", "null"]},
     "manufacturer": {"type": ["string", "null"]},
@@ -197,7 +199,7 @@ class PartsBinToolRegistry:
         if name == "check_inventory":
             result = self.service.check_inventory(CheckInventoryRequest(tuple(
                 InventoryCheckItem(item["filters"], item.get("quantity")) for item in args["items"])))
-            fields = ("id", "part_number", "part_category", "value", "package", "quantity")
+            fields = ("id", "part_number", "part_category", "value", "value_unit", "display_value", "package", "quantity")
             return {**result, "items": [
                 {**item, "parts": [{key: getattr(part, key) for key in fields} for part in item["parts"]]}
                 for item in result["items"]]}
@@ -268,7 +270,7 @@ class PartsBinToolRegistry:
 
 
 def _compact_part(part: Any) -> dict[str, Any]:
-    return {"id": part.id, "part_category": part.part_category, "profile": part.profile, "value": part.value,
+    return {"id": part.id, "part_category": part.part_category, "profile": part.profile, "value": part.value, "value_unit": part.value_unit, "display_value": part.display_value,
             "package": part.package, "part_number": part.part_number, "quantity": part.quantity,
             "manufacturer": part.manufacturer, "description": part.description}
 
@@ -374,7 +376,7 @@ _FACTS_SCHEMA = {'type': 'array', 'minItems': 1, 'maxItems': 20, 'items': {
 }}
 
 _SEARCH_FILTER_SCHEMA = {"type": "object", "additionalProperties": False, "properties": {
-    key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}}
+    key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "value_unit", "package", "part_number"}}}
 _EXPRESSION_SCHEMA = {"type": "object", "additionalProperties": False, "properties": {
     "filters": _SEARCH_FILTER_SCHEMA,
     "all": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/$defs/search_expression"}},
@@ -383,10 +385,10 @@ _EXPRESSION_SCHEMA = {"type": "object", "additionalProperties": False, "properti
 
 _TOOL_DEFINITIONS = [
     _tool("list_categories", "Discover exact category names in committed inventory before choosing category filters for search_parts. Returns part_category, part_count (distinct stock records), and total_quantity (sum of stored quantities). Includes categories whose stock is zero. Pending reviews are excluded. These counts do not establish electrical suitability; search_parts retrieves the relevant stock.", {}),
-    _tool("search_parts", "Search committed inventory. Use expression for nested all (AND) / any (OR) groups of filters, combined with top-level filters and minimum_quantity. Check many values in one expression; results contain each matching record once. Expression searches return exact filter matches only, without nearby nominal alternatives. Exact and incomplete pages are ordered by part id; partial matches are ranked by most confirmed requirements, fewer unqualified requirements, fewer mismatches, then normalized numeric shortfall and part id. Start with offset 0; when next_offset is non-null, reuse the same filters, requirements, minimum_quantity, and limit with that offset. Counts cover all results. For specification searches, limit and offset apply separately to matches, incomplete candidates and partial matches (at most 3 * limit records per page). next_offset is null when all groups are exhausted. If inventory or accepted facts change, restart pagination. Known category synonyms (opamp, LDO/linear_regulator, buck_converter, LEDs) match without rewriting stock identity. Passive values compare equivalent nominal units (10 kΩ = 10000r, 0.1 µF = 100nF). Package and full part number match exactly; omit an uncertain package and ask for clarification. minimum_quantity is available stock per record. Discover supported specification requirements with get_specification_contract before querying requirements. Returns confirmed matches with supporting source evidence separately from incomplete candidates and explicitly labeled partial_matches. Partial matches retain every failed requirement with its requested value, actual fact and source evidence, plus unresolved qualifiers. With an explicit passive category and value filter, nearby nominal values also appear as partial matches with filter_mismatches; package, full ordering code and minimum stock remain exact. Always call these partial matches and explain each mismatch; never claim they meet all requirements, are interchangeable, or allocate them in a BOM without the user choosing to relax requirements. All qualifiers and conditions must match the specification contract: accepted operating minimum/maximum facts can cover contained requested condition intervals; other bases require equal conditions. Test points, typical values and stress ratings do not establish operating coverage.", {"filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}}, "expression": {"$ref": "#/$defs/search_expression"}, "requirements": _REQUIREMENTS_SCHEMA, "minimum_quantity": {"type": "integer", "minimum": 0}, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},),
+    _tool("search_parts", "Search committed inventory. Use expression for nested all (AND) / any (OR) groups of filters, combined with top-level filters and minimum_quantity. Check many values in one expression; results contain each matching record once. Expression searches return exact filter matches only, without nearby nominal alternatives. Exact and incomplete pages are ordered by part id; partial matches are ranked by most confirmed requirements, fewer unqualified requirements, fewer mismatches, then normalized numeric shortfall and part id. Start with offset 0; when next_offset is non-null, reuse the same filters, requirements, minimum_quantity, and limit with that offset. Counts cover all results. For specification searches, limit and offset apply separately to matches, incomplete candidates and partial matches (at most 3 * limit records per page). next_offset is null when all groups are exhausted. If inventory or accepted facts change, restart pagination. Known category synonyms (opamp, LDO/linear_regulator, buck_converter, LEDs) match without rewriting stock identity. Nominal values are returned as exact decimal base units in value, with value_unit and display_value. Filters accept decimal base units or explicit-unit labels; include value_unit or explicit units for ambiguous categories. Passive values compare equivalent nominal units (10 kΩ = 10000r, 0.1 µF = 100nF). Package and full part number match exactly; omit an uncertain package and ask for clarification. minimum_quantity is available stock per record. Discover supported specification requirements with get_specification_contract before querying requirements. Returns confirmed matches with supporting source evidence separately from incomplete candidates and explicitly labeled partial_matches. Partial matches retain every failed requirement with its requested value, actual fact and source evidence, plus unresolved qualifiers. With an explicit passive category and value filter, nearby nominal values also appear as partial matches with filter_mismatches; package, full ordering code and minimum stock remain exact. Always call these partial matches and explain each mismatch; never claim they meet all requirements, are interchangeable, or allocate them in a BOM without the user choosing to relax requirements. All qualifiers and conditions must match the specification contract: accepted operating minimum/maximum facts can cover contained requested condition intervals; other bases require equal conditions. Test points, typical values and stress ratings do not establish operating coverage.", {"filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "value_unit", "package", "part_number"}}}, "expression": {"$ref": "#/$defs/search_expression"}, "requirements": _REQUIREMENTS_SCHEMA, "minimum_quantity": {"type": "integer", "minimum": 0}, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}},),
     _tool("search_candidates", "Find candidate stock by whitespace-separated, case-insensitive literal terms across committed descriptions, manufacturers, part numbers, categories, values, and packages. Every term must match the same stock record, possibly in different fields. For example, Nexperia 5350 SOT23 combines manufacturer, part fragment and package. Markings can be found only if recorded. Use search terms, not a natural-language question; punctuation is literal, with no wildcard or quotation operators. Text candidates do not establish nominal-unit equivalence or electrical suitability. Optional filters use search_parts exact identity and nominal-value rules; minimum_quantity applies per record. Results are candidates, not verified identities, interchangeable stock, or evidence of electrical suitability. Preserve every returned ordering suffix and quantity; clarify ambiguous markings before adding or merging stock. Pending proposals are excluded. Results are ordered by id and bounded by limit. Start with offset 0 and follow next_offset with the same query, filters, minimum_quantity, and limit until null. Counts cover all candidates. Restart if inventory changes.", {
         "query": {"type": "string", "minLength": 1},
-        "filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "package", "part_number"}}},
+        "filters": {"type": "object", "additionalProperties": False, "properties": {key: value for key, value in _FIELDS.items() if key in {"part_category", "profile", "value", "value_unit", "package", "part_number"}}},
         "minimum_quantity": {"type": "integer", "minimum": 0},
         "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100},
     }, required=["query"]),
@@ -395,7 +397,7 @@ _TOOL_DEFINITIONS = [
             "type": "object", "additionalProperties": False,
             "properties": {
                 "filters": {"type": "object", "additionalProperties": False, "properties": {
-                    key: {"type": "string", "minLength": 1} for key in ("part_number", "part_category", "value", "package")}},
+                    key: {"type": "string", "minLength": 1} for key in ("part_number", "part_category", "value", "value_unit", "package")}},
                 "quantity": {"type": "integer", "minimum": 1}},
             "required": ["filters"]}},
     }, required=["items"]),

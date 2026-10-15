@@ -178,7 +178,7 @@ def test_edit_normalizes_value_and_agent_search_finds_it(client):
         'resistor', 'passive', 5, value='10K', package='0603')))
     edited = http.patch(f'/inventory/{added.id}', json={'part': {'value': '22K'}})
     assert edited.status_code == 200
-    assert edited.json()['part']['value'] == '22k'
+    assert edited.json()['part']['value'] == '22000'
     found = service.search(SearchPartsRequest({'part_category': 'resistor', 'value': '22K'}))
     assert [part.id for part in found] == [added.id]
 
@@ -698,9 +698,9 @@ def test_inventory_suggestions_cross_filter_with_shared_units_and_per_record_sto
         ({'category': 'resistor', 'value': '10000 Ω', 'package': '0603', 'minimum_quantity': 4},
          {'values': [], 'packages': ['0402']}),
         ({'category': 'resistor', 'value': '10000 Ω', 'minimum_quantity': 8}, {'values': [], 'packages': []}),
-        ({'category': 'capacitor', 'value': '0.1 µF'}, {'values': ['100n'], 'packages': ['0402']}),
-        ({'category': 'resistor', 'value': '10 MΩ'}, {'values': ['0.01r', '10k', '10m', '22k', '47k'], 'packages': ['SOT23']}),
-        ({'category': 'resistor', 'value': '10 mΩ'}, {'values': ['0.01r', '10k', '10m', '22k', '47k'], 'packages': ['SOT-23']}),
+        ({'category': 'capacitor', 'value': '0.1 µF'}, {'values': ['100nF'], 'packages': ['0402']}),
+        ({'category': 'resistor', 'value': '10 MΩ'}, {'values': ['0R01', '10M', '10k', '22k', '47k'], 'packages': ['SOT23']}),
+        ({'category': 'resistor', 'value': '10 mΩ'}, {'values': ['0R01', '10M', '10k', '22k', '47k'], 'packages': ['SOT-23']}),
         ({'package': 'sot23'}, {'values': [], 'packages': ['0402', '0603', '0805', 'SOT-23', 'SOT23']}),
     ]:
         response = http.get('/inventory/search/suggestions', params=params)

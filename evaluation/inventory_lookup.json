@@ -458,7 +458,7 @@
         "parts_count": 2,
         "part_assertions": {
           "1": {
-            "value": "220n",
+            "value": "0.00000022",
             "package": "0603",
             "quantity": 10
           }

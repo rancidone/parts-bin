@@ -36,8 +36,8 @@ export function PartResults({ parts, count, truncated, onOpenPart }: { parts: Pa
           <details className={styles.part}>
             <summary className={styles.row}>
               <span className={styles.identity}>{part.id != null && onOpenPart
-                ? <button className={styles.partLink} onClick={event => { event.preventDefault(); onOpenPart(part.id!) }} aria-label={`View part #${part.id} in inventory`}>{part.profile === 'passive' ? [part.part_category, part.value].filter(Boolean).join(' · ') : part.part_number || part.part_category}</button>
-                : part.profile === 'passive' ? [part.part_category, part.value].filter(Boolean).join(' · ') : part.part_number || part.part_category}</span>
+                ? <button className={styles.partLink} onClick={event => { event.preventDefault(); onOpenPart(part.id!) }} aria-label={`View part #${part.id} in inventory`}>{part.profile === 'passive' ? [part.part_category, part.display_value ?? part.value].filter(Boolean).join(' · ') : part.part_number || part.part_category}</button>
+                : part.profile === 'passive' ? [part.part_category, part.display_value ?? part.value].filter(Boolean).join(' · ') : part.part_number || part.part_category}</span>
               <span className={styles.package}>{part.package || 'Package unknown'}</span>
               <span className={styles.quantity}>Qty: {(part.id != null ? quantities.get(part.id) : undefined) ?? part.quantity}</span>
             </summary>

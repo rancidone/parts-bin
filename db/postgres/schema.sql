@@ -5,10 +5,11 @@ CREATE TABLE IF NOT EXISTS pb_revision (
 CREATE TABLE IF NOT EXISTS parts (
     id BIGINT PRIMARY KEY, part_category TEXT NOT NULL,
     profile TEXT NOT NULL CHECK(profile IN ('passive', 'discrete_ic')),
-    value TEXT, package TEXT, part_number TEXT UNIQUE, quantity BIGINT NOT NULL,
+    value TEXT, value_unit TEXT, package TEXT, part_number TEXT UNIQUE, quantity BIGINT NOT NULL,
     manufacturer TEXT, description TEXT, datasheet_url TEXT,
     passive_identity TEXT UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
+ALTER TABLE parts ADD COLUMN IF NOT EXISTS value_unit TEXT;
 CREATE TABLE IF NOT EXISTS part_field_provenance (
     part_id BIGINT NOT NULL REFERENCES parts(id), field_name TEXT NOT NULL,
     field_value TEXT, source_tier TEXT NOT NULL, source_kind TEXT NOT NULL,

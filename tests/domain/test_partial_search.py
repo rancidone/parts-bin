@@ -45,7 +45,7 @@ async def test_nearby_nominal_values_are_explicit_bounded_and_do_not_fill_a_bom(
     assert first['partial_match_count'] == 2
     assert first['partial_matches'][0]['part']['id'] == nearer.id
     mismatch = first['partial_matches'][0]['filter_mismatches'][0]
-    assert mismatch['requested'] == requested and mismatch['actual'] == close
+    assert mismatch['requested'] == requested and mismatch['actual'] == nearer.value
     assert first['partial_matches'][0]['match_kind'] == 'partial'
     assert first['next_offset'] == 1
     second = (await registry.execute('search_parts', {**request, 'offset': 1}))['result']
@@ -101,7 +101,7 @@ async def test_electrical_and_nominal_partial_matches_rank_and_report_all_misses
     assert partial[1]['matched_requirement_count'] == 1
     assert partial[3]['failed_requirements'] == [{'requirement': query, 'fact': stored} for query, stored in zip(queries, two_facts)]
     assert partial[4]['missing_or_unqualified'] == ['tolerance']
-    assert partial[0]['filter_mismatches'][0]['actual'] == '9.9k'
+    assert partial[0]['filter_mismatches'][0]['actual'] == nominal_near.value
     assert all(row['match_kind'] == 'partial' for row in partial)
     assert restarted.list() == before
     assert restarted.get_specifications(two_failures.id)['facts'] == two_facts

@@ -8,7 +8,7 @@ from domain.repositories import RepositoryConflict
 from .connection import Adapter, access
 from .records import encode
 
-_METADATA = ('part_category', 'profile', 'value', 'package', 'part_number', 'manufacturer')
+_METADATA = ('part_category', 'profile', 'value', 'package', 'part_number', 'manufacturer', 'value_unit')
 _FIELDS = tuple(sorted(EDITABLE_PART_FIELDS))
 
 
@@ -80,6 +80,21 @@ class PostgresInventoryRepository(Adapter):
         changes['updated_at'] = now()
         self.execute('UPDATE parts SET ' + ', '.join(f'{key} = %s' for key in changes) + ' WHERE id = %s',
                      (*changes.values(), part_id))
+
+    @access(write=True)
+    def rewrite_nominal_values(self, updates):
+        """Persist a domain-approved representation migration without clearing evidence."""
+        reviews = self.specification_reviews()
+        for part_id, fields in updates:
+            before = self._spec_snapshot(part_id)
+            self._replace(part_id, fields)
+            review = reviews.get(part_id)
+            if review:
+                snapshot = {**review['snapshot'], 'metadata': {'value_unit': None, **review['snapshot']['metadata']}}
+                if snapshot == before:
+                    snapshot['metadata'].update(fields)
+                    self.execute('UPDATE part_specification_reviews SET snapshot_json = %s WHERE part_id = %s',
+                                 (encode(snapshot), part_id))
 
     @access(write=True)
     def delete(self, part_id):
@@ -192,7 +207,7 @@ class PostgresInventoryRepository(Adapter):
     @access(write=True)
     def apply_specification_review(self, part_id):
         review = self.specification_reviews().get(part_id)
-        if review is None or review['snapshot'] != self._spec_snapshot(part_id):
+        if review is None or {**review['snapshot'], 'metadata': {'value_unit': None, **review['snapshot']['metadata']}} != self._spec_snapshot(part_id):
             raise RepositoryConflict('Specification review or target changed')
         current = {fact['name']: fact for fact in self.specifications(part_id)}
         current.update({fact['name']: fact for fact in review['facts']})

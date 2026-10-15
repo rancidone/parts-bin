@@ -3,31 +3,31 @@ from domain.normalization import normalize_value
 
 class TestNormalizeResistance:
     def test_bare_r(self):
-        assert normalize_value("10R", "resistor") == "10r"
+        assert normalize_value("10R", "resistor") == '10'
 
     def test_ohm_suffix(self):
-        assert normalize_value("10ohm", "resistor") == "10r"
+        assert normalize_value("10ohm", "resistor") == '10'
 
     def test_k(self):
-        assert normalize_value("10K", "resistor") == "10k"
+        assert normalize_value("10K", "resistor") == '10000'
 
     def test_kohm(self):
-        assert normalize_value("10kohm", "resistor") == "10k"
+        assert normalize_value("10kohm", "resistor") == '10000'
 
     def test_mega(self):
-        assert normalize_value("1M", "resistor") == "1m"
+        assert normalize_value("1M", "resistor") == '1000000'
 
     def test_eia_2r2(self):
-        assert normalize_value("2R2", "resistor") == "2.2r"
+        assert normalize_value("2R2", "resistor") == '2.2'
 
     def test_eia_5k1(self):
-        assert normalize_value("5K1", "resistor") == "5.1k"
+        assert normalize_value("5K1", "resistor") == '5100'
 
     def test_eia_1m5(self):
-        assert normalize_value("1M5", "resistor") == "1.5m"
+        assert normalize_value("1M5", "resistor") == '1500000'
 
     def test_decimal(self):
-        assert normalize_value("2.2", "resistor") == "2.2r"
+        assert normalize_value("2.2", "resistor") == '2.2'
 
     def test_case_insensitive(self):
         assert normalize_value("10k", "resistor") == normalize_value("10K", "resistor")
@@ -35,35 +35,35 @@ class TestNormalizeResistance:
 
 class TestNormalizeCapacitance:
     def test_nf(self):
-        assert normalize_value("100nF", "capacitor") == "100n"
+        assert normalize_value("100nF", "capacitor") == '0.0000001'
 
     def test_uf_to_u(self):
-        assert normalize_value("0.1uF", "capacitor") == "0.1u"
+        assert normalize_value("0.1uF", "capacitor") == '0.0000001'
 
     def test_pf(self):
-        assert normalize_value("100pF", "capacitor") == "100p"
+        assert normalize_value("100pF", "capacitor") == '0.0000000001'
 
     def test_eia_2n2(self):
-        assert normalize_value("2n2", "capacitor") == "2.2n"
+        assert normalize_value("2n2", "capacitor") == '0.0000000022'
 
     def test_eia_4u7(self):
-        assert normalize_value("4u7", "capacitor") == "4.7u"
+        assert normalize_value("4u7", "capacitor") == '0.0000047'
 
 
 class TestNormalizeInductance:
     def test_uh(self):
-        assert normalize_value("10uH", "inductor") == "10u"
+        assert normalize_value("10uH", "inductor") == '0.00001'
 
     def test_mh(self):
-        assert normalize_value("0.01mH", "inductor") == "0.01m"
+        assert normalize_value("0.01mH", "inductor") == '0.00001'
 
     def test_eia_4u7(self):
-        assert normalize_value("4u7", "inductor") == "4.7u"
+        assert normalize_value("4u7", "inductor") == '0.0000047'
 
 
 class TestNormalizeUnknownCategory:
     def test_passthrough_lowercased(self):
-        assert normalize_value("ABC123", "transistor") == "abc123"
+        assert normalize_value("ABC123", "transistor") == 'abc123'
 
 
 

@@ -10,7 +10,7 @@ interface Props {
 
 export function PartCard({ part, added, onOpenPart }: Props) {
   const label = part.profile === 'passive'
-    ? [part.part_category, part.value, part.package].filter(Boolean).join(' · ')
+    ? [part.part_category, part.display_value ?? part.value, part.package].filter(Boolean).join(' · ')
     : [part.part_category, part.part_number, part.package].filter(Boolean).join(' · ')
 
   return (

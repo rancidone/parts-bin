@@ -616,3 +616,12 @@ test('category options reflect other filters and preserve a nonmatching bookmark
   await expect(options).toHaveCount(4)
   expect(f.requests.every(request => request.method === 'GET')).toBe(true)
 })
+
+test('inventory displays the domain label while preserving decimal values for editing', async ({ context, page }) => {
+  await fixture(context, [{ id: 200, part_category: 'resistor', profile: 'passive', value: '2.2',
+    value_unit: 'Ω', display_value: '2R2', package: '0603', part_number: null, manufacturer: null,
+    description: 'Canonical nominal quantity', quantity: 20 }])
+  await page.goto('/#/inventory?category=resistor')
+  await expect(page.getByRole('cell', { name: '2R2', exact: true })).toBeVisible()
+  await expect(page.getByRole('cell', { name: '2.2', exact: true })).toHaveCount(0)
+})

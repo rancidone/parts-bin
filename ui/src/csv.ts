@@ -3,6 +3,7 @@ import type { Part } from './types'
 const COLUMNS: (keyof Part)[] = [
   'part_category',
   'value',
+  'value_unit',
   'package',
   'quantity',
   'part_number',

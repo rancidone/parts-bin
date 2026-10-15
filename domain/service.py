@@ -18,6 +18,7 @@ from .models import (
 )
 from .normalization import normalize_part_payload, part_identity, validate_fields, clean_text
 
+from .nominal import nominal_for_category
 from .search import values_match, nominal_value, nominal_mismatch, search_category
 from . import specifications
 from .quantities import interval
@@ -121,7 +122,7 @@ class PartsBinService:
                 or request.minimum_quantity < 0):
             raise DomainError(ErrorCode.INVALID_INPUT, "minimum_quantity must be a non-negative integer")
         filters = {name: clean_text(value) for name, value in request.filters.items()}
-        unknown = set(filters) - {"part_category", "profile", "value", "package", "part_number"}
+        unknown = set(filters) - {"part_category", "profile", "value", "package", "part_number", "value_unit"}
         if unknown:
             raise DomainError(ErrorCode.INVALID_INPUT, "unsupported search field", details={"fields": sorted(unknown)})
         if any(value is not None and not isinstance(value, str) for value in filters.values()):
@@ -135,6 +136,7 @@ class PartsBinService:
         if category_alias:
             filters.pop("part_category")
         value = filters.pop("value", None)
+        value_unit = filters.pop("value_unit", None)
         if candidates is None:
             candidates = self.repository.inventory.search(filters)
         else:
@@ -145,15 +147,12 @@ class PartsBinService:
                           if search_category(part.part_category) == search_category(category)]
         if value is None:
             return [part for part in candidates
-                    if part.quantity >= request.minimum_quantity]
+                    if part.quantity >= request.minimum_quantity and (value_unit is None or part.value_unit == value_unit)]
         matches = []
         for part in candidates:
-            if part.value is None or part.quantity < request.minimum_quantity:
+            if part.value is None or part.quantity < request.minimum_quantity or value_unit is not None and part.value_unit != value_unit:
                 continue
-            if part.part_category.lower() in {"resistor", "capacitor", "inductor"}:
-                matched = values_match(part.value, value, part.part_category)
-            else:
-                matched = part.value == value
+            matched = values_match(part.value, value, part.part_category, part.value_unit)
             if matched:
                 matches.append(part)
         return matches
@@ -168,7 +167,7 @@ class PartsBinService:
                 return self.search_candidates(SearchCandidatesRequest(query, filters, request.minimum_quantity))
             return self.search(SearchPartsRequest(filters, request.minimum_quantity))
         values, packages, categories = matches("value"), matches("package"), matches("part_category")
-        return {"values": sorted({part.value for part in values if part.value and part.value.strip()}),
+        return {"values": sorted({part.display_value for part in values if part.value and part.value.strip()}),
                 "packages": sorted({part.package for part in packages if part.package and part.package.strip()}),
                 "categories": sorted({part.part_category for part in categories if part.part_category.strip()})}
 
@@ -185,7 +184,7 @@ class PartsBinService:
         def matches(part: Part) -> bool:
             fields = tuple((text or "").casefold() for text in (
                 part.description, part.manufacturer, part.part_number,
-                part.part_category, part.value, part.package))
+                part.part_category, part.value, part.value_unit, part.display_value, part.package))
             return all(any(term in text for text in fields) for term in terms)
         return sorted((part for part in parts if matches(part)), key=lambda part: part.id)
 
@@ -492,6 +491,38 @@ class PartsBinService:
         self._validate_batch(request.items, part_ids=tuple(item.part_id for item in request.items))
         return [self.add_stock(item) for item in request.items]
 
+    def plan_nominal_normalization(self) -> dict:
+        """Preview exact representation changes; never merge historical stock."""
+        changes, unknown, identities = [], [], {}
+        for part in self.list():
+            fields = vars(part)
+            if part.value is not None:
+                quantity = nominal_for_category(part.value, part.part_category, part.value_unit)
+                if quantity:
+                    fields = {**fields, 'value': quantity.decimal, 'value_unit': quantity.unit}
+                    if (part.value, part.value_unit) != (quantity.decimal, quantity.unit):
+                        changes.append({'part_id': part.id, 'before': {'value': part.value, 'value_unit': part.value_unit},
+                                        'after': {'value': quantity.decimal, 'value_unit': quantity.unit}})
+                else:
+                    unknown.append(part.id)
+            identity = part_identity(fields)
+            if identity is not None:
+                identities.setdefault(identity, []).append(part.id)
+        return {'changes': changes, 'unparsed_part_ids': unknown,
+                'conflicting_part_ids': [ids for ids in identities.values() if len(ids) > 1]}
+
+    @_mutation
+    def normalize_nominal_values(self) -> dict:
+        plan = self.plan_nominal_normalization()
+        if plan['conflicting_part_ids']:
+            raise DomainError(ErrorCode.CONFLICT, 'Canonical nominal values collide; resolve identities without merging stock',
+                              details={'part_ids': plan['conflicting_part_ids']})
+        try:
+            self.repository.inventory.rewrite_nominal_values([(item['part_id'], item['after']) for item in plan['changes']])
+        except RepositoryConflict as exc:
+            raise DomainError(ErrorCode.CONFLICT, 'Nominal value migration conflicts with existing stock') from exc
+        return plan
+
     def duplicate_for_add(self, fields: Mapping[str, Any]) -> Part | None:
         candidate = normalize_part_payload(dict(fields))
         if part_identity(candidate) is None:
@@ -726,8 +757,9 @@ class PartsBinService:
         updates = {name: value for name, value in fields.items() if value is not None}
         cleaned = validate_fields({**vars(current), **updates})
         updates = {name: cleaned[name] for name in updates}
-        if "part_category" in updates and cleaned["value"] != current.value:
-            updates["value"] = cleaned["value"]
+        if 'value' in updates or 'part_category' in updates or 'value_unit' in updates:
+            updates['value'] = cleaned['value']
+            updates['value_unit'] = cleaned.get('value_unit')
         self._check_replacement_identities([(part_id, {**vars(current), **updates})])
         try:
             self.repository.inventory.update_with_provenance(part_id, updates, [dict(item) for item in provenance])
@@ -745,7 +777,7 @@ class PartsBinService:
                 identities.setdefault(identity, []).append(part.id)
         for part_id, fields in updates:
             current = self.get(GetPartRequest(part_id))
-            identity_fields = ('part_category', 'profile', 'value', 'package', 'part_number', 'manufacturer')
+            identity_fields = ('part_category', 'profile', 'value', 'package', 'part_number', 'manufacturer', 'value_unit')
             if any(fields.get(key, getattr(current, key)) != getattr(current, key) for key in identity_fields):
                 if (self.repository.inventory.specifications(part_id) or
                         part_id in self.repository.inventory.specification_reviews()):

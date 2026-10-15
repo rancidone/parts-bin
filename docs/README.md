@@ -10,3 +10,5 @@
 Keep configuration keys in [the sample config](../config.example.toml) and
 implementation details in code and tests. Record changed decisions in new ADRs
 rather than growing general design documents.
+
+For canonical decimal nominal quantities and explicit conversion of an existing installation, see [nominal values](nominal-values.md).
