@@ -3,7 +3,7 @@ import type { Part } from './types'
 import styles from './BulkEditor.module.css'
 
 const fields = [
-  ['part_category', 'Category'], ['profile', 'Profile'], ['value', 'Value'],
+  ['part_category', 'Category'], ['profile', 'Profile'], ['value', 'Value'], ['value_unit', 'Value unit'],
   ['package', 'Package'], ['part_number', 'Part number'], ['manufacturer', 'Manufacturer'],
   ['quantity', 'Quantity'], ['datasheet_url', 'Datasheet link'], ['description', 'Description'],
 ] as const

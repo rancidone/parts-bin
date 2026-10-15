@@ -61,6 +61,7 @@ def projected(connection, table, rows):
         if table == 'parts':
             values['passive_identity'] = passive_identity(values)
             values.setdefault('datasheet_url', None)
+            values.setdefault('value_unit', None)
         if table == 'part_field_provenance':
             values.setdefault('evidence', None)
         converted.append({name: values[name] for name in columns})

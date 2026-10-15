@@ -61,9 +61,11 @@ def test_combined_lookup_preserves_distinct_stock_and_ignores_pending_values(tmp
     repository = TestRepository(tmp_path / 'parts.db')
     service = PartsBinService(repository)
     first = add(service)
-    equivalent = add(service, value='0.1uF')
+    # Legacy equivalent rows remain separate until explicitly resolved.
+    equivalent_id = repository.inventory.insert(vars(PartFields('capacitor', 'passive', 4, value='0.1uF', package='0603')))
+    equivalent = repository.inventory.get(equivalent_id)
     add(service, package='0402')
-    add(service, value='100000pF', quantity=3)
+    repository.inventory.insert(vars(PartFields('capacitor', 'passive', 3, value='100000pF', package='0603')))
     add(service, value=None, package='0805')
     pending = add(service, value='220nF')
     repository.inventory.save_pending_review(pending.id, {'value': '0.100uF'}, [{
@@ -75,11 +77,12 @@ def test_combined_lookup_preserves_distinct_stock_and_ignores_pending_values(tmp
     assert {part.id for part in service.search(query)} == {first.id, equivalent.id}
     assert service.list() == before
     assert first.id != equivalent.id  # nominal equivalence does not merge stock identities
-    assert service.add_or_increment(AddPartRequest(
-        PartFields('capacitor', 'passive', 2, value='0.1uF', package='0603'))).id == equivalent.id
+    with pytest.raises(DomainError, match='Multiple inventory records'):
+        service.add_or_increment(AddPartRequest(PartFields('capacitor', 'passive', 2, value='0.1uF', package='0603')))
     assert repository.inventory.get(first.id) == first
-    accepted = service.apply_review(ApplyReviewRequest(pending.id))
-    assert accepted in service.search(query)
+    with pytest.raises(DomainError, match='conflicts'):
+        service.apply_review(ApplyReviewRequest(pending.id))
+    assert pending.id in service.list_pending_reviews()
 
 
 @pytest.mark.parametrize('quantity', [-1, True, 1.5, '4', None])

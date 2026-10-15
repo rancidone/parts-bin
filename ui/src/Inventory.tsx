@@ -240,6 +240,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
         part_category: draft.part_category.trim(),
         profile: draft.profile.trim(),
         value: draft.value?.trim() || null,
+        value_unit: draft.value_unit?.trim() || null,
         package: draft.package?.trim() || null,
         part_number: draft.part_number?.trim() || null,
         manufacturer: draft.manufacturer?.trim() || null,
@@ -506,7 +507,7 @@ export function Inventory({ active, selectedPartId, onClearSelection }: { active
                     <tr key={p.id ?? i} className={`${styles.row} ${review ? styles.rowPending : ''}`}>
                       <td className={styles.td}><input type="checkbox" aria-label={`Select part #${id}`} checked={bulkIds.has(id)} disabled={p.id == null || (!bulkIds.has(id) && bulkIds.size >= 100)} onChange={event => { if (event.target.checked && !parts.some(part => part.id === id)) setParts(prev => [...prev, p]); setBulkIds(prev => { const next = new Set(prev); if (event.target.checked) next.add(id); else next.delete(id); return next }) }} /></td>
                       <td className={styles.td}>{p.part_category}</td>
-                      <td className={styles.td}>{p.value ?? '—'}</td>
+                      <td className={styles.td}>{p.display_value ?? p.value ?? '—'}</td>
                       <td className={styles.td}>{p.package ?? '—'}</td>
                       <td className={styles.td}><QuantityControl part={p} authoritative={searching} disabled={isEditing || deleting.has(id) || accepting.has(id)} /></td>
                       <td className={styles.td}>{p.part_number ?? '—'}{p.datasheet_url && <div><a href={p.datasheet_url} target="_blank" rel="noreferrer">Datasheet</a></div>}</td>

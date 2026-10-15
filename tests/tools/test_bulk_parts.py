@@ -109,7 +109,7 @@ async def test_nested_and_or_search_is_one_inventory_read_with_exact_pagination(
     assert page['next_offset'] == 1
     final = await registry.execute('search_parts', {**args, 'offset': 1})
     assert final['result']['next_offset'] is None
-    assert {page['parts'][0]['value'], final['result']['parts'][0]['value']} == {'1k', '120r'}
+    assert {page['parts'][0]['value'], final['result']['parts'][0]['value']} == {'1000', '120'}
 
 
 @pytest.mark.parametrize('expression', [

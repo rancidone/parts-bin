@@ -46,7 +46,7 @@ function SpecificationMatch({ part, facts, missing, partial }: { part: Part; fac
   const comparison = (op: string) => ({ eq: 'equal to', gte: 'at least', lte: 'at most' })[op] ?? op
   return <article className={styles.card} aria-label={`Part ${part.id}: ${status}`}>
     <div className={styles.cardHeader}>
-      <div className={styles.identity}><strong>{[part.part_category, part.value, part.package].filter(Boolean).join(' · ')}</strong>
+      <div className={styles.identity}><strong>{[part.part_category, part.display_value ?? part.value, part.package].filter(Boolean).join(' · ')}</strong>
         <span>{part.part_number ?? 'Ordering code unknown'} · <a href={`#/inventory/${part.id}`}>Part #{part.id}</a></span></div>
       <span className={styles.stock}>{part.quantity} in stock</span>
     </div>

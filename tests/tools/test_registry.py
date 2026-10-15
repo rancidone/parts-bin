@@ -24,7 +24,7 @@ async def test_registry_is_schema_first_and_search_is_compact(registry):
     added = await registry.execute("add_part", {**vars(_fields()), "quantity": 2})
     assert added["ok"] is True
     found = await registry.execute("search_parts", {"filters": {"part_category": "resistor"}})
-    assert found["result"]["parts"] == [{"id": 1, "part_category": "resistor", "profile": "passive", "value": "10k", "package": "0402", "part_number": None, "quantity": 2, "manufacturer": None, "description": None}]
+    assert found["result"]["parts"] == [{"id": 1, "part_category": "resistor", "profile": "passive", "value": "10000", "value_unit": "Ω", "display_value": "10k", "package": "0402", "part_number": None, "quantity": 2, "manufacturer": None, "description": None}]
     assert "created_at" not in found["result"]["parts"][0]
 
 
@@ -174,7 +174,7 @@ async def test_approved_edit_is_found_by_equivalent_value_notation(registry):
     arguments = {'part_id': part_id, 'fields': {'value': '5K1'}}
     edited = await registry.execute('update_part', arguments,
         context=ToolExecutionContext(ApprovalReceipt.issue('update_part', arguments)))
-    assert edited['ok'] and edited['result']['value'] == '5.1k'
+    assert edited['ok'] and edited['result']['value'] == '5100'
     found = await registry.execute('search_parts', {'filters': {
         'part_category': 'resistor', 'value': '5K1', 'package': '0402',
     }})

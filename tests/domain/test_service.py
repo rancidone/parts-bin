@@ -21,7 +21,7 @@ def fields(**overrides):
 def test_add_part_normalizes_and_rejects_duplicate(tmp_path):
     service = PartsBinService(TestRepository(tmp_path / "parts.db"))
     part = service.add_part(AddPartRequest(fields()))
-    assert part.value == "10k"
+    assert part.value == "10000"
     with pytest.raises(DomainError) as error:
         service.add_part(AddPartRequest(fields()))
     assert error.value.code == ErrorCode.DUPLICATE_PART
@@ -55,7 +55,7 @@ def test_update_repairs_historical_passive_slot_mixup(tmp_path):
         "profile": "discrete_ic", "value": "0603", "package": "0603", "part_number": "1uF",
     }))
     assert updated.profile == "passive"
-    assert updated.value == "1uf"  # incompatible units are not interpreted as resistance
+    assert updated.value == "1uF"  # incompatible units are not interpreted as resistance
     assert updated.part_number is None
 
 
@@ -87,9 +87,9 @@ def test_storage_conflicts_are_mapped_to_domain_errors_without_backend_details()
 
 
 @pytest.mark.parametrize('category,raw,edited,canonical', [
-    ('resistor', '10K', '22K', '22k'),
-    ('capacitor', '100nF', '4u7', '4.7u'),
-    ('inductor', '10uH', '0.01mH', '0.01m'),
+    ('resistor', '10K', '22K', '22000'),
+    ('capacitor', '100nF', '4u7', '0.0000047'),
+    ('inductor', '10uH', '0.01mH', '0.00001'),
 ])
 def test_edited_passives_are_searchable_and_duplicate_checked(tmp_path, category, raw, edited, canonical):
     from domain import SearchPartsRequest
@@ -118,7 +118,7 @@ def test_normalization_is_applied_before_injected_storage_calls():
     repository.inventory.insert.return_value = 1
     service = PartsBinService(repository)
     service.add_part(AddPartRequest(fields(value='5K1')))
-    assert repository.inventory.insert.call_args.args[0]['value'] == '5.1k'
+    assert repository.inventory.insert.call_args.args[0]['value'] == '5100'
     stored = Part(id=1, **vars(fields(value='5.1k')), created_at='created', updated_at='updated')
     repository.inventory.search.return_value = [stored]
     assert service.search(SearchPartsRequest({'part_category': 'resistor', 'value': '5K1'})) == [stored]
@@ -137,12 +137,12 @@ def test_bulk_value_edit_retains_successful_part_on_later_collision(tmp_path):
     assert [part.id for part in result['parts']] == [first.id]
     assert result['errors'][0]['part_id'] == second.id
     assert result['errors'][0]['code'] == 'conflict'
-    assert service.get(GetPartRequest(first.id)).value == '2.2r'
+    assert service.get(GetPartRequest(first.id)).value == '2.2'
     assert service.get(GetPartRequest(second.id)).value == second.value
     # Different packages remain distinct identities, even with the same value.
     service.update_part(UpdatePartRequest(second.id, {'package': '0603'}))
     result = service.bulk_update(BulkUpdateRequest((first.id, second.id), {'value': '2R2'}))
-    assert [part.value for part in result["parts"]] == ['2.2r', '2.2r']
+    assert [part.value for part in result["parts"]] == ['2.2', '2.2']
 
 
 def test_unknown_package_is_not_a_duplicate_wildcard(tmp_path):
@@ -219,7 +219,7 @@ def test_review_normalizes_value_but_preserves_original_evidence(tmp_path):
                 'source_kind': 'assertion', 'extraction_method': 'user', 'evidence': 'Marked 22K'}
     repository.inventory.save_pending_review(original.id, {'value': '22K'}, [evidence])
     accepted = service.apply_review(ApplyReviewRequest(original.id))
-    assert accepted.value == '22k' and accepted.quantity == original.quantity
+    assert accepted.value == '22000' and accepted.quantity == original.quantity
     assert service.search(SearchPartsRequest({'part_category': 'resistor', 'value': '22K'})) == [accepted]
     saved = service.provenance(ProvenanceRequest(original.id))[0]
     assert saved['field_value'] == '22K'

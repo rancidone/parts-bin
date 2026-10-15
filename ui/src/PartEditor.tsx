@@ -6,7 +6,7 @@ export function PartEditor({ part, saving, onSave, onCancel }: { part: Part; sav
   const [draft, setDraft] = useState(part)
   const [quantity, setQuantity] = useState(String(part.quantity))
   const fields = [
-    ['part_category', 'Category'], ['value', 'Value'], ['package', 'Package'],
+    ['part_category', 'Category'], ['value', 'Value'], ['value_unit', 'Value unit'], ['package', 'Package'],
     ['part_number', 'Part number'], ['manufacturer', 'Manufacturer'],
   ] as const
 

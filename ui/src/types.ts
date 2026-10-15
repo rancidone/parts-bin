@@ -3,6 +3,8 @@ export interface Part {
   part_category: string
   profile: string
   value: string | null
+  value_unit?: string | null
+  display_value?: string | null
   package: string | null
   part_number: string | null
   quantity: number

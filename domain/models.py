@@ -4,7 +4,7 @@ from typing import Any, Mapping
 
 EDITABLE_PART_FIELDS = frozenset({
     "part_category", "profile", "value", "package", "part_number",
-    "quantity", "manufacturer", "description", "datasheet_url",
+    "quantity", "manufacturer", "description", "datasheet_url", "value_unit",
 })
 
 
@@ -27,6 +27,7 @@ class PartFields:
     manufacturer: str | None = None
     description: str | None = None
     datasheet_url: str | None = None
+    value_unit: str | None = None
 
     @classmethod
     def from_mapping(cls, fields: Mapping[str, Any]) -> "PartFields":
@@ -47,10 +48,18 @@ class Part:
     created_at: str
     updated_at: str
     datasheet_url: str | None = None
+    value_unit: str | None = None
+
+    display_value: str | None = field(init=False)
+
+    def __post_init__(self):
+        from .nominal import nominal_for_category
+        quantity = nominal_for_category(self.value, self.part_category, self.value_unit) if self.value else None
+        object.__setattr__(self, 'display_value', quantity.display if quantity else self.value)
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> "Part":
-        return cls(**{name: row[name] for name in cls.__dataclass_fields__})
+        return cls(**{name: row[name] for name, definition in cls.__dataclass_fields__.items() if definition.init})
 
 
 @dataclass(frozen=True)
