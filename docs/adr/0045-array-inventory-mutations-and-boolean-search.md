@@ -1,5 +1,8 @@
 # Array inventory mutations and Boolean search
 
+Bulk creation duplicate handling is superseded by
+[0048](0048-domain-deduplication-for-bulk-creation.md).
+
 ## Context
 
 Multi-value additions spent the bounded agent loop checking and adding one value

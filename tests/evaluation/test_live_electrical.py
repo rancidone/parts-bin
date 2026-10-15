@@ -89,3 +89,10 @@ async def test_saved_link_evaluation_passes_association_and_preserves_stock(tmp_
     assert extract.call_args.kwargs['linked_part'] is True
     row = json.loads(path.read_text())['results'][0]
     assert row['linked_part'] and row['inventory_preserved']
+
+
+async def test_callable_requires_opt_in_before_creating_workspace_or_provider(monkeypatch, tmp_path):
+    monkeypatch.delenv('PARTS_BIN_LIVE_EVAL', raising=False)
+    with pytest.raises(ValueError, match='PARTS_BIN_LIVE_EVAL=1'):
+        await run_electrical(tmp_path, api_key='test', model='test')
+    assert not list(tmp_path.iterdir())

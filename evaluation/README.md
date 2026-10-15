@@ -42,7 +42,8 @@ Broad category discovery uses `list_categories` for exact committed names and
 summary counts, then retrieves relevant records with `search_parts`. Explicit
 resistor/capacitor/inductor requests and exact ordering-code lookups go directly
 to their inventory check. Consecutive confirmed batches reuse visible category,
-package, tolerance and per-value quantity while rechecking current stock.
+package, tolerance and per-value quantity. Explicit additions go directly to
+`add_parts`, which checks current identities and reports added/skipped rows.
 Discovery includes out-of-stock categories and excludes pending category changes.
 The op-amp scenario checks discovery of “operational amplifier” while keeping
 “audio amplifier” separate; live runs measure whether the model makes that choice.
@@ -396,8 +397,10 @@ read many candidates. These synthetic timings do not establish production
 latency or justify a new index by themselves.
 
 The `consecutive_resistor_batches` scenario checks two batches in one conversation:
-inherit supplied context, check each batch once, add only missing identities, and
-preserve previously counted quantities. It forbids category discovery and
-per-record reads and permits at most four tool calls across the two batches.
-The recording exercises the contract; live measurements must additionally verify
-that the configured model chooses that sequence without being given recorded turns.
+inherit supplied context, submit each batch directly, add only missing identities,
+and preserve previously counted quantities. It forbids preliminary inventory
+checks, category discovery and per-record reads, allowing two bulk calls total.
+The recording exercises the contract. Live interpretation measurements are
+optional and require explicit opt-in; ordinary tests use recorded or mocked
+providers and do not contact a model. Both live evaluation APIs and their CLIs
+require `PARTS_BIN_LIVE_EVAL=1` before using a real provider.

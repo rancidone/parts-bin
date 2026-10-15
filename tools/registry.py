@@ -226,8 +226,12 @@ class PartsBinToolRegistry:
         if name == "get_part":
             return _compact_part(self.service.get(GetPartRequest(args["part_id"])))
         if name == "add_parts":
-            parts = self.service.create_parts(CreatePartsRequest(tuple(PartFields.from_mapping(item) for item in args["items"])))
-            return {"parts": [_compact_part(part) for part in parts], "count": len(parts)}
+            outcomes = self.service.create_parts(CreatePartsRequest(tuple(PartFields.from_mapping(item) for item in args["items"])))
+            added = [_compact_part(item.part) for item in outcomes if item.status == 'added']
+            return {"parts": added, "count": len(added), "skipped_count": len(outcomes) - len(added),
+                    "items": [{"index": item.index, "status": item.status, "reason": item.reason,
+                               "duplicate_of": item.duplicate_of, "part": _compact_part(item.part)}
+                              for item in outcomes]}
         if name == "add_stock_batch":
             parts = self.service.add_stock_batch(AddStockBatchRequest(tuple(AddStockRequest(**item) for item in args["items"])))
             return {"parts": [_compact_part(part) for part in parts], "count": len(parts)}
@@ -403,7 +407,7 @@ _TOOL_DEFINITIONS = [
     }, required=["items"]),
     _tool("get_part", "Get one committed part by id.", {"part_id": {"type": "integer", "minimum": 1}}, required=["part_id"]),
     _tool("add_part", "Add one distinct part. Unnumbered stock outside resistor/capacitor/inductor categories always creates a separate record; shared descriptions and packages do not establish identity. Use an explicit add_stock part_id for more of an existing physical group; never invent an ordering code to force merging. Set enrich=false for assortment/kit contents, generic stock, or when the user requests no manufacturer lookup. Omitted or true uses automatic enrichment for eligible discrete/IC parts; passive parts skip automatic lookup. Skipping preserves supplied fields and allows an explicit lookup_part_specs request later.", {**_FIELDS, "enrich": {"type": "boolean"}}, required=["part_category", "profile", "quantity"]),
-    _tool("add_parts", "Create 1–100 distinct parts in one atomic call. Each item has its own value, package, quantity and metadata. Use this for multi-value assortments instead of repeated add_part calls. Check all identities together using search_parts expression or check_inventory first. Existing duplicates or any invalid item reject the whole batch; nothing is incremented or overwritten. Return parts in input order. This bulk tool performs no supplier lookup; only use lookup_part_specs separately when the user requests it. Preserve exact codes and user-supplied descriptions; do not invent ratings or counts.", {
+    _tool("add_parts", "Add and deduplicate 1–100 parts atomically in one call, without a preliminary inventory check. Each item has its own value, package, quantity and metadata. Normalized existing identities and repeated input identities are skipped; existing quantity, metadata and evidence stay unchanged, including zero-stock records. Generic passives match category/value/package; exact ordering codes retain their suffixes. Unidentified non-passives remain distinct. Invalid items or ambiguous stored identities reject the entire batch. Returns added parts/count, skipped_count and input-ordered items with index, status, reason, duplicate_of (input index), and the committed part. Report added and skipped outcomes. Use add_stock_batch for explicitly additional stock at known IDs. This bulk tool performs no supplier lookup; only use lookup_part_specs separately when the user requests it. Preserve exact codes and user-supplied descriptions; do not invent ratings or counts.", {
         "items": {"type": "array", "minItems": 1, "maxItems": 100, "items": _fields_schema(required=["part_category", "profile", "quantity"])}}, required=["items"]),
     _tool("add_stock_batch", "Increment stock for 1–100 distinct explicit part_ids in one atomic, replay-safe call. Each item has its own positive quantity. Use only for additional physical stock the user wants counted; existing records do not imply new stock. Invalid or missing targets reject the whole batch.", {
         "items": {"type": "array", "minItems": 1, "maxItems": 100, "items": {

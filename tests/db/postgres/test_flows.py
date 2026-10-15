@@ -212,3 +212,17 @@ def test_concurrent_event_delivery_and_intake(repository):
     with ThreadPoolExecutor(max_workers=2) as workers:
         results = list(workers.map(lambda _: repository.executions.prepare('thread', 'execution', context), range(2)))
     assert results[0] == results[1]
+
+
+def test_concurrent_bulk_create_adds_one_identity_without_incrementing(repository):
+    from domain import CreatePartsRequest
+    request = CreatePartsRequest((PartFields('resistor', 'passive', 20, '2r2', '0603'),))
+    barrier = Barrier(2)
+    def create():
+        barrier.wait(timeout=5)
+        return service(repository).create_parts(request)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: create(), range(2)))
+    assert sorted(result[0].status for result in results) == ['added', 'skipped']
+    assert len(service(repository).list()) == 1
+    assert service(repository).list()[0].quantity == 20

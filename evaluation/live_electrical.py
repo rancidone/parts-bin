@@ -87,6 +87,8 @@ async def run_electrical(workspace: Path, *, api_key: str, model: str,
                          case_ids: list[str] | None = None,
                          http_transport: httpx.AsyncBaseTransport | None = None,
                          retriever=None) -> Path:
+    if http_transport is None and not live_enabled():
+        raise ValueError('Set PARTS_BIN_LIVE_EVAL=1 to opt in to paid requests')
     if not api_key.strip() or not model.strip():
         raise ValueError('An API key and explicit model are required')
     cases = load_cases(case_ids)

@@ -299,3 +299,31 @@ def test_unnumbered_nonpassives_never_auto_merge_and_allow_explicit_stock(tmp_pa
     service.update_part(UpdatePartRequest(first.id, {'part_number': 'EXACT-ORDER-CODE'}))
     with pytest.raises(DomainError):
         service.update_part(UpdatePartRequest(second.id, {'part_number': 'EXACT-ORDER-CODE'}))
+
+
+def test_bulk_create_deduplicates_in_domain_and_preserves_review_evidence(tmp_path):
+    from domain import CreatePartsRequest
+    service = PartsBinService(TestRepository(tmp_path / 'bulk-create'))
+    existing = service.add_part(AddPartRequest(fields(value='1k', quantity=0)))
+    service.repository.inventory.save_pending_review(existing.id, {'description': 'pending evidence'}, [])
+    before_reviews = service.list_pending_reviews()
+    outcomes = service.create_parts(CreatePartsRequest((fields(value='1000r', quantity=20),
+                                                        fields(value='2r2'), fields(value='2.2 Ω', quantity=99))))
+    assert [row.status for row in outcomes] == ['skipped', 'added', 'skipped']
+    assert outcomes[0].part == existing
+    assert outcomes[2].part == outcomes[1].part and outcomes[2].duplicate_of == 1
+    assert service.list_pending_reviews() == before_reviews
+    assert len(service.list()) == 2
+
+
+def test_bulk_create_rolls_back_when_historical_identity_is_ambiguous(tmp_path):
+    from domain import CreatePartsRequest
+    repository = TestRepository(tmp_path / 'ambiguous-bulk')
+    repository.inventory.insert(vars(fields(value='22K')))
+    repository.inventory.insert(vars(fields(value='22k')))
+    service = PartsBinService(repository)
+    before = service.list()
+    with pytest.raises(DomainError) as error:
+        service.create_parts(CreatePartsRequest((fields(value='1r'), fields(value='22k'))))
+    assert error.value.code == ErrorCode.CONFLICT
+    assert service.list() == before

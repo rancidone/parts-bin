@@ -97,6 +97,9 @@ implementations over speculative abstractions.
   Automated tests use isolated PostgreSQL schemas and mocked providers. Set
   `PARTS_BIN_TEST_POSTGRES_DSN` to a dedicated disposable test database. OpenAI credentials
   are required for live agent use; supplier credentials are optional.
+- Live model tests, including ad hoc model probes, are opt-in: run them only when
+  the user explicitly requests them, with `PARTS_BIN_LIVE_EVAL=1`. Routine validation
+  uses mocked providers and must not make paid model requests.
 - Follow `README.md` for local startup commands and `compose.yaml` for container
   configuration.
 

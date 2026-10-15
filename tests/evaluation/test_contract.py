@@ -184,6 +184,6 @@ async def test_electrical_lookup_rejects_plain_inventory_results_instead_of_cras
 
 async def test_consecutive_batches_reject_redundant_category_discovery(tmp_path):
     scenario = _scenario('consecutive_resistor_batches')
-    scenario['recorded_turns'].insert(3, {'tool_calls': [{'name': 'list_categories', 'arguments': {}}]})
+    scenario['recorded_turns'].insert(2, {'tool_calls': [{'name': 'list_categories', 'arguments': {}}]})
     with pytest.raises(EvaluationFailure, match='forbidden tool'):
         await run_scenario(scenario, 'openai', tmp_path)

@@ -104,6 +104,8 @@ async def run_lookup(workspace: Path, *, api_key: str, model: str,
     An injected HTTP transport is only for offline tests. The CLI always contacts
     the standard OpenAI endpoint. No local application configuration is loaded.
     """
+    if http_transport is None and not live_enabled():
+        raise ValueError('Set PARTS_BIN_LIVE_EVAL=1 to opt in to paid requests')
     if not api_key.strip() or not model.strip():
         raise ValueError("An OpenAI API key and an explicit model are required")
     if not 0 <= poll_seconds <= 60 or not 0 < timeout_seconds <= 540:

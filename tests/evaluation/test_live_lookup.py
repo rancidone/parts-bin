@@ -272,7 +272,8 @@ async def test_captured_photo_uses_upload_pipeline_and_is_not_in_report(tmp_path
             return httpx.Response(200, json={'id': 'resp_photo', 'status': 'queued'})
         return httpx.Response(200, json={'id': 'resp_photo', **payload([answer('I need clarification.')])})
     with pytest.raises(ValueError, match='photo'):
-        await run_lookup(tmp_path, api_key='test', model='test', background=True, scenarios_path=fixture)
+        await run_lookup(tmp_path, api_key='test', model='test', background=True, scenarios_path=fixture,
+                         http_transport=httpx.MockTransport(respond))
     path = await run_lookup(tmp_path, api_key='test', model='test', background=True, scenarios_path=fixture,
         photo_path=photo, poll_seconds=0, http_transport=httpx.MockTransport(respond))
     image_url = bodies[0]['input'][-1]['content'][-1]['image_url']
@@ -280,3 +281,10 @@ async def test_captured_photo_uses_upload_pipeline_and_is_not_in_report(tmp_path
     assert base64.b64decode(image_url.split(',')[1]).startswith(b'\xff\xd8')
     assert image_url.split(',')[1] not in path.read_text()
     assert json.loads(path.read_text())['has_photo'] is True
+
+
+async def test_callable_requires_opt_in_before_creating_workspace_or_provider(monkeypatch, tmp_path):
+    monkeypatch.delenv('PARTS_BIN_LIVE_EVAL', raising=False)
+    with pytest.raises(ValueError, match='PARTS_BIN_LIVE_EVAL=1'):
+        await run_lookup(tmp_path, api_key='test', model='test')
+    assert not list(tmp_path.iterdir())
