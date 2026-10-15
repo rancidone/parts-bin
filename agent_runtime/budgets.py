@@ -58,7 +58,7 @@ def bounded_history(history: tuple[dict[str, str], ...]) -> tuple[dict[str, str]
 
 def model_tool_result(result: dict[str, Any], *, tool: str | None = None) -> dict[str, Any]:
     """Keep saved/UI results intact; mark oversized model payloads explicitly."""
-    if size(result) <= (MAX_BOM_RESULT_BYTES if tool == "check_inventory" else MAX_TOOL_RESULT_BYTES):
+    if size(result) <= (MAX_BOM_RESULT_BYTES if tool in {"check_inventory", "add_parts", "update_parts", "add_stock_batch"} else MAX_TOOL_RESULT_BYTES):
         return result
     message = ("Tool execution finished, but its result exceeds the model context budget. The full outcome is saved in conversation events. Do not infer omitted facts or repeat mutations. "
                + ("For this BOM, submit a smaller list or inspect the saved result." if tool == 'check_inventory'

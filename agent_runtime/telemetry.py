@@ -91,4 +91,4 @@ def _domain_outcome(tool: str, result: dict[str, Any]) -> str:
     payload = result.get("result") if isinstance(result, dict) else None
     if isinstance(payload, dict) and isinstance(payload.get("outcome"), str):
         return payload["outcome"]
-    return "mutation_applied" if tool in {"add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review"} else "query_completed"
+    return "mutation_applied" if tool in {"add_parts", "add_stock_batch", "update_parts", "add_part", "add_stock", "update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review"} else "query_completed"

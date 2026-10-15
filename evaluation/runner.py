@@ -28,8 +28,8 @@ from tools import PartsBinToolRegistry
 SCENARIOS_PATH = Path(__file__).with_name("scenarios.json")
 INVENTORY_LOOKUP_SCENARIOS_PATH = Path(__file__).with_name("inventory_lookup.json")
 SCENARIO_PATHS = (SCENARIOS_PATH, INVENTORY_LOOKUP_SCENARIOS_PATH)
-MUTATIONS_REQUIRING_APPROVAL = frozenset({"update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review", "apply_specification_review", "reject_specification_review"})
-MUTATING_TOOLS = MUTATIONS_REQUIRING_APPROVAL | frozenset({"add_part", "add_stock", "stage_specification_review", "lookup_part_specs"})
+MUTATIONS_REQUIRING_APPROVAL = frozenset({"update_parts", "update_part", "bulk_update_parts", "delete_part", "apply_review", "reject_review", "apply_specification_review", "reject_specification_review"})
+MUTATING_TOOLS = MUTATIONS_REQUIRING_APPROVAL | frozenset({"add_parts", "add_stock_batch", "add_part", "add_stock", "stage_specification_review", "lookup_part_specs"})
 
 
 class EvaluationFailure(AssertionError):

@@ -64,6 +64,7 @@ class CategorySummary:
 class SearchPartsRequest:
     filters: Mapping[str, Any] = field(default_factory=dict)
     minimum_quantity: int = 0
+    expression: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -155,3 +156,18 @@ class ApplyReviewRequest:
 class RejectReviewRequest:
     part_id: int
     fields: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True)
+class UpdatePartsRequest:
+    items: tuple[UpdatePartRequest, ...]
+
+
+@dataclass(frozen=True)
+class AddStockBatchRequest:
+    items: tuple[AddStockRequest, ...]
+
+
+@dataclass(frozen=True)
+class CreatePartsRequest:
+    items: tuple[PartFields, ...]
