@@ -307,6 +307,10 @@ class OpenAIResponsesRuntime:
                         save("waiting_model")
                         return finish("waiting_model")
                     else:
+                        # A worker may die while a live HTTP request is in flight.
+                        # Persist intent so recovery never repeats an uncertain paid request.
+                        state.model_submission_started = True
+                        save()
                         turn = await self._complete(state)
                     if turn.response_output:
                         state.exchanges.append({"type": "model_output", "items": turn.response_output})

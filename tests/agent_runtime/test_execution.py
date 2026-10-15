@@ -167,7 +167,7 @@ async def test_expired_worker_is_fenced_and_replacement_can_claim(tmp_path, monk
     repo.executions.assert_owned("execution", "new")
 
 
-async def test_image_never_enters_checkpoint_and_restart_requires_resubmission(tmp_path):
+async def test_interrupted_image_submission_never_stores_photo_or_reposts_model(tmp_path):
     runtime, transport, store = build_runtime(tmp_path, [])
     transport.complete = AsyncMock(side_effect=asyncio.CancelledError)
     with pytest.raises(asyncio.CancelledError):
@@ -180,7 +180,7 @@ async def test_image_never_enters_checkpoint_and_restart_requires_resubmission(t
     restarted, replacement, _ = build_runtime(tmp_path, [])
     result = await restarted.run("thread", "", execution_id=execution_id)
     assert result.status == "failed"
-    assert result.events[-2].data["code"] == "image_resubmission_required"
+    assert result.events[-2].data["code"] == "model_submission_uncertain"
     assert not replacement.requests
 
 

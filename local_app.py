@@ -45,7 +45,8 @@ def create_local_services():
                                spec_fetcher=fetcher,
                                datasheet_fetcher=DatasheetFetcher(api_key=openai.get('api_key', ''),
                                    model=openai.get('model', 'gpt-5.6'), cache=repository.cache),
-                               agent_configured=bool(openai.get("api_key")))
+                               agent_configured=bool(openai.get("api_key")),
+                               background_responses=agent_config.get("background_responses", False))
     return services, config
 
 

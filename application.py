@@ -18,10 +18,11 @@ class ApplicationServices:
     domain: PartsBinService
     gateway: AgentGateway
     agent_configured: bool
+    background_responses: bool = False
 
     @property
     def dispatch(self):
-        return DurableDispatch(self.domain.repository, self.gateway)
+        return DurableDispatch(self.domain.repository, self.gateway, background_responses=self.background_responses)
 
     async def close(self) -> None:
         await self.gateway.close()
@@ -32,8 +33,11 @@ def create_services(repository: PartsBinRepository, conversations: ConversationR
                     spec_fetcher: SpecFetcher | None = None,
                     datasheet_fetcher: DatasheetFetcher | None = None,
                     telemetry: AgentTelemetry | None = None,
-                    agent_configured: bool = True) -> ApplicationServices:
+                    agent_configured: bool = True,
+                    background_responses: bool = False) -> ApplicationServices:
     """Assemble one installation without choosing storage or reading configuration."""
+    if type(background_responses) is not bool:
+        raise ValueError("agent.background_responses must be a boolean")
     domain = PartsBinService(repository, spec_fetcher=spec_fetcher, datasheet_fetcher=datasheet_fetcher)
     approvals = ApprovalEngine(repository)
     telemetry = telemetry or AgentTelemetry()
@@ -43,4 +47,4 @@ def create_services(repository: PartsBinRepository, conversations: ConversationR
                                       store=conversations, approvals=approvals, telemetry=telemetry)
 
     return ApplicationServices(domain, AgentGateway(conversations, make_runtime, telemetry=telemetry),
-                               agent_configured)
+                               agent_configured, background_responses)

@@ -155,3 +155,16 @@ async def test_worker_steps_reassemble_services_without_http(tmp_path):
     assert final.domain.list()[0].quantity == 2
     assert final.gateway.events(thread) == result.events
     await final.close()
+
+
+def test_local_configuration_defaults_to_live_and_accepts_explicit_async(tmp_path, monkeypatch):
+    import local_app
+    config = tmp_path / 'config.toml'
+    monkeypatch.setenv('PARTS_BIN_CONFIG', str(config))
+    repository = TestRepository(tmp_path / 'configured')
+    monkeypatch.setattr(local_app, 'PostgresPartsBinRepository', lambda _config: repository)
+    for setting, expected in [('', False), ('background_responses = true', True), ('background_responses = false', False)]:
+        config.write_text('[agent]\n' + setting + '\n[db]\nhost="test"\ndatabase="test"\nuser="test"\n')
+        services, _ = local_app.create_local_services()
+        assert services.background_responses is expected
+        assert services.dispatch.background_responses is expected

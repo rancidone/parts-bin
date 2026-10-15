@@ -51,9 +51,10 @@ class DispatchRepository(Protocol):
 
 
 class DurableDispatch:
-    def __init__(self, repository, gateway):
+    def __init__(self, repository, gateway, *, background_responses: bool = False):
         self.repository = repository
         self.gateway = gateway
+        self.background_responses = background_responses
 
     async def submit(self, thread_id: str, execution_id: str, text: str, image: ImageInput | None = None):
         reservation = uuid4().hex if image is not None else None
@@ -98,7 +99,10 @@ class DurableDispatch:
 
     async def run_delivery(self, delivery: Delivery, *, image: ImageInput | None = None):
         try:
-            await self.gateway.advance_background(delivery.thread_id, delivery.execution_id, image=image)
+            if self.background_responses:
+                await self.gateway.advance_background(delivery.thread_id, delivery.execution_id, image=image)
+            else:
+                await self.gateway.advance(delivery.thread_id, execution_id=delivery.execution_id, image=image)
         except asyncio.CancelledError:
             # A killed process is recovered by lease expiry; graceful shutdown
             # makes it available immediately without resetting the checkpoint.

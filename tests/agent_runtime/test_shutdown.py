@@ -25,6 +25,11 @@ from tests.storage import TestRepository
 from server import create_app
 
 class Transport:
+    async def complete(self, request):
+        if not request.exchanges:
+            return ModelTurn(tool_calls=(ToolCall('add_stock', {'part_id': 1, 'quantity': 2}, 'add'),))
+        await asyncio.sleep(1)
+        return ModelTurn('Added once')
     async def start(self, request):
         return 'resp_first' if not request.exchanges else 'resp_final'
     async def retrieve(self, response_id):

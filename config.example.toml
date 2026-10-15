@@ -1,5 +1,8 @@
 [agent]
 # Conversation events share the inventory PostgreSQL database.
+# Local installs wait for live Responses by default. Async workers may submit
+# in the background and collect through webhooks/polling instead.
+background_responses = false
 
 [agent.openai]
 api_key = ""

@@ -136,12 +136,21 @@ HTTP message intake requires an `execution_id` form field before paid work.
 Reuse that identity and identical input if the intake acknowledgement is lost;
 conflicting reuse returns 409. Refresh old browser tabs after this upgrade. Browser message
 streams only follow persisted progress; closing them does not cancel execution.
-The `parts-bin-worker` container claims due PostgreSQL deliveries, advances one
-submission, collection or tool stage, then releases ownership. It polls known
-response IDs every thirty seconds when notifications are missing and reconciles
-inbox entries and unscheduled checkpoints every fifteen seconds. The deployment
-uses the existing Docker host and PostgreSQL database. Polling remains the default;
-webhook activation is an optional operator action.
+The `parts-bin-worker` container claims due PostgreSQL deliveries and advances one
+model response or tool stage before releasing ownership. Local installs wait on a
+live Responses request by default: `[agent].background_responses = false` (or omit
+it). Ready tool and model stages run immediately without a response-polling delay.
+The worker reconciles inbox entries and unscheduled checkpoints every fifteen
+seconds. The deployment uses the existing Docker host and PostgreSQL database.
+
+Async deployments can set `[agent].background_responses = true` and restart both
+HTTP intake and the worker. This separates model submission from collection;
+known response IDs are polled every thirty seconds unless an optional webhook
+wakes them sooner. Already-submitted background responses keep their saved IDs
+and can finish safely after switching back to live mode. Both modes checkpoint
+submission intent before contacting the provider. A live request interrupted
+before its output checkpoint has an uncertain paid outcome and is not submitted
+again automatically.
 
 Before upgrading either service, take a PostgreSQL dump and protect the current
 configuration and image IDs using the backup procedure below. Run the explicit,
@@ -162,8 +171,9 @@ docker compose logs --tail 100 parts-bin-worker
 docker compose exec parts-bin-worker python -m agent_runtime.worker --health
 ```
 
-Public installations should register the exact HTTPS URL
-`https://YOUR_HOST/agent/webhooks/openai` with the installation's OpenAI project:
+Async installations can register the exact HTTPS URL
+`https://YOUR_HOST/agent/webhooks/openai` with the installation's OpenAI project to
+avoid waiting for the next collection poll:
 
 ```sh
 python -m scripts.openai_webhook --config /app/config.toml --url https://YOUR_HOST/agent/webhooks/openai

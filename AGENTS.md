@@ -57,8 +57,9 @@ implementations over speculative abstractions.
   migration, Terraform provisioning, and DSQL deployment are outside scope unless
   the user explicitly changes direction.
 - Keep execution compatible with short-lived, replaceable workers: durable intake,
-  bounded stages, separate model submission/collection, checkpointed effects,
-  idempotent delivery, cursor replay, and stage-boundary cancellation. Do not add
+  bounded stages, optional separate model submission/collection for async
+  deployments, checkpointed effects, idempotent delivery, cursor replay, and
+  stage-boundary cancellation. Do not add
   platform-specific infrastructure or constrain domain rules to an unselected host.
 - Record hosting and persistence decisions in numbered ADRs under `docs/adr/`.
 - Keeping costs down is a project goal. Use only necessary services; prefer
