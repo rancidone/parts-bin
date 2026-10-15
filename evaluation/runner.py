@@ -190,7 +190,8 @@ def _assert_tools(events: list[Any], spec: dict[str, Any]) -> None:
     if len(calls) > spec.get("max_calls", 8):
         raise EvaluationFailure(f"tool-loop or excess calls: {len(calls)}")
     for call in calls:
-        if call["name"] == "search_parts" and not call["arguments"].get("filters"):
+        if (call["name"] == "search_parts" and not call["arguments"].get("filters")
+                and not call["arguments"].get("expression")):
             raise EvaluationFailure("full-inventory retrieval is not permitted in an evaluation scenario")
     errors = [event.data["result"]["error"]["code"] for event in events if event.kind == "tool_result" and not event.data["result"].get("ok")]
     allowed_errors = set(spec.get("allowed_errors", []))

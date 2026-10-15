@@ -42,8 +42,14 @@ Broad category discovery uses `list_categories` for exact committed names and
 summary counts, then retrieves relevant records with `search_parts`. Explicit
 resistor/capacitor/inductor requests and exact ordering-code lookups go directly
 to their inventory check. Consecutive confirmed batches reuse visible category,
-package, tolerance and per-value quantity. Explicit additions go directly to
-`add_parts`, which checks current identities and reports added/skipped rows.
+package, tolerance and per-value quantity. Confirmed additions, including a single
+identified part, go directly to
+`add_parts` with a one-item array when appropriate. It checks current identities
+and reports added/skipped rows without implicit supplier enrichment. Explicit
+additional physical stock still uses stock increments; requested enrichment
+uses the returned IDs. Multi-category stock lookups combine category branches
+in one `search_parts` OR expression, preserving shared filters and pagination.
+Electrical queries with different specification contracts remain separate.
 Discovery includes out-of-stock categories and excludes pending category changes.
 The op-amp scenario checks discovery of “operational amplifier” while keeping
 “audio amplifier” separate; live runs measure whether the model makes that choice.
@@ -404,3 +410,10 @@ The recording exercises the contract. Live interpretation measurements are
 optional and require explicit opt-in; ordinary tests use recorded or mocked
 providers and do not contact a model. Both live evaluation APIs and their CLIs
 require `PARTS_BIN_LIVE_EVAL=1` before using a real provider.
+
+The `single_part_direct_deduplication` and
+`single_exact_code_direct_deduplication` recordings forbid preliminary queries
+and strict creation, including for existing zero-stock records. The
+`multi_category_combined_query` recording permits discovery followed by one OR
+query, excluding unrelated categories and enforcing per-record stock thresholds.
+These offline contracts do not establish live model interpretation or latency.

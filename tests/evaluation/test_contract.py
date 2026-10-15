@@ -187,3 +187,19 @@ async def test_consecutive_batches_reject_redundant_category_discovery(tmp_path)
     scenario['recorded_turns'].insert(2, {'tool_calls': [{'name': 'list_categories', 'arguments': {}}]})
     with pytest.raises(EvaluationFailure, match='forbidden tool'):
         await run_scenario(scenario, 'openai', tmp_path)
+
+
+async def test_combined_category_lookup_rejects_unfiltered_inventory_read(tmp_path):
+    scenario = _scenario('multi_category_combined_query')
+    scenario['recorded_turns'][1]['tool_calls'][0]['arguments'] = {'minimum_quantity': 1}
+    with pytest.raises(EvaluationFailure, match='full-inventory retrieval'):
+        await run_scenario(scenario, 'openai', tmp_path)
+
+
+async def test_combined_category_lookup_rejects_serial_searches(tmp_path):
+    scenario = _scenario('multi_category_combined_query')
+    scenario['recorded_turns'][1]['tool_calls'] = [
+        {'name': 'search_parts', 'arguments': {'filters': {'part_category': category}, 'minimum_quantity': 1}}
+        for category in ['bjt', 'mosfet', 'operational amplifier']]
+    with pytest.raises(EvaluationFailure, match='excess calls'):
+        await run_scenario(scenario, 'openai', tmp_path)
