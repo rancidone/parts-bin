@@ -60,6 +60,20 @@ def model_tool_result(result: dict[str, Any], *, tool: str | None = None) -> dic
     """Keep saved/UI results intact; mark oversized model payloads explicitly."""
     if size(result) <= (MAX_BOM_RESULT_BYTES if tool in {"check_inventory", "add_parts", "update_parts", "add_stock_batch"} else MAX_TOOL_RESULT_BYTES):
         return result
+    if tool == "search_parts" and result.get("ok"):
+        page = result.get("result")
+        if isinstance(page, dict) and page.get("partial_matches"):
+            # Nearby values can dwarf the requested-value rows. Keep those rows,
+            # their evidence and global counts intact before falling back to omission.
+            partials = page["partial_matches"]
+            for keep in (3, 1, 0):
+                if keep >= len(partials):
+                    continue
+                summary = {**page, "partial_matches": partials[:keep],
+                           "partial_rows_omitted_from_page": len(partials) - keep}
+                projected = {**result, "result": summary}
+                if size(projected) <= MAX_TOOL_RESULT_BYTES:
+                    return projected
     message = ("Tool execution finished, but its result exceeds the model context budget. The full outcome is saved in conversation events. Do not infer omitted facts or repeat mutations. "
                + ("For this BOM, submit a smaller list or inspect the saved result." if tool == 'check_inventory'
                   else "For reads, narrow filters or use a smaller page limit; otherwise inspect the saved result."))

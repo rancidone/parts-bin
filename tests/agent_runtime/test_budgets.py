@@ -50,6 +50,28 @@ async def test_large_result_is_explicitly_omitted_without_modifying_saved_outcom
     assert captured[0]['max_output_tokens'] == MAX_OUTPUT_TOKENS
 
 
+@pytest.mark.parametrize("exact_group", ["parts", "incomplete"])
+def test_nearby_values_do_not_crowd_out_exact_capacitor_rows(exact_group):
+    from agent_runtime.budgets import model_tool_result
+    cap = {"display_value": "100nF", "description": "Film capacitor, 100 V", "quantity": 2}
+    rows = [cap] if exact_group == "parts" else [{"part": cap, "missing_or_unqualified": ["rated_voltage"]}]
+    alternative = {"part": {"display_value": "68nF", "description": "x" * 500}}
+    page = {exact_group: rows, "partial_matches": [alternative] * 100,
+            "partial_match_count": 114, "next_offset": 100}
+    if exact_group == "incomplete":
+        page.update(matches=[], match_count=0, incomplete_count=1)
+    original = {"ok": True, "result": page}
+    projected = model_tool_result(original, tool="search_parts")
+    assert size(projected) <= MAX_TOOL_RESULT_BYTES
+    kept = projected["result"]
+    assert kept[exact_group] == rows
+    assert kept["partial_match_count"] == 114 and kept["next_offset"] == 100
+    assert kept["partial_rows_omitted_from_page"] + len(kept["partial_matches"]) == 100
+    assert len(page["partial_matches"]) == 100
+    if exact_group == "incomplete":
+        assert kept["match_count"] == 0 and kept["matches"] == []
+
+
 async def test_input_budget_blocks_network_without_dropping_function_pairs():
     captured = []
     exchanges = tuple({'type': 'tool_result', 'call_id': str(i), 'name': 'search_parts',
